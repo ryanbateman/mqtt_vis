@@ -102,6 +102,36 @@ export function countNodes(root: TopicNode): number {
 }
 
 /**
+ * Extract the fixed (non-wildcard) prefix segments from a topic filter.
+ * Stops at the first segment that is '#' or '+'.
+ * E.g. "test/robot/huge/#" → ["test", "robot", "huge"]
+ *      "test/+/data"       → ["test"]
+ *      "#"                 → []
+ */
+export function getFixedPrefix(topicFilter: string): string[] {
+  const segments = parseTopicSegments(topicFilter);
+  const prefix: string[] = [];
+  for (const seg of segments) {
+    if (seg === "#" || seg === "+") break;
+    prefix.push(seg);
+  }
+  return prefix;
+}
+
+/**
+ * Walk the tree from root to find the node at the given path segments.
+ * Returns undefined if the path doesn't exist in the tree.
+ */
+export function findNode(root: TopicNode, segments: string[]): TopicNode | undefined {
+  let current: TopicNode | undefined = root;
+  for (const seg of segments) {
+    current = current.children.get(seg);
+    if (!current) return undefined;
+  }
+  return current;
+}
+
+/**
  * Get all ancestor topic paths for a given topic, from immediate parent to root.
  * E.g. "home/kitchen/temp" → ["home/kitchen", "home", ""]
  * The root path "" is always included as the last element.

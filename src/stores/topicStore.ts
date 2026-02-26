@@ -12,6 +12,8 @@ import {
   collectAllNodes,
   countNodes,
   getAncestorPaths,
+  getFixedPrefix,
+  findNode,
 } from "../utils/topicParser";
 import { calculateRadius } from "../utils/sizeCalculator";
 
@@ -59,9 +61,17 @@ interface TopicStoreState {
   alphaDecay: number;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
+  /** Whether to show the structural root-path nodes above the subscription prefix. */
+  showRootPath: boolean;
+  /** The current MQTT subscription topic filter. */
+  topicFilter: string;
 
   /** Toggle ancestor pulse behaviour. */
   setAncestorPulse: (enabled: boolean) => void;
+  /** Toggle root path node visibility. */
+  setShowRootPath: (enabled: boolean) => void;
+  /** Store the current topic filter (called on connect). */
+  setTopicFilter: (filter: string) => void;
 
   /** Process an incoming MQTT message. */
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => void;
@@ -85,12 +95,47 @@ interface TopicStoreState {
   setAlphaDecay: (value: number) => void;
 }
 
-function buildGraphData(root: TopicNode, pulseDuration: number): {
+/**
+ * Determine the visual root node for graph rendering.
+ * When showRootPath is false, we skip the structural ancestors above the
+ * subscription prefix — e.g. for "test/robot/huge/#", we start the graph
+ * at the "huge" node (the last fixed segment before the first wildcard).
+ */
+function getVisualRoot(
+  root: TopicNode,
+  showRootPath: boolean,
+  topicFilter: string
+): TopicNode {
+  if (showRootPath) return root;
+
+  const prefix = getFixedPrefix(topicFilter);
+  if (prefix.length === 0) return root; // e.g. "#" — nothing to skip
+
+  // Walk to the parent of the last fixed segment
+  const parentPath = prefix.slice(0, -1);
+  const parentNode = findNode(root, parentPath);
+  if (!parentNode) return root; // prefix doesn't exist in tree yet — fall back
+
+  // The visual root is the last fixed segment's node
+  const lastSegment = prefix[prefix.length - 1];
+  const visualRoot = parentNode.children.get(lastSegment);
+  if (!visualRoot) return root; // hasn't been created yet
+
+  return visualRoot;
+}
+
+function buildGraphData(
+  root: TopicNode,
+  pulseDuration: number,
+  showRootPath: boolean,
+  topicFilter: string
+): {
   graphNodes: GraphNode[];
   graphLinks: GraphLink[];
 } {
-  const flat = flattenTree(root);
-  const allNodes = collectAllNodes(root);
+  const visualRoot = getVisualRoot(root, showRootPath, topicFilter);
+  const flat = flattenTree(visualRoot);
+  const allNodes = collectAllNodes(visualRoot);
   const nodeMap = new Map<string, TopicNode>();
   for (const n of allNodes) {
     nodeMap.set(n.id, n);
@@ -139,6 +184,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
   collisionPadding: 4,
   alphaDecay: 0.01,
   ancestorPulse: true,
+  showRootPath: true,
+  topicFilter: "#",
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
     const state = get();
@@ -220,15 +267,19 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
     // Pulse duration scales with tau: longer fade = longer pulse visibility
     const pulseDuration = BASE_PULSE_DURATION * (state.emaTau / DEFAULT_EMA_TAU);
 
-    // Rebuild flat graph data
-    const { graphNodes, graphLinks } = buildGraphData(root, pulseDuration);
+    // Rebuild flat graph data (decay always runs on full tree, but rendering may skip prefix)
+    const { graphNodes, graphLinks } = buildGraphData(
+      root, pulseDuration, state.showRootPath, state.topicFilter
+    );
     set({ graphNodes, graphLinks });
   },
 
   rebuildGraph: () => {
     const state = get();
     const pulseDuration = BASE_PULSE_DURATION * (state.emaTau / DEFAULT_EMA_TAU);
-    const { graphNodes, graphLinks } = buildGraphData(state.root, pulseDuration);
+    const { graphNodes, graphLinks } = buildGraphData(
+      state.root, pulseDuration, state.showRootPath, state.topicFilter
+    );
     set({ graphNodes, graphLinks });
   },
 
@@ -269,6 +320,14 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
   },
   setAncestorPulse: (enabled: boolean) => {
     set({ ancestorPulse: enabled });
+  },
+  setShowRootPath: (enabled: boolean) => {
+    set({ showRootPath: enabled });
+    // Rebuild graph immediately so the change is visible
+    get().rebuildGraph();
+  },
+  setTopicFilter: (filter: string) => {
+    set({ topicFilter: filter });
   },
 }));
 

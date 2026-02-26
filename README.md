@@ -11,6 +11,7 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Visual effects** — three layered effects on message publish: glow/pulse (SVG filter), particle burst, and heat-map colouring
 - **Custom colour scale** — nodes shift from slate through sky blue, orange, amber, to yellow as activity increases
 - **Ancestor pulse** — optional: when a message arrives, all parent nodes up to the root pulse (toggleable)
+- **Root path filtering** — hide structural ancestor nodes above the subscription prefix (e.g. subscribing to `sensors/temp/#` with this off shows only `temp` and its children)
 - **Zoom-aware labels** — labels stay constant screen size and fade smoothly across 4 depth levels when zoomed out
 - **Settings panel** — 7 sliders for visual and simulation parameters (fade time, label depth, repulsion, link distance, link strength, collision gap, settle speed) with collapsible sections and hover tooltips
 - **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID
@@ -54,6 +55,7 @@ The output in `dist/` is a fully static SPA — deploy it to any static hosting 
 - **Fade Time** — how long messages affect node size and colour (EMA time constant)
 - **Label Depth** — how many levels of labels stay visible when zoomed out
 - **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
+- **Show Root Path** — toggle visibility of structural ancestor nodes above the subscription prefix
 
 **Simulation**
 - **Repulsion** — how strongly nodes push each other apart

@@ -29,6 +29,7 @@ export function useMqttClient() {
   const connect = useCallback(
     (params: ConnectionParams) => {
       reset();
+      useTopicStore.getState().setTopicFilter(params.topicFilter);
       mqttService.connect(params);
 
       // Start the decay timer
