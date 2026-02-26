@@ -44,6 +44,7 @@ export function useMqttClient() {
           JSON.stringify({
             brokerUrl: params.brokerUrl,
             topicFilter: params.topicFilter,
+            clientId: params.clientId,
             username: params.username,
           })
         );
@@ -54,15 +55,22 @@ export function useMqttClient() {
     [reset]
   );
 
-  const disconnect = useCallback(() => {
-    mqttService.disconnect();
-    setConnectionStatus("disconnected");
+  const disconnect = useCallback(
+    (clear?: boolean) => {
+      mqttService.disconnect();
+      setConnectionStatus("disconnected");
 
-    if (decayCleanup.current) {
-      decayCleanup.current();
-      decayCleanup.current = null;
-    }
-  }, [setConnectionStatus]);
+      if (decayCleanup.current) {
+        decayCleanup.current();
+        decayCleanup.current = null;
+      }
+
+      if (clear) {
+        reset();
+      }
+    },
+    [setConnectionStatus, reset]
+  );
 
   // Cleanup on unmount
   useEffect(() => {
@@ -77,10 +85,15 @@ export function useMqttClient() {
   return { connect, disconnect, connectionStatus };
 }
 
+/** Saved connection data includes ConnectionParams fields plus UI-only state. */
+export type SavedConnection = Partial<ConnectionParams> & {
+  customClientId?: boolean;
+};
+
 /**
  * Load previously saved connection params from localStorage.
  */
-export function loadSavedConnection(): Partial<ConnectionParams> {
+export function loadSavedConnection(): SavedConnection {
   try {
     const saved = localStorage.getItem("mqtt_connection");
     if (saved) {

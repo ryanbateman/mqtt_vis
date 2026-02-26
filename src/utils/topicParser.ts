@@ -100,3 +100,23 @@ export function countNodes(root: TopicNode): number {
   }
   return count;
 }
+
+/**
+ * Get all ancestor topic paths for a given topic, from immediate parent to root.
+ * E.g. "home/kitchen/temp" → ["home/kitchen", "home", ""]
+ * The root path "" is always included as the last element.
+ */
+export function getAncestorPaths(topic: string): string[] {
+  const segments = parseTopicSegments(topic);
+  const paths: string[] = [];
+
+  // Walk backwards, dropping one segment at a time
+  for (let i = segments.length - 1; i >= 1; i--) {
+    paths.push(segments.slice(0, i).join("/"));
+  }
+
+  // Always include root
+  paths.push("");
+
+  return paths;
+}

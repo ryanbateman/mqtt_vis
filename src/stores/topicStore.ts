@@ -11,17 +11,18 @@ import {
   flattenTree,
   collectAllNodes,
   countNodes,
+  getAncestorPaths,
 } from "../utils/topicParser";
 import { calculateRadius } from "../utils/sizeCalculator";
 
-/** EMA time constant in seconds. Controls how quickly rates respond. */
-const EMA_TAU = 5;
+/** Default EMA time constant in seconds. Controls how quickly rates respond. */
+const DEFAULT_EMA_TAU = 5;
 
 /** Decay interval in milliseconds. */
 const DECAY_INTERVAL = 500;
 
-/** Duration in ms that a node's pulse flag stays active. */
-const PULSE_DURATION = 600;
+/** Base pulse duration in ms. Scales proportionally with EMA tau. */
+const BASE_PULSE_DURATION = 600;
 
 interface TopicStoreState {
   /** Root of the topic tree. */
@@ -40,6 +41,27 @@ interface TopicStoreState {
   sessionStart: number;
   /** Error message if connection failed. */
   errorMessage: string | null;
+  /** EMA time constant in seconds. Controls how long messages affect node appearance. */
+  emaTau: number;
+  /** Controls how many tree depths of labels are visible at a given zoom level. */
+  labelDepthFactor: number;
+
+  // --- Simulation parameters ---
+  /** Repulsion strength between nodes (negative = repel). */
+  repulsionStrength: number;
+  /** Ideal distance between linked parent-child nodes. */
+  linkDistance: number;
+  /** How rigidly links enforce their ideal distance (0..1). */
+  linkStrength: number;
+  /** Extra pixels added to node radius for collision detection. */
+  collisionPadding: number;
+  /** How quickly the simulation settles after changes. */
+  alphaDecay: number;
+  /** Whether ancestor nodes pulse when a descendant receives a message. */
+  ancestorPulse: boolean;
+
+  /** Toggle ancestor pulse behaviour. */
+  setAncestorPulse: (enabled: boolean) => void;
 
   /** Process an incoming MQTT message. */
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => void;
@@ -51,9 +73,19 @@ interface TopicStoreState {
   rebuildGraph: () => void;
   /** Reset the store (on disconnect). */
   reset: () => void;
+  /** Update the EMA time constant. */
+  setEmaTau: (tau: number) => void;
+  /** Update the label depth factor. */
+  setLabelDepthFactor: (factor: number) => void;
+  /** Update simulation parameters. */
+  setRepulsionStrength: (value: number) => void;
+  setLinkDistance: (value: number) => void;
+  setLinkStrength: (value: number) => void;
+  setCollisionPadding: (value: number) => void;
+  setAlphaDecay: (value: number) => void;
 }
 
-function buildGraphData(root: TopicNode): {
+function buildGraphData(root: TopicNode, pulseDuration: number): {
   graphNodes: GraphNode[];
   graphLinks: GraphLink[];
 } {
@@ -75,7 +107,7 @@ function buildGraphData(root: TopicNode): {
       messageRate: tn.messageRate,
       aggregateRate: tn.aggregateRate,
       depth: f.depth,
-      pulse: now - tn.lastTimestamp < PULSE_DURATION,
+      pulse: now - tn.lastTimestamp < pulseDuration,
       pulseTimestamp: tn.lastTimestamp,
     };
   });
@@ -99,6 +131,14 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
   totalTopics: 0,
   sessionStart: Date.now(),
   errorMessage: null,
+  emaTau: DEFAULT_EMA_TAU,
+  labelDepthFactor: 5,
+  repulsionStrength: -200,
+  linkDistance: 80,
+  linkStrength: 0.5,
+  collisionPadding: 4,
+  alphaDecay: 0.01,
+  ancestorPulse: true,
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
     const state = get();
@@ -113,6 +153,24 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
     // Instant rate spike: add 1 message worth of rate contribution
     // The EMA decay will smooth this out over subsequent ticks
     node.messageRate += 1;
+
+    // Propagate pulse timestamp up the ancestor chain if enabled
+    if (state.ancestorPulse) {
+      const now = node.lastTimestamp;
+      const ancestorPaths = getAncestorPaths(topic);
+      for (const path of ancestorPaths) {
+        // Look up existing ancestor node by walking the tree (don't create new nodes)
+        const segments = path === "" ? [] : path.split("/");
+        let ancestor: TopicNode | undefined = root;
+        for (const seg of segments) {
+          ancestor = ancestor.children.get(seg);
+          if (!ancestor) break;
+        }
+        if (ancestor) {
+          ancestor.lastTimestamp = now;
+        }
+      }
+    }
 
     const newTotalTopics = countNodes(root) - 1; // exclude root
 
@@ -134,7 +192,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
     const state = get();
     const root = state.root;
     const dt = DECAY_INTERVAL / 1000; // seconds
-    const alpha = 1 - Math.exp(-dt / EMA_TAU);
+    const alpha = 1 - Math.exp(-dt / state.emaTau);
 
     // Decay all nodes' rates and propagate aggregates bottom-up
     function decayNode(node: TopicNode): number {
@@ -159,14 +217,18 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
 
     decayNode(root);
 
+    // Pulse duration scales with tau: longer fade = longer pulse visibility
+    const pulseDuration = BASE_PULSE_DURATION * (state.emaTau / DEFAULT_EMA_TAU);
+
     // Rebuild flat graph data
-    const { graphNodes, graphLinks } = buildGraphData(root);
+    const { graphNodes, graphLinks } = buildGraphData(root, pulseDuration);
     set({ graphNodes, graphLinks });
   },
 
   rebuildGraph: () => {
-    const { root } = get();
-    const { graphNodes, graphLinks } = buildGraphData(root);
+    const state = get();
+    const pulseDuration = BASE_PULSE_DURATION * (state.emaTau / DEFAULT_EMA_TAU);
+    const { graphNodes, graphLinks } = buildGraphData(state.root, pulseDuration);
     set({ graphNodes, graphLinks });
   },
 
@@ -180,6 +242,33 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
       sessionStart: Date.now(),
       errorMessage: null,
     });
+  },
+
+  setEmaTau: (tau: number) => {
+    set({ emaTau: tau });
+  },
+
+  setLabelDepthFactor: (factor: number) => {
+    set({ labelDepthFactor: factor });
+  },
+
+  setRepulsionStrength: (value: number) => {
+    set({ repulsionStrength: value });
+  },
+  setLinkDistance: (value: number) => {
+    set({ linkDistance: value });
+  },
+  setLinkStrength: (value: number) => {
+    set({ linkStrength: value });
+  },
+  setCollisionPadding: (value: number) => {
+    set({ collisionPadding: value });
+  },
+  setAlphaDecay: (value: number) => {
+    set({ alphaDecay: value });
+  },
+  setAncestorPulse: (enabled: boolean) => {
+    set({ ancestorPulse: enabled });
   },
 }));
 

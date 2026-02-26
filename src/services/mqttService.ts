@@ -35,6 +35,9 @@ export class MqttService {
       reconnectPeriod: 5_000,
     };
 
+    if (params.clientId) {
+      options.clientId = params.clientId;
+    }
     if (params.username) {
       options.username = params.username;
     }

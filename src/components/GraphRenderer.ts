@@ -1,12 +1,18 @@
 import * as d3 from "d3";
 import type { GraphNode, GraphLink, Particle } from "../types";
-import { rateToColor, pulseColor } from "../utils/colorScale";
+import { rateToColor, pulseColor, IDLE_STROKE } from "../utils/colorScale";
 
 /** Maximum number of particles alive at once. */
 const MAX_PARTICLES = 500;
 
 /** Number of particles spawned per message pulse. */
 const PARTICLES_PER_PULSE = 6;
+
+/** Base font size for labels in pixels (at zoom scale 1.0). */
+const BASE_FONT_SIZE = 14;
+
+/** Default label depth factor. Higher = more labels visible when zoomed out. */
+const DEFAULT_LABEL_DEPTH_FACTOR = 5;
 
 /**
  * GraphRenderer manages a D3 force simulation and renders it into an SVG element.
@@ -30,6 +36,9 @@ export class GraphRenderer {
   private animationFrame: number | null = null;
   private width = 0;
   private height = 0;
+  private currentZoomScale = 1;
+  private labelDepthFactor = DEFAULT_LABEL_DEPTH_FACTOR;
+  private collisionPadding = 4;
 
   // Track which nodes have been pulsed to avoid re-triggering
   private lastPulseTimestamps = new Map<string, number>();
@@ -76,7 +85,9 @@ export class GraphRenderer {
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 10])
       .on("zoom", (event) => {
+        this.currentZoomScale = event.transform.k;
         this.container.attr("transform", event.transform);
+        this.updateLabelVisibility();
       });
 
     this.svg.call(zoom);
@@ -108,7 +119,7 @@ export class GraphRenderer {
       .force("center", d3.forceCenter(this.width / 2, this.height / 2))
       .force(
         "collide",
-        d3.forceCollide<GraphNode>().radius((d) => d.radius + 4)
+        d3.forceCollide<GraphNode>().radius((d) => d.radius + this.collisionPadding)
       )
       .alphaDecay(0.01)
       .on("tick", () => this.tick());
@@ -150,7 +161,7 @@ export class GraphRenderer {
 
     // Update collide force with current radii
     (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
-      (d) => d.radius + 4
+      (d) => d.radius + this.collisionPadding
     );
 
     // Reheat simulation slightly for new nodes
@@ -177,9 +188,9 @@ export class GraphRenderer {
     this.linkElements = this.linkElements
       .enter()
       .append("line")
-      .attr("stroke", "#374151")
-      .attr("stroke-width", 1)
-      .attr("stroke-opacity", 0.6)
+      .attr("stroke", "#6b7280")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-opacity", 0.8)
       .merge(this.linkElements);
 
     // --- Update nodes ---
@@ -200,10 +211,13 @@ export class GraphRenderer {
     // Update all node visual properties
     this.nodeElements
       .attr("r", (d) => d.radius)
-      .attr("fill", (d) => rateToColor(d.messageRate))
-      .attr("stroke", (d) => (d.pulse ? pulseColor(d.messageRate) : "#1f2937"))
+      .attr("fill", (d) => (d.depth === 0 ? "#ffffff" : rateToColor(d.messageRate)))
+      .attr("stroke", (d) =>
+        d.depth === 0 ? "#ffffff" : d.pulse ? pulseColor(d.messageRate) : IDLE_STROKE
+      )
+      .attr("stroke-width", (d) => (d.depth === 0 ? 2.5 : 2))
       .attr("filter", (d) => (d.pulse ? "url(#glow)" : "none"))
-      .attr("stroke-opacity", (d) => (d.pulse ? 1 : 0.5));
+      .attr("stroke-opacity", (d) => (d.depth === 0 ? 1 : d.pulse ? 1 : 0.6));
 
     // --- Update labels ---
     this.labelElements = this.labelGroup
@@ -216,12 +230,15 @@ export class GraphRenderer {
       .enter()
       .append("text")
       .attr("text-anchor", "middle")
-      .attr("fill", "#d1d5db")
-      .attr("font-size", "11px")
+      .attr("fill", "#e2e8f0")
+      .attr("font-size", `${BASE_FONT_SIZE}px`)
       .attr("font-family", "monospace")
       .attr("pointer-events", "none")
       .merge(this.labelElements)
       .text((d) => d.label);
+
+    // Reapply depth-based label visibility for newly entered labels
+    this.updateLabelVisibility();
   }
 
   /** Position elements on each simulation tick. */
@@ -236,9 +253,70 @@ export class GraphRenderer {
       .attr("cx", (d) => d.x ?? 0)
       .attr("cy", (d) => d.y ?? 0);
 
+    // Counter-scale font size so labels stay a constant screen size
+    const fontSize = BASE_FONT_SIZE / this.currentZoomScale;
+    const labelGap = 14 / this.currentZoomScale;
+
     this.labelElements
       .attr("x", (d) => d.x ?? 0)
-      .attr("y", (d) => (d.y ?? 0) + d.radius + 14);
+      .attr("y", (d) => (d.y ?? 0) + d.radius + labelGap)
+      .attr("font-size", `${fontSize}px`);
+  }
+
+  /**
+   * Update label opacity based on depth vs current zoom level.
+   * Deeper nodes fade out first when zoomed out.
+   * Uses a 4-level fade band for smooth gradation.
+   */
+  private updateLabelVisibility(): void {
+    // At zoom=1.0, maxVisibleDepth = labelDepthFactor.
+    // Zooming out shrinks it; zooming in grows it.
+    const maxDepth = this.currentZoomScale * this.labelDepthFactor;
+    const FADE_BAND = 4;
+
+    this.labelElements.attr("opacity", (d) => {
+      if (d.depth >= maxDepth) return 0;                  // hidden
+      if (d.depth <= maxDepth - FADE_BAND) return 1;      // fully visible
+      return (maxDepth - d.depth) / FADE_BAND;            // smooth fade 0→1
+    });
+  }
+
+  /** Update the label depth factor and reapply visibility. */
+  setLabelDepthFactor(factor: number): void {
+    this.labelDepthFactor = factor;
+    this.updateLabelVisibility();
+  }
+
+  /** Update the repulsion strength between all nodes. */
+  setRepulsionStrength(value: number): void {
+    (this.simulation.force("charge") as d3.ForceManyBody<GraphNode>).strength(value);
+    this.simulation.alpha(0.3).restart();
+  }
+
+  /** Update the ideal distance between linked parent-child nodes. */
+  setLinkDistance(value: number): void {
+    (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>).distance(value);
+    this.simulation.alpha(0.3).restart();
+  }
+
+  /** Update how rigidly links enforce their ideal distance. */
+  setLinkStrength(value: number): void {
+    (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>).strength(value);
+    this.simulation.alpha(0.3).restart();
+  }
+
+  /** Update the collision padding around each node. */
+  setCollisionPadding(value: number): void {
+    this.collisionPadding = value;
+    (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
+      (d) => d.radius + value
+    );
+    this.simulation.alpha(0.3).restart();
+  }
+
+  /** Update how quickly the simulation settles after changes. */
+  setAlphaDecay(value: number): void {
+    this.simulation.alphaDecay(value);
   }
 
   /** Create a drag behaviour for nodes. */

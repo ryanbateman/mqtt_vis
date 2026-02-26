@@ -1,204 +1,143 @@
 # MQTT Topic Visualiser
 
-A browser-based, real-time visualisation of an MQTT topic tree. Connect to any MQTT broker over WebSocket, subscribe to a topic filter (with wildcard support), and watch the topic tree come alive as a force-directed graph. Inspired by GitMotion — nodes glow, pulse, emit particles, and shift colour based on publish activity.
+A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQTT broker over WebSocket, subscribe with wildcard support, and watch topics come alive as an animated force-directed graph. Nodes glow, pulse, emit particles, and shift colour based on publish activity.
 
-## Overview
+**No backend required** — the entire application is a static SPA. The MQTT connection runs directly from the user's browser to the broker via WebSocket. You host static files and that's it.
 
-The user enters a WebSocket broker URL and a topic filter (e.g. `home/#`, `sensors/+/temp`). The app subscribes and renders every discovered topic as a node in a D3.js force-directed graph. Parent nodes are created implicitly from topic segments (e.g. `home/kitchen/temp` produces nodes for `home`, `kitchen`, and `temp`). Nodes grow and shrink based on message frequency, with visual effects firing on each publish.
+## Features
+
+- **Force-directed graph** — topics rendered as an interactive D3.js SVG graph with zoom, pan, and drag
+- **Live message tracking** — nodes grow and shrink based on message frequency using exponential moving average (EMA) rate calculation
+- **Visual effects** — three layered effects on message publish: glow/pulse (SVG filter), particle burst, and heat-map colouring
+- **Custom colour scale** — nodes shift from slate through sky blue, orange, amber, to yellow as activity increases
+- **Ancestor pulse** — optional: when a message arrives, all parent nodes up to the root pulse (toggleable)
+- **Zoom-aware labels** — labels stay constant screen size and fade smoothly across 4 depth levels when zoomed out
+- **Settings panel** — 7 sliders for visual and simulation parameters (fade time, label depth, repulsion, link distance, link strength, collision gap, settle speed) with collapsible sections and hover tooltips
+- **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID
+- **Connection persistence** — broker URL, topic filter, username, and client ID are saved to localStorage
+- **Clear on disconnect** — optional checkbox to reset the graph when disconnecting
+- **Dark theme** — designed for dark backgrounds with glow and particle effects
+- **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
+
+## Quick Start
+
+```bash
+npm install
+npm run dev
+```
+
+Open the URL shown by Vite (typically `http://localhost:5173`), enter a WebSocket broker URL (e.g. `ws://localhost:9001`) and a topic filter, then click Connect.
+
+### Build for production
+
+```bash
+npm run build
+npm run preview    # preview the production build locally
+```
+
+The output in `dist/` is a fully static SPA — deploy it to any static hosting (GitHub Pages, Netlify, S3, etc.).
+
+## Usage
+
+### Connection Panel (top-left)
+
+| Field | Description |
+|---|---|
+| **Broker URL** | WebSocket endpoint (`ws://` or `wss://`) |
+| **Topic Filter** | MQTT subscription filter. `#` for all topics, `+` for single-level wildcard |
+| **Client ID** | Randomised by default. Toggle "Custom" to define your own (disabled while connected) |
+| **Authentication** | Optional username/password (click "Show authentication") |
+
+### Settings Panel (top-right)
+
+**Appearance**
+- **Fade Time** — how long messages affect node size and colour (EMA time constant)
+- **Label Depth** — how many levels of labels stay visible when zoomed out
+- **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
+
+**Simulation**
+- **Repulsion** — how strongly nodes push each other apart
+- **Link Distance** — ideal spacing between connected parent-child nodes
+- **Link Strength** — how rigidly links enforce their ideal distance
+- **Collision Gap** — extra space around nodes to prevent overlap
+- **Settle Speed** — how quickly the graph stops moving after changes
+
+### Status Bar (bottom)
+
+Shows total messages received, unique topics discovered, and session uptime.
 
 ## Tech Stack
 
-| Layer          | Choice                                  |
-| -------------- | --------------------------------------- |
-| Framework      | React 18 + TypeScript                   |
-| Build          | Vite                                    |
-| Styling        | Tailwind CSS                            |
-| Visualisation  | D3.js (force-directed graph, SVG)       |
-| MQTT           | mqtt.js (browser bundle, WebSocket)     |
-| State          | Zustand                                 |
-| Deploy         | Static SPA (host anywhere)              |
-| Default Theme  | Dark                                    |
-
-## Architecture
-
-```
-+---------------------------------------------------+
-|  Browser SPA                                      |
-|                                                   |
-|  +------------+   +----------------+   +--------+ |
-|  | Connection |-->| Topic Store    |-->| D3     | |
-|  | Panel      |   | (Zustand)      |   | Graph  | |
-|  +------------+   +----------------+   +--------+ |
-|       |                 ^                   |      |
-|       v                 |                   v      |
-|  +------------+   +----------------+   +--------+ |
-|  | MQTT.js    |-->| Topic Tree     |   | SVG    | |
-|  | Client     |   | Builder        |   | Canvas | |
-|  +------------+   +----------------+   +--------+ |
-+---------------------------------------------------+
-        |
-        v  (WebSocket)
-   MQTT Broker
-```
-
-The browser connects directly to the MQTT broker over WebSocket — no backend server is required.
+| Layer | Choice |
+|---|---|
+| Framework | React 18 + TypeScript (strict) |
+| Build | Vite 5 |
+| Styling | Tailwind CSS v3 |
+| Visualisation | D3.js v7 (force simulation, SVG) |
+| MQTT | mqtt.js v5 (browser WebSocket bundle) |
+| State | Zustand v5 |
+| Deploy | Static SPA |
 
 ## Project Structure
 
 ```
-mqtt_topic_visualiser_2/
-├── index.html
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-├── tailwind.config.js
-├── postcss.config.js
-├── public/
-│   └── favicon.svg
-└── src/
-    ├── main.tsx
-    ├── App.tsx
-    ├── index.css                  # Tailwind base styles
-    ├── types/
-    │   └── index.ts               # TopicNode, GraphNode, GraphLink, etc.
-    ├── stores/
-    │   └── topicStore.ts          # Zustand store for topic tree + stats
-    ├── hooks/
-    │   ├── useMqttClient.ts       # Connect/disconnect/subscribe logic
-    │   └── useTopicTree.ts        # Build & maintain tree from flat topics
-    ├── services/
-    │   └── mqttService.ts         # MQTT.js wrapper
-    ├── components/
-    │   ├── ConnectionPanel.tsx     # URL + topic input, connect button
-    │   ├── TopicGraph.tsx          # D3 force-directed graph container
-    │   ├── GraphRenderer.ts       # D3 simulation, node/link rendering
-    │   ├── NodeEffects.ts         # Glow, pulse, particle, heatmap logic
-    │   └── StatusBar.tsx          # Connection status, message count
-    └── utils/
-        ├── topicParser.ts         # Split topic strings, build tree
-        ├── sizeCalculator.ts      # Log-scale node sizing from rate
-        └── colorScale.ts          # Frequency-to-colour mapping
+src/
+  types/
+    index.ts               # TopicNode, GraphNode, GraphLink, ConnectionParams, Particle
+  stores/
+    topicStore.ts           # Zustand store: topic tree, EMA rates, decay, settings
+  hooks/
+    useMqttClient.ts        # MQTT lifecycle hook, localStorage persistence
+  services/
+    mqttService.ts          # mqtt.js WebSocket wrapper
+  components/
+    ConnectionPanel.tsx     # Broker URL, topic filter, client ID, auth, connect/disconnect
+    TopicGraph.tsx          # SVG container, syncs store state to GraphRenderer
+    GraphRenderer.ts        # D3 force simulation, nodes/links/labels/effects/particles
+    SettingsPanel.tsx       # Sliders, toggles, collapsible sections, portal tooltips
+    StatusBar.tsx           # Message/topic counts, uptime
+  utils/
+    topicParser.ts          # Topic string parsing, tree operations, ancestor paths
+    sizeCalculator.ts       # Logarithmic node radius from aggregate rate
+    colorScale.ts           # Custom multi-stop colour scale (slate > sky > orange > amber > yellow)
 ```
 
-## Key Dependencies
-
-- `react` + `react-dom` (^18)
-- `vite` + `@vitejs/plugin-react`
-- `typescript`
-- `mqtt` (browser build via mqtt.js)
-- `d3` (force, selection, scale, zoom, scale-chromatic)
-- `zustand`
-- `tailwindcss` + `postcss` + `autoprefixer`
-
-## Data Model
+## How It Works
 
 ### Topic Tree
 
-Each MQTT topic string (e.g. `home/kitchen/temp`) is split by `/` into segments. Each segment becomes a node in a tree structure. Intermediate/parent nodes are created implicitly.
+MQTT topics are `/`-delimited (e.g. `home/kitchen/temp`). Each segment becomes a node in a tree. Parent nodes are created implicitly — even if no message was ever published directly to `home/`, the node exists as an ancestor.
 
-```
-TopicNode {
-  id: string               // full topic path, e.g. "home/kitchen/temp"
-  segment: string           // this node's segment, e.g. "temp"
-  children: Map<string, TopicNode>
-  messageCount: number      // total messages received directly
-  messageRate: number       // EMA-based msgs/sec (direct)
-  aggregateRate: number     // own rate + sum of all descendant rates
-  lastPayload: string | null
-  lastTimestamp: number
-  lastQoS: 0 | 1 | 2
-}
-```
+### Rate Tracking
 
-### Rate Calculation (Exponential Moving Average)
+Message frequency uses an Exponential Moving Average with a configurable time constant (default 5s). A decay timer runs every 500ms, smoothing rates and decaying idle topics toward zero.
 
-```
-alpha = 1 - e^(-deltaTime / tau)       // tau = time constant (e.g. 5 seconds)
-rate  = alpha * instantRate + (1 - alpha) * prevRate
-```
+### Aggregate Rates
 
-A decay timer runs every 500ms, applying the EMA formula to each node. When no messages arrive, the rate decays smoothly toward zero, causing nodes to shrink.
+Each node's aggregate rate = its own message rate + the sum of all children's aggregate rates, propagated bottom-up after each decay tick. Parent nodes reflect the total activity of their entire subtree.
 
-### Aggregate Rate Propagation
+### Node Sizing
 
-```
-node.aggregateRate = node.messageRate + sum(child.aggregateRate for child in children)
-```
-
-Propagated bottom-up after each decay tick. Parent nodes grow based on the total activity of their entire subtree.
-
-### Logarithmic Node Sizing
+Radius follows a logarithmic scale to prevent high-frequency topics from dominating:
 
 ```
 radius = MIN_R + (MAX_R - MIN_R) * (log(1 + aggregateRate) / log(1 + MAX_RATE))
 ```
 
-- `MIN_R`: minimum node radius (e.g. 8px)
-- `MAX_R`: maximum node radius (e.g. 60px)
-- `MAX_RATE`: the rate at which a node reaches max size (tunable)
+### D3 + React Integration
 
-Nodes grow logarithmically with message frequency and shrink back when idle. The logarithmic scale prevents a single high-frequency topic from dominating the visualisation.
+React owns the `<svg>` container element. D3 manages the force simulation and directly manipulates SVG elements inside it via a ref. Individual graph elements (circles, lines, text) are not React-rendered — D3 handles them for performance.
 
-## Visual Effects
+## Hosting Notes
 
-All effects are rendered in SVG and designed for a dark background.
+This is a purely client-side application. The hosted files are static HTML, CSS, and JS. All MQTT connections happen directly between the user's browser and whatever broker they configure.
 
-### 1. Glow / Pulse
+**Mixed content**: GitHub Pages (and most static hosts) serve over HTTPS. Browsers block mixed content, so users will only be able to connect to `wss://` brokers, not plain `ws://`. This is a browser security restriction, not an application limitation.
 
-On message arrival, the node briefly glows — a bright stroke and drop-shadow SVG filter that fades over ~500ms.
+## Acknowledgement
 
-### 2. Ripple / Particle Burst
+This project was built with [OpenCode](https://opencode.ai) and Claude Opus 4 (`claude-opus-4-6`) by Anthropic.
 
-Ephemeral SVG circles burst outward from the node on publish and fade out. Creates a visual "ping" effect.
+## License
 
-### 3. Heat Map Colouring
-
-Node fill colour is mapped from the `messageRate` to a colour scale (e.g. `d3-scale-chromatic` `interpolateInferno` — cool blue/purple for low activity, hot orange/red for high activity). Updated continuously as rates change.
-
-## D3 Force-Directed Graph
-
-The topic tree is flattened into `nodes[]` and `links[]` arrays for D3:
-
-- **`forceLink`** — connects parent to child nodes
-- **`forceManyBody`** — repulsion between all nodes
-- **`forceCenter`** — keeps the graph centered in the viewport
-- **`forceCollide`** — prevents overlap, using each node's dynamic radius
-
-The simulation runs continuously. Zoom and pan are handled by `d3-zoom`.
-
-## Connection Panel
-
-- **Broker URL** — `ws://` or `wss://` WebSocket endpoint
-- **Topic filter** — supports MQTT wildcards (`#` for multi-level, `+` for single-level)
-- **Username / Password** — optional, collapsible
-- **Connect / Disconnect** button with status indicator
-- Last connection settings are persisted in `localStorage`
-
-## Status Bar
-
-- Connection status (connected / disconnected / reconnecting)
-- Total messages received
-- Total topics discovered
-- Session uptime
-
-## Implementation Phases
-
-| Phase | Description                                                          | Size   |
-| ----- | -------------------------------------------------------------------- | ------ |
-| 1     | Project scaffold — Vite + React + TS + Tailwind, base layout        | Small  |
-| 2     | MQTT connection — Connection panel UI, mqtt.js integration           | Medium |
-| 3     | Topic tree data model — Zustand store, parser, tree, rate tracking   | Medium |
-| 4     | Basic graph rendering — D3 force graph, nodes + links, zoom/pan      | Large  |
-| 5     | Dynamic sizing — log-scale sizing from aggregate rate, decay, shrink | Medium |
-| 6     | Visual effects — glow, pulse, particles, heat-map colouring          | Large  |
-| 7     | Polish — status bar, localStorage, dark theme, responsive layout     | Medium |
-
-## Future Enhancements (not in v1)
-
-- Message payload inspector panel (click a node to see last payload, timestamp, QoS)
-- Topic statistics sidebar (message rate, total count, avg payload size per topic)
-- Filtering / search / highlight specific topics
-- Canvas rendering for large-scale topic trees (1000+ nodes)
-- Alternative layouts (radial tree, hierarchical)
-- Export / snapshot (save tree view as image or JSON)
-- Light theme / system-preference theme toggle
+MIT

@@ -1,10 +1,15 @@
-import { useState, useCallback, type FormEvent } from "react";
+import { useState, useCallback, useMemo, type FormEvent } from "react";
 import type { ConnectionParams, ConnectionStatus } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 
+/** Generate a random client ID with a recognisable prefix. */
+function generateClientId(): string {
+  return "mqtt_visualiser_" + Math.random().toString(16).slice(2, 10);
+}
+
 interface ConnectionPanelProps {
   onConnect: (params: ConnectionParams) => void;
-  onDisconnect: () => void;
+  onDisconnect: (clear?: boolean) => void;
   connectionStatus: ConnectionStatus;
   errorMessage: string | null;
 }
@@ -22,6 +27,14 @@ export function ConnectionPanel({
   const [username, setUsername] = useState(saved.username ?? "");
   const [password, setPassword] = useState("");
   const [showAuth, setShowAuth] = useState(false);
+  const [clearOnDisconnect, setClearOnDisconnect] = useState(false);
+
+  // Client ID: random by default, optionally user-defined
+  const defaultClientId = useMemo(() => generateClientId(), []);
+  const [customClientId, setCustomClientId] = useState(saved.customClientId ?? false);
+  const [clientId, setClientId] = useState(
+    saved.customClientId && saved.clientId ? saved.clientId : defaultClientId
+  );
 
   const isConnected = connectionStatus === "connected";
   const isConnecting = connectionStatus === "connecting";
@@ -30,17 +43,18 @@ export function ConnectionPanel({
     (e: FormEvent) => {
       e.preventDefault();
       if (isConnected || isConnecting) {
-        onDisconnect();
+        onDisconnect(clearOnDisconnect);
       } else {
         onConnect({
           brokerUrl,
           topicFilter,
+          clientId,
           username: username || undefined,
           password: password || undefined,
         });
       }
     },
-    [brokerUrl, topicFilter, username, password, isConnected, isConnecting, onConnect, onDisconnect]
+    [brokerUrl, topicFilter, clientId, username, password, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
   );
 
   const statusColor =
@@ -100,6 +114,51 @@ export function ConnectionPanel({
           </p>
         </div>
 
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-gray-400">
+              Client ID
+            </label>
+            <label
+              className={`flex items-center gap-1.5 ${
+                isConnected || isConnecting
+                  ? "opacity-50 cursor-not-allowed"
+                  : "cursor-pointer"
+              }`}
+            >
+              <span className="text-[10px] text-gray-500">Custom</span>
+              <input
+                type="checkbox"
+                checked={customClientId}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setCustomClientId(checked);
+                  if (!checked) {
+                    setClientId(generateClientId());
+                  }
+                  // Persist the toggle state to localStorage
+                  try {
+                    const raw = localStorage.getItem("mqtt_connection");
+                    const data = raw ? JSON.parse(raw) : {};
+                    data.customClientId = checked;
+                    localStorage.setItem("mqtt_connection", JSON.stringify(data));
+                  } catch { /* ignore */ }
+                }}
+                disabled={isConnected || isConnecting}
+                className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-blue-500 accent-blue-500 cursor-pointer disabled:cursor-not-allowed"
+              />
+            </label>
+          </div>
+          <input
+            type="text"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            disabled={!customClientId || isConnected || isConnecting}
+            placeholder="mqtt_visualiser_..."
+            className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
+          />
+        </div>
+
         <button
           type="button"
           onClick={() => setShowAuth(!showAuth)}
@@ -139,6 +198,16 @@ export function ConnectionPanel({
         >
           {isConnected || isConnecting ? "Disconnect" : "Connect"}
         </button>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={clearOnDisconnect}
+            onChange={(e) => setClearOnDisconnect(e.target.checked)}
+            className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
+          />
+          <span className="text-xs text-gray-400">Clear graph on disconnect</span>
+        </label>
       </form>
 
       {errorMessage && (
