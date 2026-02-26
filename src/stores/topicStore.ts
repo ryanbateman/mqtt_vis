@@ -184,7 +184,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
   collisionPadding: 13,
   alphaDecay: 0.01,
   ancestorPulse: true,
-  showRootPath: true,
+  showRootPath: false,
   topicFilter: "#",
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {

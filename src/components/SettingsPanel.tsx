@@ -144,6 +144,7 @@ function Section({
  * grouped sections and info-icon tooltips.
  */
 export function SettingsPanel() {
+  const [collapsed, setCollapsed] = useState(false);
   const emaTau = useTopicStore((s) => s.emaTau);
   const setEmaTau = useTopicStore((s) => s.setEmaTau);
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);
@@ -165,9 +166,26 @@ export function SettingsPanel() {
 
   return (
     <div className="absolute top-4 right-4 z-10 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-64 max-h-[calc(100vh-2rem)] overflow-y-auto">
-      <h3 className="text-sm font-medium text-gray-300 mb-3">Settings</h3>
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex items-center gap-1.5 text-sm font-medium text-gray-300 hover:text-gray-100 transition-colors w-full"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${collapsed ? "" : "rotate-90"}`}
+          fill="currentColor"
+          viewBox="0 0 20 20"
+        >
+          <path
+            fillRule="evenodd"
+            d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+            clipRule="evenodd"
+          />
+        </svg>
+        Settings
+      </button>
 
-      <div className="space-y-4">
+      {!collapsed && <div className="space-y-4 mt-3">
         <Section title="Appearance">
           <SliderRow
             label="Fade Time"
@@ -285,7 +303,7 @@ export function SettingsPanel() {
             onChange={setAlphaDecay}
           />
         </Section>
-      </div>
+      </div>}
     </div>
   );
 }
