@@ -22,8 +22,8 @@ export function ConnectionPanel({
 }: ConnectionPanelProps) {
   const saved = loadSavedConnection();
 
-  const [brokerUrl, setBrokerUrl] = useState(saved.brokerUrl ?? "ws://localhost:9001");
-  const [topicFilter, setTopicFilter] = useState(saved.topicFilter ?? "#");
+  const [brokerUrl, setBrokerUrl] = useState(saved.brokerUrl ?? "wss://broker.hivemq.com:8884/mqtt");
+  const [topicFilter, setTopicFilter] = useState(saved.topicFilter ?? "robot/#");
   const [username, setUsername] = useState(saved.username ?? "");
   const [password, setPassword] = useState("");
   const [showAuth, setShowAuth] = useState(false);
