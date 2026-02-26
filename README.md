@@ -4,6 +4,8 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 
 **No backend required** — the entire application is a static SPA. The MQTT connection runs directly from the user's browser to the broker via WebSocket. You host static files and that's it.
 
+![MQTT Topic Visualiser screenshot](visualiser.png)
+
 ## Features
 
 - **Force-directed graph** — topics rendered as an interactive D3.js SVG graph with zoom, pan, and drag
