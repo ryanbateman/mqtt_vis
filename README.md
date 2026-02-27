@@ -14,11 +14,11 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Custom colour scale** — nodes shift from slate through sky blue, orange, amber, to yellow as activity increases
 - **Ancestor pulse** — optional: when a message arrives, all parent nodes up to the root pulse (toggleable)
 - **Root path filtering** — hide structural ancestor nodes above the subscription prefix (e.g. subscribing to `sensors/temp/#` with this off shows only `temp` and its children)
-- **Zoom-aware labels** — labels stay constant screen size and fade smoothly across 4 depth levels when zoomed out
+- **Zoom-aware labels** — labels stay constant screen size; two visibility modes: Zoom (fade smoothly based on zoom level) or Depth (hard cutoff at a fixed tree depth)
 - **Configuration file** — ship a `config.json` alongside the app to customise all defaults for your deployment (broker URL, topic filter, simulation params, UI state, and more)
 - **Auto-connect** — optional auto-connect on page load, configurable via UI checkbox or `config.json`
 - **Collapsible panels** — both connection and settings panels collapse to save screen space; status indicator stays visible when the connection panel is collapsed
-- **Settings panel** — 7 sliders for visual and simulation parameters with collapsible sections and hover tooltips
+- **Settings panel** — sliders for visual and simulation parameters with collapsible sections and hover tooltips
 - **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID. Can be locked to a fixed value via `config.json`.
 - **Connection persistence** — broker URL, topic filter, username, client ID, and autoconnect preference are saved to localStorage
 - **Clear on disconnect** — optional checkbox to reset the graph when disconnecting
@@ -64,7 +64,10 @@ The settings panel is collapsible — click the header to toggle.
 
 **Appearance**
 - **Fade Time** — how long messages affect node size and colour (EMA time constant)
-- **Label Depth** — how many levels of labels stay visible when zoomed out
+- **Label Mode** — toggle between two label visibility strategies:
+  - **Zoom** — labels fade in/out based on zoom level and tree depth (deeper labels disappear first when zoomed out)
+  - **Depth** — labels are shown or hidden by a fixed tree depth cutoff, independent of zoom level
+- **Label Depth / Max Label Depth** — the slider meaning changes with the label mode. In Zoom mode, it controls how many depth levels remain visible when zoomed out. In Depth mode, it sets the hard cutoff depth.
 - **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
 - **Show Root Path** — toggle visibility of structural ancestor nodes above the subscription prefix
 
@@ -101,6 +104,7 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `autoconnect` | boolean | `false` | Connect automatically on page load |
 | `emaTau` | number | `5` | EMA time constant in seconds |
 | `labelDepthFactor` | number | `5` | Label depth visibility factor |
+| `labelMode` | `"zoom"` \| `"depth"` | `"zoom"` | Label visibility mode: zoom-based fade or fixed depth cutoff |
 | `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
 | `showRootPath` | boolean | `false` | Show structural ancestor nodes above subscription prefix |
 | `repulsionStrength` | number | `-350` | Node repulsion force |
