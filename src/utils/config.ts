@@ -10,6 +10,7 @@ export interface AppConfig {
 
   // Appearance
   emaTau?: number;
+  showLabels?: boolean;
   labelDepthFactor?: number;
   labelMode?: "zoom" | "depth";
   ancestorPulse?: boolean;

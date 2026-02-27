@@ -39,6 +39,7 @@ export class GraphRenderer {
   private currentZoomScale = 1;
   private labelDepthFactor = DEFAULT_LABEL_DEPTH_FACTOR;
   private labelMode: LabelMode = "zoom";
+  private showLabels = true;
   private collisionPadding = 4;
   private fadeDuration = 5000;
 
@@ -347,6 +348,11 @@ export class GraphRenderer {
    * Uses a 4-level fade band for smooth gradation.
    */
   private updateLabelVisibility(): void {
+    if (!this.showLabels) {
+      this.labelElements.attr("opacity", 0);
+      return;
+    }
+
     if (this.labelMode === "depth") {
       // Hard cutoff by tree depth — not affected by zoom level
       const maxDepth = this.labelDepthFactor;
@@ -372,6 +378,12 @@ export class GraphRenderer {
   /** Update the label visibility mode and reapply visibility. */
   setLabelMode(mode: LabelMode): void {
     this.labelMode = mode;
+    this.updateLabelVisibility();
+  }
+
+  /** Toggle label visibility entirely. */
+  setShowLabels(show: boolean): void {
+    this.showLabels = show;
     this.updateLabelVisibility();
   }
 

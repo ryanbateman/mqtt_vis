@@ -48,6 +48,8 @@ interface TopicStoreState {
   errorMessage: string | null;
   /** EMA time constant in seconds. Controls how long messages affect node appearance. */
   emaTau: number;
+  /** Whether labels are visible at all. */
+  showLabels: boolean;
   /** Controls how many tree depths of labels are visible at a given zoom level. */
   labelDepthFactor: number;
   /** How label visibility is determined: 'zoom' (fade by zoom level) or 'depth' (hard cutoff by tree depth). */
@@ -104,6 +106,8 @@ interface TopicStoreState {
   reset: () => void;
   /** Update the EMA time constant. */
   setEmaTau: (tau: number) => void;
+  /** Toggle label visibility. */
+  setShowLabels: (show: boolean) => void;
   /** Update the label depth factor. */
   setLabelDepthFactor: (factor: number) => void;
   /** Update the label visibility mode. */
@@ -230,6 +234,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   sessionStart: Date.now(),
   errorMessage: null,
   emaTau: cfg.emaTau ?? DEFAULT_EMA_TAU,
+  showLabels: cfg.showLabels ?? true,
   labelDepthFactor: cfg.labelDepthFactor ?? 5,
   labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
   repulsionStrength: cfg.repulsionStrength ?? -350,
@@ -406,6 +411,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     set({ emaTau: tau });
   },
 
+  setShowLabels: (show: boolean) => {
+    set({ showLabels: show });
+  },
   setLabelDepthFactor: (factor: number) => {
     set({ labelDepthFactor: factor });
   },

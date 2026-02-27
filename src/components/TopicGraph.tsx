@@ -14,6 +14,7 @@ export function TopicGraph() {
   const graphNodes = useTopicStore((s) => s.graphNodes);
   const graphLinks = useTopicStore((s) => s.graphLinks);
   const graphStructureVersion = useTopicStore((s) => s.graphStructureVersion);
+  const showLabels = useTopicStore((s) => s.showLabels);
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);
   const labelMode = useTopicStore((s) => s.labelMode);
   const emaTau = useTopicStore((s) => s.emaTau);
@@ -64,6 +65,12 @@ export function TopicGraph() {
   }, [graphNodes, graphLinks, graphStructureVersion]);
 
   // Sync settings to the renderer
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setShowLabels(showLabels);
+    }
+  }, [showLabels]);
+
   useEffect(() => {
     if (rendererRef.current) {
       rendererRef.current.setLabelDepthFactor(labelDepthFactor);

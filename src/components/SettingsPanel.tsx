@@ -149,6 +149,8 @@ export function SettingsPanel() {
   const [collapsed, setCollapsed] = useState(cfg.settingsCollapsed ?? false);
   const emaTau = useTopicStore((s) => s.emaTau);
   const setEmaTau = useTopicStore((s) => s.setEmaTau);
+  const showLabels = useTopicStore((s) => s.showLabels);
+  const setShowLabels = useTopicStore((s) => s.setShowLabels);
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);
   const setLabelDepthFactor = useTopicStore((s) => s.setLabelDepthFactor);
   const labelMode = useTopicStore((s) => s.labelMode);
@@ -203,56 +205,74 @@ export function SettingsPanel() {
             maxLabel="Slow"
             onChange={setEmaTau}
           />
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
+          <div className="space-y-2.5 rounded border border-gray-700/50 p-2.5">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <label className="text-xs font-medium text-gray-400">Label Mode</label>
-                <InfoTooltip text={labelMode === "zoom"
-                  ? "Labels fade in/out based on zoom level and depth"
-                  : "Labels shown/hidden by a fixed tree depth cutoff"
-                } />
+                <label className="text-xs font-medium text-gray-400">Labels</label>
+                <InfoTooltip text="Show or hide text labels on nodes" />
               </div>
-              <div className="flex rounded overflow-hidden border border-gray-600">
-                <button
-                  type="button"
-                  onClick={() => setLabelMode("zoom")}
-                  className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    labelMode === "zoom"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-800 text-gray-400 hover:text-gray-200"
-                  }`}
-                >
-                  Zoom
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLabelMode("depth")}
-                  className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    labelMode === "depth"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-800 text-gray-400 hover:text-gray-200"
-                  }`}
-                >
-                  Depth
-                </button>
-              </div>
+              <input
+                type="checkbox"
+                checked={showLabels}
+                onChange={(e) => setShowLabels(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+              />
             </div>
+            {showLabels && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-gray-400">Label Mode</label>
+                      <InfoTooltip text={labelMode === "zoom"
+                        ? "Labels fade in/out based on zoom level and depth"
+                        : "Labels shown/hidden by a fixed tree depth cutoff"
+                      } />
+                    </div>
+                    <div className="flex rounded overflow-hidden border border-gray-600">
+                      <button
+                        type="button"
+                        onClick={() => setLabelMode("zoom")}
+                        className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                          labelMode === "zoom"
+                            ? "bg-blue-600 text-white"
+                            : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                        }`}
+                      >
+                        Zoom
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLabelMode("depth")}
+                        className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                          labelMode === "depth"
+                            ? "bg-blue-600 text-white"
+                            : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                        }`}
+                      >
+                        Depth
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <SliderRow
+                  label={labelMode === "zoom" ? "Label Depth" : "Max Label Depth"}
+                  tooltip={labelMode === "zoom"
+                    ? "How many levels of labels stay visible when zoomed out"
+                    : "Labels are hidden below this tree depth"
+                  }
+                  value={labelDepthFactor}
+                  displayValue={`${labelDepthFactor}`}
+                  min={labelMode === "zoom" ? 2 : 1}
+                  max={20}
+                  step={1}
+                  minLabel="Fewer"
+                  maxLabel="More"
+                  onChange={setLabelDepthFactor}
+                />
+              </>
+            )}
           </div>
-          <SliderRow
-            label={labelMode === "zoom" ? "Label Depth" : "Max Label Depth"}
-            tooltip={labelMode === "zoom"
-              ? "How many levels of labels stay visible when zoomed out"
-              : "Labels are hidden below this tree depth"
-            }
-            value={labelDepthFactor}
-            displayValue={`${labelDepthFactor}`}
-            min={labelMode === "zoom" ? 2 : 1}
-            max={20}
-            step={1}
-            minLabel="Fewer"
-            maxLabel="More"
-            onChange={setLabelDepthFactor}
-          />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <label className="text-xs font-medium text-gray-400">
