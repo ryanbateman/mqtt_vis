@@ -266,6 +266,21 @@ export function ConnectionPanel({
           )}
         </>
       )}
+
+      <div className="flex justify-between items-center mt-3">
+        <span className="text-[10px] text-gray-600">v{__APP_VERSION__}</span>
+        <span className="text-[10px] text-gray-600">
+          Created by{" "}
+          <a
+            href="https://github.com/ryanbateman"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Ryan Bateman
+          </a>
+        </span>
+      </div>
     </div>
   );
 }
