@@ -2,11 +2,29 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useTopicStore } from "../topicStore";
 import { MIN_RADIUS } from "../../utils/sizeCalculator";
 
+// Polyfill requestAnimationFrame / cancelAnimationFrame for the Node.js test environment.
+// scheduleRebuild uses rAF to batch graph rebuilds. In tests, we simulate the
+// deferred rebuild by calling state().rebuildGraph() synchronously where needed.
+if (typeof globalThis.requestAnimationFrame === "undefined") {
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => setTimeout(cb, 0)) as typeof requestAnimationFrame;
+  globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as typeof cancelAnimationFrame;
+}
+
 /**
  * Helper: get the store's current state.
  */
 function state() {
   return useTopicStore.getState();
+}
+
+/**
+ * Helper: call handleMessage and immediately flush the batched rebuild.
+ * In production, the rebuild is deferred via requestAnimationFrame.
+ * In tests, we force a synchronous rebuild for deterministic assertions.
+ */
+function handleMessageAndFlush(topic: string, payload: string, qos: 0 | 1 | 2 = 0) {
+  state().handleMessage(topic, payload, qos);
+  state().rebuildGraph();
 }
 
 /**
@@ -44,7 +62,7 @@ describe("topicStore — ancestor pulse data flow", () => {
 
   describe("pulseRate on direct message", () => {
     it("should set pulseRate on the leaf TopicNode when a message is received", () => {
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
 
       const leaf = findTopicNode("a/b/c");
       expect(leaf).toBeDefined();
@@ -54,8 +72,8 @@ describe("topicStore — ancestor pulse data flow", () => {
     });
 
     it("should accumulate pulseRate on repeated messages to same topic", () => {
-      state().handleMessage("a/b/c", "msg1", 0);
-      state().handleMessage("a/b/c", "msg2", 0);
+      handleMessageAndFlush("a/b/c", "msg1");
+      handleMessageAndFlush("a/b/c", "msg2");
 
       const leaf = findTopicNode("a/b/c");
       expect(leaf).toBeDefined();
@@ -66,7 +84,7 @@ describe("topicStore — ancestor pulse data flow", () => {
 
     it("should set pulseTimestamp on the leaf TopicNode", () => {
       const before = Date.now();
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
       const after = Date.now();
 
       const leaf = findTopicNode("a/b/c");
@@ -164,8 +182,7 @@ describe("topicStore — ancestor pulse data flow", () => {
 
   describe("GraphNode pulse data in buildGraphData", () => {
     it("should pass pulseRate through to GraphNode immediately after handleMessage", () => {
-      state().handleMessage("a/b/c", "hello", 0);
-      // handleMessage now triggers rebuildGraph — no need to wait for decayTick
+      handleMessageAndFlush("a/b/c", "hello");
 
       const gn = findGraphNode("a/b/c");
       expect(gn).toBeDefined();
@@ -173,8 +190,7 @@ describe("topicStore — ancestor pulse data flow", () => {
     });
 
     it("should pass ancestor pulseRate through to ancestor GraphNodes", () => {
-      state().handleMessage("a/b/c", "hello", 0);
-      // handleMessage triggers rebuildGraph — GraphNodes available immediately
+      handleMessageAndFlush("a/b/c", "hello");
 
       for (const id of ["a/b", "a", ""]) {
         const gn = findGraphNode(id);
@@ -184,8 +200,7 @@ describe("topicStore — ancestor pulse data flow", () => {
     });
 
     it("should have pulse=true on ancestors within pulseDuration window", () => {
-      state().handleMessage("a/b/c", "hello", 0);
-      // handleMessage triggers rebuildGraph — pulse data available immediately
+      handleMessageAndFlush("a/b/c", "hello");
 
       for (const id of ["a/b", "a"]) {
         const gn = findGraphNode(id);
@@ -268,11 +283,11 @@ describe("topicStore — ancestor pulse data flow", () => {
       const emaTau = state().emaTau;
       const fadeDuration = emaTau * 1000;
 
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
 
       const now = Date.now();
 
-      // Check leaf node — handleMessage now triggers rebuildGraph immediately
+      // Check leaf node — flush ensures rebuildGraph ran synchronously
       const gnLeaf = findGraphNode("a/b/c");
       expect(gnLeaf).toBeDefined();
 
@@ -321,14 +336,14 @@ describe("topicStore — ancestor pulse data flow", () => {
     });
   });
 
-  describe("immediate graph rebuild on message", () => {
-    it("should rebuild graphNodes immediately after handleMessage (not waiting for decayTick)", () => {
+  describe("graph rebuild produces correct data", () => {
+    it("should produce graphNodes after handleMessage + rebuildGraph", () => {
       // Before any message, graphNodes has only the root (from setShowRootPath(true) in beforeEach)
       const initialCount = state().graphNodes.length;
 
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
 
-      // After handleMessage, graphNodes should include the new topic path
+      // After flush, graphNodes should include the new topic path
       // (root + a + a/b + a/b/c = 4 nodes)
       expect(state().graphNodes.length).toBeGreaterThanOrEqual(initialCount + 3);
 
@@ -356,13 +371,13 @@ describe("topicStore — ancestor pulse data flow", () => {
 
     it("should pulse links on the ancestor chain of the message target", () => {
       // Create a sibling branch first
-      state().handleMessage("a/other", "setup", 0);
-      // Wait a bit to ensure the sibling pulse has expired for clarity
+      handleMessageAndFlush("a/other", "setup");
+      // Clear sibling's pulse timestamp so it's not pulsing
       const sibling = findTopicNode("a/other");
-      sibling!.lastTimestamp = 0; // clear its pulse
+      sibling!.lastTimestamp = 0;
 
       // Now send the real message
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
 
       // Links on the ancestor chain should pulse:
       //   root("") → a, a → a/b, a/b → a/b/c
@@ -381,13 +396,13 @@ describe("topicStore — ancestor pulse data flow", () => {
 
     it("should NOT pulse links to sibling branches", () => {
       // Create a sibling branch first
-      state().handleMessage("a/other", "setup", 0);
+      handleMessageAndFlush("a/other", "setup");
       // Clear sibling's pulse timestamp so it's not pulsing
       const sibling = findTopicNode("a/other");
       sibling!.lastTimestamp = 0;
 
       // Now send the real message on a different branch
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
 
       // The link a → a/other should NOT pulse because a/other is not pulsing
       const linkAToOther = findGraphLink("a", "a/other");
@@ -399,11 +414,11 @@ describe("topicStore — ancestor pulse data flow", () => {
       state().setAncestorPulse(false);
 
       // Create structure
-      state().handleMessage("a/other", "setup", 0);
+      handleMessageAndFlush("a/other", "setup");
       const sibling = findTopicNode("a/other");
       sibling!.lastTimestamp = 0;
 
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
 
       // Only the leaf node itself is pulsing, ancestors are not.
       // With AND logic, a link needs BOTH endpoints pulsing.
@@ -427,7 +442,7 @@ describe("topicStore — ancestor pulse data flow", () => {
   describe("parent node sizing with ancestorPulse toggle", () => {
     it("should keep parent nodes at MIN_RADIUS when ancestorPulse is off", () => {
       state().setAncestorPulse(false);
-      state().handleMessage("a/b/c", "hello", 0);
+      handleMessageAndFlush("a/b/c", "hello");
 
       // Parent nodes never received a direct message — messageRate is 0
       // With ancestorPulse off, radius uses messageRate, not aggregateRate
@@ -456,6 +471,99 @@ describe("topicStore — ancestor pulse data flow", () => {
         expect(gn).toBeDefined();
         expect(gn!.radius).toBeGreaterThan(MIN_RADIUS);
       }
+    });
+  });
+
+  describe("totalTopics running counter", () => {
+    it("should increment totalTopics for each new topic path segment", () => {
+      expect(state().totalTopics).toBe(0);
+
+      // "a/b/c" creates 3 new nodes: a, a/b, a/b/c
+      state().handleMessage("a/b/c", "hello", 0);
+      expect(state().totalTopics).toBe(3);
+    });
+
+    it("should not increment totalTopics for repeated messages to existing topics", () => {
+      state().handleMessage("a/b/c", "msg1", 0);
+      expect(state().totalTopics).toBe(3);
+
+      state().handleMessage("a/b/c", "msg2", 0);
+      // No new nodes — count unchanged
+      expect(state().totalTopics).toBe(3);
+    });
+
+    it("should increment totalTopics only for genuinely new segments", () => {
+      state().handleMessage("a/b/c", "msg1", 0);
+      expect(state().totalTopics).toBe(3); // a, a/b, a/b/c
+
+      // "a/b/d" shares "a" and "a/b" — only "a/b/d" is new
+      state().handleMessage("a/b/d", "msg2", 0);
+      expect(state().totalTopics).toBe(4);
+    });
+
+    it("should reset totalTopics to 0 on reset()", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+      expect(state().totalTopics).toBe(3);
+
+      state().reset();
+      expect(state().totalTopics).toBe(0);
+    });
+  });
+
+  describe("graphStructureVersion", () => {
+    it("should start at 0", () => {
+      expect(state().graphStructureVersion).toBe(0);
+    });
+
+    it("should increment after a structural rebuild (new topic)", () => {
+      // handleMessage schedules rebuild via rAF. In tests, we flush manually.
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // The scheduleRebuild(true) was called but rAF hasn't fired in the test env.
+      // Calling rebuildGraph() directly doesn't bump graphStructureVersion — 
+      // that only happens inside scheduleRebuild's rAF callback.
+      // Instead we verify the version increments after the rAF fires.
+
+      // Wait for rAF to fire (our polyfill uses setTimeout(cb, 0))
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          expect(state().graphStructureVersion).toBe(1);
+          resolve();
+        }, 10);
+      });
+    });
+
+    it("should not increment on repeated messages to existing topics", () => {
+      state().handleMessage("a/b/c", "msg1", 0);
+
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          // First message created structure — version should be 1
+          expect(state().graphStructureVersion).toBe(1);
+
+          // Second message to same topic — no structural change
+          state().handleMessage("a/b/c", "msg2", 0);
+
+          setTimeout(() => {
+            // Version should still be 1 — no new nodes
+            expect(state().graphStructureVersion).toBe(1);
+            resolve();
+          }, 10);
+        }, 10);
+      });
+    });
+
+    it("should reset to 0 on reset()", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          expect(state().graphStructureVersion).toBe(1);
+          state().reset();
+          expect(state().graphStructureVersion).toBe(0);
+          resolve();
+        }, 10);
+      });
     });
   });
 });

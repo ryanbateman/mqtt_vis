@@ -7,10 +7,9 @@ import type {
 } from "../types";
 import {
   createTopicNode,
-  ensureTopicPath,
+  ensureTopicPathTracked,
   flattenTree,
   collectAllNodes,
-  countNodes,
   getAncestorPaths,
   getFixedPrefix,
   findNode,
@@ -68,6 +67,13 @@ interface TopicStoreState {
   showRootPath: boolean;
   /** The current MQTT subscription topic filter. */
   topicFilter: string;
+  /**
+   * Incremented whenever the graph structure changes (nodes added/removed).
+   * Rate-only changes (pulse, decay) do NOT increment this.
+   * TopicGraph uses this to decide whether to call renderer.update() (D3 data join)
+   * or just let the animation loop handle visual updates.
+   */
+  graphStructureVersion: number;
 
   /** Toggle ancestor pulse behaviour. */
   setAncestorPulse: (enabled: boolean) => void;
@@ -84,6 +90,11 @@ interface TopicStoreState {
   decayTick: () => void;
   /** Rebuild the flat graph data from the tree. */
   rebuildGraph: () => void;
+  /**
+   * Schedule a graph rebuild on the next animation frame.
+   * Multiple calls within the same frame are coalesced into one rebuild.
+   */
+  scheduleRebuild: (structural: boolean) => void;
   /** Reset the store (on disconnect). */
   reset: () => void;
   /** Update the EMA time constant. */
@@ -190,6 +201,14 @@ function buildGraphData(
   return { graphNodes, graphLinks };
 }
 
+/**
+ * Module-level state for the batched rebuild scheduler.
+ * Lives outside the store to avoid Zustand re-render triggers.
+ */
+let _rebuildScheduled = false;
+let _rebuildStructural = false;
+let _rebuildRafId: number | null = null;
+
 export const useTopicStore = create<TopicStoreState>((set, get) => {
   const cfg = getConfig();
   return {
@@ -211,11 +230,12 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   ancestorPulse: cfg.ancestorPulse ?? true,
   showRootPath: cfg.showRootPath ?? false,
   topicFilter: cfg.topicFilter ?? "#",
+  graphStructureVersion: 0,
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
     const state = get();
     const root = state.root;
-    const node = ensureTopicPath(root, topic);
+    const { node, newNodes } = ensureTopicPathTracked(root, topic);
 
     node.messageCount += 1;
     node.lastPayload = payload;
@@ -254,16 +274,16 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
     }
 
-    const newTotalTopics = countNodes(root) - 1; // exclude root
-
+    // Update counters using the running count from ensureTopicPathTracked.
+    // This avoids a full recursive countNodes() traversal per message.
     set({
       totalMessages: state.totalMessages + 1,
-      totalTopics: newTotalTopics,
+      totalTopics: state.totalTopics + newNodes,
     });
 
-    // Rebuild graph immediately so the renderer gets fresh pulseTimestamp
-    // and pulseRate data without waiting for the next decayTick (500ms).
-    get().rebuildGraph();
+    // Schedule a batched graph rebuild instead of rebuilding immediately.
+    // Multiple messages within the same animation frame are coalesced into one rebuild.
+    get().scheduleRebuild(newNodes > 0);
   },
 
   setConnectionStatus: (status: ConnectionStatus, error?: string) => {
@@ -322,7 +342,43 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     set({ graphNodes, graphLinks });
   },
 
+  scheduleRebuild: (structural: boolean) => {
+    // Accumulate: if any call in the batch is structural, the flush is structural
+    if (structural) _rebuildStructural = true;
+
+    if (!_rebuildScheduled) {
+      _rebuildScheduled = true;
+      _rebuildRafId = requestAnimationFrame(() => {
+        _rebuildScheduled = false;
+        _rebuildRafId = null;
+        const wasStructural = _rebuildStructural;
+        _rebuildStructural = false;
+
+        const s = get();
+        const pulseDuration = s.emaTau * 1000;
+        const { graphNodes, graphLinks } = buildGraphData(
+          s.root, pulseDuration, s.showRootPath, s.topicFilter, s.ancestorPulse
+        );
+        set({
+          graphNodes,
+          graphLinks,
+          // Only bump version when structure actually changed (new/removed nodes)
+          graphStructureVersion: wasStructural
+            ? s.graphStructureVersion + 1
+            : s.graphStructureVersion,
+        });
+      });
+    }
+  },
+
   reset: () => {
+    // Cancel any pending scheduled rebuild
+    if (_rebuildRafId !== null) {
+      cancelAnimationFrame(_rebuildRafId);
+      _rebuildRafId = null;
+      _rebuildScheduled = false;
+      _rebuildStructural = false;
+    }
     set({
       root: createTopicNode("", ""),
       graphNodes: [],
@@ -331,6 +387,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       totalTopics: 0,
       sessionStart: Date.now(),
       errorMessage: null,
+      graphStructureVersion: 0,
     });
   },
 

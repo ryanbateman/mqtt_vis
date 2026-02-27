@@ -9,9 +9,11 @@ import { GraphRenderer } from "./GraphRenderer";
 export function TopicGraph() {
   const svgRef = useRef<SVGSVGElement>(null);
   const rendererRef = useRef<GraphRenderer | null>(null);
+  const lastStructureVersionRef = useRef<number>(-1);
 
   const graphNodes = useTopicStore((s) => s.graphNodes);
   const graphLinks = useTopicStore((s) => s.graphLinks);
+  const graphStructureVersion = useTopicStore((s) => s.graphStructureVersion);
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);
   const emaTau = useTopicStore((s) => s.emaTau);
   const repulsionStrength = useTopicStore((s) => s.repulsionStrength);
@@ -43,12 +45,21 @@ export function TopicGraph() {
     };
   }, []);
 
-  // Update the graph whenever nodes/links change (including clearing to empty)
+  // Update the graph whenever nodes/links change.
+  // Use graphStructureVersion to decide between full D3 data join (structural)
+  // and lightweight in-place data sync (rate-only).
   useEffect(() => {
-    if (rendererRef.current) {
+    if (!rendererRef.current) return;
+
+    if (graphStructureVersion !== lastStructureVersionRef.current) {
+      // Structural change: new nodes added or removed — full D3 data join
+      lastStructureVersionRef.current = graphStructureVersion;
       rendererRef.current.update(graphNodes, graphLinks);
+    } else {
+      // Rate-only change: update data in-place, skip data join
+      rendererRef.current.updateData(graphNodes, graphLinks);
     }
-  }, [graphNodes, graphLinks]);
+  }, [graphNodes, graphLinks, graphStructureVersion]);
 
   // Sync settings to the renderer
   useEffect(() => {

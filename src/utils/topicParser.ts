@@ -45,6 +45,35 @@ export function ensureTopicPath(root: TopicNode, topic: string): TopicNode {
 }
 
 /**
+ * Ensure a topic path exists in the tree, creating intermediate nodes as needed.
+ * Returns the leaf node and the number of newly created nodes.
+ * Use this instead of ensureTopicPath + countNodes for O(depth) instead of O(tree).
+ */
+export function ensureTopicPathTracked(
+  root: TopicNode,
+  topic: string
+): { node: TopicNode; newNodes: number } {
+  const segments = parseTopicSegments(topic);
+  let current = root;
+  let pathSoFar = "";
+  let newNodes = 0;
+
+  for (const segment of segments) {
+    pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+
+    let child = current.children.get(segment);
+    if (!child) {
+      child = createTopicNode(pathSoFar, segment);
+      current.children.set(segment, child);
+      newNodes++;
+    }
+    current = child;
+  }
+
+  return { node: current, newNodes };
+}
+
+/**
  * Flatten a topic tree into arrays of GraphNode-compatible objects and links.
  * Walks the tree depth-first.
  */

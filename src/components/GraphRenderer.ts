@@ -44,6 +44,12 @@ export class GraphRenderer {
   // Track which nodes have been pulsed to avoid re-triggering
   private lastPulseTimestamps = new Map<string, number>();
 
+  // Set of node IDs that are currently fading (need per-frame colour updates).
+  // Nodes are added when they pulse and removed when their fade completes.
+  private activeNodeIds = new Set<string>();
+  // Same for links — keyed by "sourceId-targetId"
+  private activeLinkKeys = new Set<string>();
+
   constructor(svgElement: SVGSVGElement) {
     this.svg = d3.select(svgElement);
     this.width = svgElement.clientWidth;
@@ -126,7 +132,10 @@ export class GraphRenderer {
       .on("tick", () => this.tick());
   }
 
-  /** Update the graph with new node/link data. */
+  /**
+   * Full structural update — performs D3 data join for nodes/links/labels.
+   * Call this when nodes are added or removed.
+   */
   update(nodes: GraphNode[], links: GraphLink[]): void {
     // Preserve existing node positions
     const oldPositions = new Map<string, { x: number; y: number; vx: number; vy: number }>();
@@ -169,15 +178,8 @@ export class GraphRenderer {
     this.simulation.alpha(0.3).restart();
 
     // Check for new pulses and spawn particles
-    for (const node of nodes) {
-      if (node.pulse) {
-        const lastPulse = this.lastPulseTimestamps.get(node.id) ?? 0;
-        if (node.pulseTimestamp > lastPulse) {
-          this.lastPulseTimestamps.set(node.id, node.pulseTimestamp);
-          this.spawnParticles(node);
-        }
-      }
-    }
+    this.checkPulses(nodes);
+    this.checkLinkPulses(links);
 
     // --- Update links ---
     this.linkElements = this.linkGroup
@@ -236,6 +238,84 @@ export class GraphRenderer {
 
     // Reapply depth-based label visibility for newly entered labels
     this.updateLabelVisibility();
+  }
+
+  /**
+   * Lightweight data-only update — syncs rate/pulse/radius data onto existing
+   * D3-bound nodes and links WITHOUT performing a data join (no enter/exit).
+   * Call this when only rates/pulses changed but no nodes were added or removed.
+   * The animation loop will pick up the new values on the next frame.
+   */
+  updateData(nodes: GraphNode[], links: GraphLink[]): void {
+    // Build a lookup map for O(1) access
+    const nodeMap = new Map<string, GraphNode>();
+    for (const n of nodes) nodeMap.set(n.id, n);
+
+    // Update bound data on existing D3 node elements in-place
+    this.simulation.nodes().forEach((simNode) => {
+      const fresh = nodeMap.get(simNode.id);
+      if (fresh) {
+        simNode.messageRate = fresh.messageRate;
+        simNode.aggregateRate = fresh.aggregateRate;
+        simNode.pulse = fresh.pulse;
+        simNode.pulseTimestamp = fresh.pulseTimestamp;
+        simNode.pulseRate = fresh.pulseRate;
+        simNode.radius = fresh.radius;
+      }
+    });
+
+    // Update radii on SVG elements (radius changes with rate)
+    this.nodeElements.attr("r", (d) => d.radius);
+
+    // Update collide force with current radii
+    (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
+      (d) => d.radius + this.collisionPadding
+    );
+
+    // Update link pulse data in-place
+    const linkKey = (l: GraphLink) => {
+      const src = typeof l.source === "string" ? l.source : (l.source as GraphNode).id;
+      const tgt = typeof l.target === "string" ? l.target : (l.target as GraphNode).id;
+      return `${src}-${tgt}`;
+    };
+    const linkMap = new Map<string, GraphLink>();
+    for (const l of links) linkMap.set(linkKey(l), l);
+
+    this.linkElements.each(function (d) {
+      const fresh = linkMap.get(linkKey(d));
+      if (fresh) {
+        d.pulse = fresh.pulse;
+        d.pulseTimestamp = fresh.pulseTimestamp;
+      }
+    });
+
+    // Check for new pulses and spawn particles
+    this.checkPulses(nodes);
+    this.checkLinkPulses(links);
+  }
+
+  /** Check nodes for new pulse timestamps, spawn particles, and mark as active. */
+  private checkPulses(nodes: GraphNode[]): void {
+    for (const node of nodes) {
+      if (node.pulse) {
+        const lastPulse = this.lastPulseTimestamps.get(node.id) ?? 0;
+        if (node.pulseTimestamp > lastPulse) {
+          this.lastPulseTimestamps.set(node.id, node.pulseTimestamp);
+          this.spawnParticles(node);
+        }
+        // Mark any pulsing node for per-frame colour updates
+        this.activeNodeIds.add(node.id);
+      }
+    }
+  }
+
+  /** Mark pulsing links as active so they get per-frame colour updates. */
+  private checkLinkPulses(links: GraphLink[]): void {
+    for (const link of links) {
+      if (link.pulse) {
+        this.activeLinkKeys.add(this.linkKey(link));
+      }
+    }
   }
 
   /** Position elements on each simulation tick. */
@@ -323,21 +403,26 @@ export class GraphRenderer {
 
   /**
    * Update node fill, stroke, glow, and stroke-opacity per frame.
-   * Uses time-based interpolation so ancestor nodes (and all nodes)
-   * fade smoothly from their pulse colour back to idle, respecting
-   * the Fade Time setting.
+   * Only processes nodes that are currently fading (in activeNodeIds set).
+   * Idle nodes are set once when their fade completes and then skipped.
    */
   private updateNodeColors(): void {
+    if (this.activeNodeIds.size === 0) return;
+
     const now = Date.now();
     const duration = this.fadeDuration;
+    const toRemove: string[] = [];
 
     this.nodeElements
+      .filter((d) => this.activeNodeIds.has(d.id))
       .attr("fill", (d) => {
         if (d.depth === 0) return "#ffffff";
         const age = now - d.pulseTimestamp;
         const t = Math.min(age / duration, 1);
-        if (t >= 1) return rateToColor(d.messageRate);
-        // Interpolate from warm (peak-rate snapshot) colour to idle (messageRate-only)
+        if (t >= 1) {
+          toRemove.push(d.id);
+          return rateToColor(d.messageRate);
+        }
         const warmColor = rateToColor(d.pulseRate);
         const idleColor = rateToColor(d.messageRate);
         return d3.interpolateRgb(warmColor, idleColor)(t);
@@ -360,6 +445,11 @@ export class GraphRenderer {
         const t = Math.min(age / duration, 1);
         return 1 - 0.4 * t; // 1.0 → 0.6
       });
+
+    // Remove completed fades from the active set
+    for (const id of toRemove) {
+      this.activeNodeIds.delete(id);
+    }
   }
 
   /** Create a drag behaviour for nodes. */
@@ -418,9 +508,10 @@ export class GraphRenderer {
     this.animationFrame = requestAnimationFrame(animate);
   }
 
-  /** Update particle positions and lifetimes. */
+  /** Update particle positions and lifetimes. Uses swap-and-pop to avoid O(n) splice. */
   private updateParticles(): void {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
+    let i = 0;
+    while (i < this.particles.length) {
       const p = this.particles[i];
       p.x += p.vx;
       p.y += p.vy;
@@ -429,41 +520,70 @@ export class GraphRenderer {
       p.life -= 0.02;
 
       if (p.life <= 0) {
-        this.particles.splice(i, 1);
+        // Swap with last element and pop — O(1) removal
+        this.particles[i] = this.particles[this.particles.length - 1];
+        this.particles.pop();
+        // Don't increment i — we need to process the swapped element
+      } else {
+        i++;
       }
     }
   }
 
-  /** Render particles as SVG circles. */
+  /** Render particles as SVG circles using direct DOM manipulation. */
   private renderParticles(): void {
-    const circles = this.particleGroup
-      .selectAll<SVGCircleElement, Particle>("circle")
-      .data(this.particles);
+    const group = this.particleGroup.node();
+    if (!group) return;
 
-    circles.exit().remove();
+    // Remove excess SVG elements
+    while (group.childNodes.length > this.particles.length) {
+      group.removeChild(group.lastChild!);
+    }
 
-    circles
-      .enter()
-      .append("circle")
-      .merge(circles)
-      .attr("cx", (d) => d.x)
-      .attr("cy", (d) => d.y)
-      .attr("r", (d) => d.radius * d.life)
-      .attr("fill", (d) => d.color)
-      .attr("opacity", (d) => d.life * 0.8);
+    // Add missing SVG elements
+    while (group.childNodes.length < this.particles.length) {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      group.appendChild(circle);
+    }
+
+    // Update all particle attributes directly (no D3 data join overhead)
+    const children = group.childNodes;
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      const el = children[i] as SVGCircleElement;
+      el.setAttribute("cx", String(p.x));
+      el.setAttribute("cy", String(p.y));
+      el.setAttribute("r", String(p.radius * p.life));
+      el.setAttribute("fill", p.color);
+      el.setAttribute("opacity", String(p.life * 0.8));
+    }
   }
 
   /** Update link colours based on pulse state — fades from white to grey. */
   private updateLinkColors(): void {
+    if (this.activeLinkKeys.size === 0) return;
+
     const now = Date.now();
     const duration = this.fadeDuration;
     const IDLE_LINK_COLOR = "#6b7280";
+    const toRemove: string[] = [];
 
     this.linkElements
+      .filter((d) => {
+        const key = this.linkKey(d);
+        return this.activeLinkKeys.has(key);
+      })
       .attr("stroke", (d) => {
-        if (!d.pulse) return IDLE_LINK_COLOR;
+        if (!d.pulse) {
+          toRemove.push(this.linkKey(d));
+          return IDLE_LINK_COLOR;
+        }
         const age = now - (d.pulseTimestamp ?? 0);
         const t = Math.min(age / duration, 1);
+        if (t >= 1) {
+          toRemove.push(this.linkKey(d));
+          return IDLE_LINK_COLOR;
+        }
         return d3.interpolateRgb("#ffffff", IDLE_LINK_COLOR)(t);
       })
       .attr("stroke-opacity", (d) => {
@@ -472,6 +592,17 @@ export class GraphRenderer {
         const t = Math.min(age / duration, 1);
         return 1 - 0.2 * t; // 1.0 → 0.8
       });
+
+    for (const key of toRemove) {
+      this.activeLinkKeys.delete(key);
+    }
+  }
+
+  /** Generate a stable key for a link (works whether source/target are strings or objects). */
+  private linkKey(d: GraphLink): string {
+    const src = typeof d.source === "string" ? d.source : (d.source as GraphNode).id;
+    const tgt = typeof d.target === "string" ? d.target : (d.target as GraphNode).id;
+    return `${src}-${tgt}`;
   }
 
   /** Handle container resize. */
