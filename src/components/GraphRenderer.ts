@@ -128,7 +128,7 @@ export class GraphRenderer {
       .force("center", d3.forceCenter(this.width / 2, this.height / 2))
       .force(
         "collide",
-        d3.forceCollide<GraphNode>().radius((d) => d.radius + this.collisionPadding)
+        d3.forceCollide<GraphNode>().radius((d) => d.displayRadius + this.collisionPadding)
       )
       .alphaDecay(0.01)
       .on("tick", () => this.tick());
@@ -140,26 +140,28 @@ export class GraphRenderer {
    */
   update(nodes: GraphNode[], links: GraphLink[]): void {
     // Preserve existing node positions
-    const oldPositions = new Map<string, { x: number; y: number; vx: number; vy: number }>();
+    const oldState = new Map<string, { x: number; y: number; vx: number; vy: number; displayRadius: number }>();
     this.simulation.nodes().forEach((n) => {
       if (n.x !== undefined && n.y !== undefined) {
-        oldPositions.set(n.id, {
+        oldState.set(n.id, {
           x: n.x,
           y: n.y,
           vx: n.vx ?? 0,
           vy: n.vy ?? 0,
+          displayRadius: n.displayRadius,
         });
       }
     });
 
-    // Apply preserved positions to new nodes
+    // Apply preserved positions and displayRadius to existing nodes
     for (const node of nodes) {
-      const old = oldPositions.get(node.id);
+      const old = oldState.get(node.id);
       if (old) {
         node.x = old.x;
         node.y = old.y;
         node.vx = old.vx;
         node.vy = old.vy;
+        node.displayRadius = old.displayRadius;
       } else {
         // New nodes: place near center with some jitter
         node.x = this.width / 2 + (Math.random() - 0.5) * 100;
@@ -171,9 +173,9 @@ export class GraphRenderer {
     this.simulation.nodes(nodes);
     (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>).links(links);
 
-    // Update collide force with current radii
+    // Update collide force with current displayed radii
     (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
-      (d) => d.radius + this.collisionPadding
+      (d) => d.displayRadius + this.collisionPadding
     );
 
     // Reheat simulation slightly for new nodes
@@ -213,11 +215,10 @@ export class GraphRenderer {
 
     this.nodeElements = entered.merge(this.nodeElements);
 
-    // Update structural node properties (size, stroke-width).
-    // Visual properties (fill, stroke, glow, opacity) are handled per-frame
-    // by updateNodeColors() in the animation loop for smooth fading.
+    // Initialise displayRadius for new nodes; existing nodes keep their current displayRadius.
+    // The animation loop will smoothly lerp displayRadius toward radius.
     this.nodeElements
-      .attr("r", (d) => d.radius)
+      .attr("r", (d) => d.displayRadius)
       .attr("stroke-width", (d) => (d.depth === 0 ? 2.5 : 2));
 
     // --- Update labels ---
@@ -253,7 +254,8 @@ export class GraphRenderer {
     const nodeMap = new Map<string, GraphNode>();
     for (const n of nodes) nodeMap.set(n.id, n);
 
-    // Update bound data on existing D3 node elements in-place
+    // Update bound data on existing D3 node elements in-place.
+    // Keep displayRadius unchanged — the animation loop will smoothly lerp it.
     this.simulation.nodes().forEach((simNode) => {
       const fresh = nodeMap.get(simNode.id);
       if (fresh) {
@@ -263,16 +265,9 @@ export class GraphRenderer {
         simNode.pulseTimestamp = fresh.pulseTimestamp;
         simNode.pulseRate = fresh.pulseRate;
         simNode.radius = fresh.radius;
+        // displayRadius is NOT updated here — the animation loop lerps it
       }
     });
-
-    // Update radii on SVG elements (radius changes with rate)
-    this.nodeElements.attr("r", (d) => d.radius);
-
-    // Update collide force with current radii
-    (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
-      (d) => d.radius + this.collisionPadding
-    );
 
     // Update link pulse data in-place
     const linkKey = (l: GraphLink) => {
@@ -338,7 +333,7 @@ export class GraphRenderer {
 
     this.labelElements
       .attr("x", (d) => d.x ?? 0)
-      .attr("y", (d) => (d.y ?? 0) + d.radius + labelGap)
+      .attr("y", (d) => (d.y ?? 0) + d.displayRadius + labelGap)
       .attr("font-size", `${fontSize}px`);
   }
 
@@ -409,7 +404,7 @@ export class GraphRenderer {
   setCollisionPadding(value: number): void {
     this.collisionPadding = value;
     (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
-      (d) => d.radius + value
+      (d) => d.displayRadius + value
     );
     this.simulation.alpha(0.3).restart();
   }
@@ -519,11 +514,45 @@ export class GraphRenderer {
     }
   }
 
-  /** Animation loop for particles, node colours, and link colours. */
+  /**
+   * Smoothly interpolate displayRadius toward target radius for all nodes.
+   * Uses an exponential lerp — each frame moves ~12% of the remaining distance.
+   * At 60fps this gives a smooth ~150ms transition feel.
+   */
+  private updateNodeSizes(): void {
+    const LERP_FACTOR = 0.12;
+    const SNAP_THRESHOLD = 0.3; // snap when within 0.3px to avoid endless micro-updates
+    let anyChanged = false;
+
+    this.simulation.nodes().forEach((d) => {
+      const diff = d.radius - d.displayRadius;
+      if (Math.abs(diff) < SNAP_THRESHOLD) {
+        if (d.displayRadius !== d.radius) {
+          d.displayRadius = d.radius;
+          anyChanged = true;
+        }
+        return;
+      }
+      d.displayRadius += diff * LERP_FACTOR;
+      anyChanged = true;
+    });
+
+    if (anyChanged) {
+      this.nodeElements.attr("r", (d) => d.displayRadius);
+
+      // Keep collision force in sync with displayed size
+      (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
+        (d) => d.displayRadius + this.collisionPadding
+      );
+    }
+  }
+
+  /** Animation loop for particles, node colours, link colours, and smooth sizing. */
   private startAnimationLoop(): void {
     const animate = () => {
       this.updateParticles();
       this.renderParticles();
+      this.updateNodeSizes();
       this.updateNodeColors();
       this.updateLinkColors();
       this.animationFrame = requestAnimationFrame(animate);
@@ -650,7 +679,7 @@ export class GraphRenderer {
     for (const n of nodes) {
       const x = n.x ?? 0;
       const y = n.y ?? 0;
-      const r = n.radius;
+      const r = n.displayRadius;
       if (x - r < minX) minX = x - r;
       if (y - r < minY) minY = y - r;
       if (x + r > maxX) maxX = x + r;

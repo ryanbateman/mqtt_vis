@@ -28,8 +28,10 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
   /** Display label (segment name). */
   label: string;
-  /** Computed radius from aggregate rate. */
+  /** Target radius from aggregate rate (lerp target). */
   radius: number;
+  /** Current displayed radius (smoothly interpolated toward radius). */
+  displayRadius: number;
   /** Current message rate (direct). */
   messageRate: number;
   /** Aggregate rate (self + descendants). */

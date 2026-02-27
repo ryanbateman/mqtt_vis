@@ -173,10 +173,12 @@ function buildGraphData(
 
   const graphNodes: GraphNode[] = flat.map((f) => {
     const tn = nodeMap.get(f.nodeId)!;
+    const r = calculateRadius(ancestorPulse ? tn.aggregateRate : tn.messageRate);
     return {
       id: f.nodeId,
       label: f.label,
-      radius: calculateRadius(ancestorPulse ? tn.aggregateRate : tn.messageRate),
+      radius: r,
+      displayRadius: r,
       messageRate: tn.messageRate,
       aggregateRate: tn.aggregateRate,
       depth: f.depth,
