@@ -15,6 +15,19 @@ interface ConnectionPanelProps {
   errorMessage: string | null;
 }
 
+/** Read URL query params once on load (highest precedence for broker/topic). */
+function getUrlParams(): { broker?: string; topic?: string } {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      broker: params.get("broker") ?? undefined,
+      topic: params.get("topic") ?? undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function ConnectionPanel({
   onConnect,
   onDisconnect,
@@ -23,15 +36,17 @@ export function ConnectionPanel({
 }: ConnectionPanelProps) {
   const cfg = getConfig();
   const saved = loadSavedConnection();
+  const urlParams = useMemo(() => getUrlParams(), []);
 
   const [collapsed, setCollapsed] = useState(cfg.connectionCollapsed ?? false);
-  const [brokerUrl, setBrokerUrl] = useState(saved.brokerUrl ?? cfg.brokerUrl ?? "wss://broker.hivemq.com:8884/mqtt");
-  const [topicFilter, setTopicFilter] = useState(saved.topicFilter ?? cfg.topicFilter ?? "robot/#");
+  const [brokerUrl, setBrokerUrl] = useState(urlParams.broker ?? saved.brokerUrl ?? cfg.brokerUrl ?? "wss://broker.hivemq.com:8884/mqtt");
+  const [topicFilter, setTopicFilter] = useState(urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? "robot/#");
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
   const [showAuth, setShowAuth] = useState(false);
   const [clearOnDisconnect, setClearOnDisconnect] = useState(false);
   const [autoconnect, setAutoconnect] = useState(saved.autoconnect ?? cfg.autoconnect ?? false);
+  const [copied, setCopied] = useState(false);
 
   // Client ID: config can force a fixed ID, otherwise random by default
   const configForcesClientId = typeof cfg.clientId === "string" && cfg.clientId.length > 0;
@@ -57,6 +72,20 @@ export function ConnectionPanel({
       localStorage.setItem("mqtt_connection", JSON.stringify(data));
     } catch { /* ignore */ }
   }, []);
+
+  const handleCopyShareLink = useCallback(() => {
+    const url = new URL(window.location.href);
+    // Clear any existing params and set only broker + topic
+    url.search = "";
+    url.searchParams.set("broker", brokerUrl);
+    url.searchParams.set("topic", topicFilter);
+    navigator.clipboard.writeText(url.toString()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {
+      // Clipboard API may fail in insecure contexts — ignore silently
+    });
+  }, [brokerUrl, topicFilter]);
 
   const handleSubmit = useCallback(
     (e: FormEvent) => {
@@ -259,6 +288,17 @@ export function ConnectionPanel({
               />
               <span className="text-xs text-gray-400">Clear graph on disconnect</span>
             </label>
+
+            <button
+              type="button"
+              onClick={handleCopyShareLink}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              {copied ? "Copied!" : "Copy connection share link"}
+            </button>
           </form>
 
           {errorMessage && (
