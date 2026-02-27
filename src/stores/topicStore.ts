@@ -4,6 +4,7 @@ import type {
   ConnectionStatus,
   GraphNode,
   GraphLink,
+  LabelMode,
 } from "../types";
 import {
   createTopicNode,
@@ -49,6 +50,8 @@ interface TopicStoreState {
   emaTau: number;
   /** Controls how many tree depths of labels are visible at a given zoom level. */
   labelDepthFactor: number;
+  /** How label visibility is determined: 'zoom' (fade by zoom level) or 'depth' (hard cutoff by tree depth). */
+  labelMode: LabelMode;
 
   // --- Simulation parameters ---
   /** Repulsion strength between nodes (negative = repel). */
@@ -101,6 +104,8 @@ interface TopicStoreState {
   setEmaTau: (tau: number) => void;
   /** Update the label depth factor. */
   setLabelDepthFactor: (factor: number) => void;
+  /** Update the label visibility mode. */
+  setLabelMode: (mode: LabelMode) => void;
   /** Update simulation parameters. */
   setRepulsionStrength: (value: number) => void;
   setLinkDistance: (value: number) => void;
@@ -222,6 +227,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   errorMessage: null,
   emaTau: cfg.emaTau ?? DEFAULT_EMA_TAU,
   labelDepthFactor: cfg.labelDepthFactor ?? 5,
+  labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
   repulsionStrength: cfg.repulsionStrength ?? -350,
   linkDistance: cfg.linkDistance ?? 155,
   linkStrength: cfg.linkStrength ?? 0.5,
@@ -397,6 +403,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
 
   setLabelDepthFactor: (factor: number) => {
     set({ labelDepthFactor: factor });
+  },
+  setLabelMode: (mode: LabelMode) => {
+    set({ labelMode: mode });
   },
 
   setRepulsionStrength: (value: number) => {

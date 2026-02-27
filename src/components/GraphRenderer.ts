@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import type { GraphNode, GraphLink, Particle } from "../types";
+import type { GraphNode, GraphLink, Particle, LabelMode } from "../types";
 import { rateToColor, pulseColor, IDLE_STROKE } from "../utils/colorScale";
 
 /** Maximum number of particles alive at once. */
@@ -38,6 +38,7 @@ export class GraphRenderer {
   private height = 0;
   private currentZoomScale = 1;
   private labelDepthFactor = DEFAULT_LABEL_DEPTH_FACTOR;
+  private labelMode: LabelMode = "zoom";
   private collisionPadding = 4;
   private fadeDuration = 5000;
 
@@ -346,21 +347,31 @@ export class GraphRenderer {
    * Uses a 4-level fade band for smooth gradation.
    */
   private updateLabelVisibility(): void {
-    // At zoom=1.0, maxVisibleDepth = labelDepthFactor.
-    // Zooming out shrinks it; zooming in grows it.
-    const maxDepth = this.currentZoomScale * this.labelDepthFactor;
-    const FADE_BAND = 4;
-
-    this.labelElements.attr("opacity", (d) => {
-      if (d.depth >= maxDepth) return 0;                  // hidden
-      if (d.depth <= maxDepth - FADE_BAND) return 1;      // fully visible
-      return (maxDepth - d.depth) / FADE_BAND;            // smooth fade 0→1
-    });
+    if (this.labelMode === "depth") {
+      // Hard cutoff by tree depth — not affected by zoom level
+      const maxDepth = this.labelDepthFactor;
+      this.labelElements.attr("opacity", (d) => (d.depth <= maxDepth ? 1 : 0));
+    } else {
+      // Zoom mode: deeper labels fade out when zoomed out
+      const maxDepth = this.currentZoomScale * this.labelDepthFactor;
+      const FADE_BAND = 4;
+      this.labelElements.attr("opacity", (d) => {
+        if (d.depth >= maxDepth) return 0;
+        if (d.depth <= maxDepth - FADE_BAND) return 1;
+        return (maxDepth - d.depth) / FADE_BAND;
+      });
+    }
   }
 
   /** Update the label depth factor and reapply visibility. */
   setLabelDepthFactor(factor: number): void {
     this.labelDepthFactor = factor;
+    this.updateLabelVisibility();
+  }
+
+  /** Update the label visibility mode and reapply visibility. */
+  setLabelMode(mode: LabelMode): void {
+    this.labelMode = mode;
     this.updateLabelVisibility();
   }
 

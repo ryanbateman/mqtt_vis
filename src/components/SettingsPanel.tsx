@@ -151,6 +151,8 @@ export function SettingsPanel() {
   const setEmaTau = useTopicStore((s) => s.setEmaTau);
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);
   const setLabelDepthFactor = useTopicStore((s) => s.setLabelDepthFactor);
+  const labelMode = useTopicStore((s) => s.labelMode);
+  const setLabelMode = useTopicStore((s) => s.setLabelMode);
   const repulsionStrength = useTopicStore((s) => s.repulsionStrength);
   const setRepulsionStrength = useTopicStore((s) => s.setRepulsionStrength);
   const linkDistance = useTopicStore((s) => s.linkDistance);
@@ -201,12 +203,50 @@ export function SettingsPanel() {
             maxLabel="Slow"
             onChange={setEmaTau}
           />
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-medium text-gray-400">Label Mode</label>
+                <InfoTooltip text={labelMode === "zoom"
+                  ? "Labels fade in/out based on zoom level and depth"
+                  : "Labels shown/hidden by a fixed tree depth cutoff"
+                } />
+              </div>
+              <div className="flex rounded overflow-hidden border border-gray-600">
+                <button
+                  type="button"
+                  onClick={() => setLabelMode("zoom")}
+                  className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    labelMode === "zoom"
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  Zoom
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLabelMode("depth")}
+                  className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    labelMode === "depth"
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  Depth
+                </button>
+              </div>
+            </div>
+          </div>
           <SliderRow
-            label="Label Depth"
-            tooltip="How many levels of labels stay visible when zoomed out"
+            label={labelMode === "zoom" ? "Label Depth" : "Max Label Depth"}
+            tooltip={labelMode === "zoom"
+              ? "How many levels of labels stay visible when zoomed out"
+              : "Labels are hidden below this tree depth"
+            }
             value={labelDepthFactor}
             displayValue={`${labelDepthFactor}`}
-            min={2}
+            min={labelMode === "zoom" ? 2 : 1}
             max={20}
             step={1}
             minLabel="Fewer"

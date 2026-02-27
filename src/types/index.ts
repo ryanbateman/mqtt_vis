@@ -54,6 +54,9 @@ export interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   pulseTimestamp?: number;
 }
 
+/** How label visibility is determined. */
+export type LabelMode = "zoom" | "depth";
+
 /** Connection status of the MQTT client. */
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
