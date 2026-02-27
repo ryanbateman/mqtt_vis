@@ -22,6 +22,10 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID. Can be locked to a fixed value via `config.json`.
 - **Connection persistence** — broker URL, topic filter, username, client ID, and autoconnect preference are saved to localStorage
 - **Clear on disconnect** — optional checkbox to reset the graph when disconnecting
+- **Shareable links** — copy a URL with broker and topic filter pre-filled as query params; recipients see the connection fields pre-populated
+- **PNG export** — export the full graph as a PNG image (auto-computed bounding box, 2x resolution, dark background)
+- **Labels toggle** — turn labels on or off entirely; label settings (mode, depth) are grouped in a collapsible sub-section
+- **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
 
@@ -57,6 +61,8 @@ The connection panel is collapsible — click the header to toggle. The status i
 | **Authentication** | Optional username/password (click "Show authentication") |
 | **Auto-connect on load** | When checked, the app connects automatically on page load using the current settings |
 | **Clear graph on disconnect** | Reset the graph when disconnecting |
+| **Copy connection share link** | Copies a URL with the current broker and topic filter as query params to the clipboard |
+| **Export graph as PNG** | Downloads the full graph as a PNG image (`mqtt-vis-{timestamp}.png`) |
 
 ### Settings Panel (top-right)
 
@@ -64,6 +70,7 @@ The settings panel is collapsible — click the header to toggle.
 
 **Appearance**
 - **Fade Time** — how long messages affect node size and colour (EMA time constant)
+- **Labels** — toggle labels on or off entirely. When on, the following sub-settings appear:
 - **Label Mode** — toggle between two label visibility strategies:
   - **Zoom** — labels fade in/out based on zoom level and tree depth (deeper labels disappear first when zoomed out)
   - **Depth** — labels are shown or hidden by a fixed tree depth cutoff, independent of zoom level
@@ -103,6 +110,7 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `password` | string | `""` | Default password (**see security warning above**) |
 | `autoconnect` | boolean | `false` | Connect automatically on page load |
 | `emaTau` | number | `5` | EMA time constant in seconds |
+| `showLabels` | boolean | `true` | Show or hide node labels |
 | `labelDepthFactor` | number | `5` | Label depth visibility factor |
 | `labelMode` | `"zoom"` \| `"depth"` | `"zoom"` | Label visibility mode: zoom-based fade or fixed depth cutoff |
 | `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
@@ -119,9 +127,10 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 
 For any given setting, the resolution order is:
 
-1. **localStorage** (user's previous session) — highest priority
-2. **config.json** (deployment defaults)
-3. **Hardcoded defaults** — lowest priority
+1. **URL query params** (`?broker=...&topic=...`) — highest priority, one-time override for `brokerUrl` and `topicFilter` only (not persisted)
+2. **localStorage** (user's previous session)
+3. **config.json** (deployment defaults)
+4. **Hardcoded defaults** — lowest priority
 
 **Exception:** when `clientId` is set to a non-null string in `config.json`, it is always used regardless of localStorage. This is intended for deployments that require a specific client identity.
 
@@ -201,6 +210,8 @@ Radius follows a logarithmic scale to prevent high-frequency topics from dominat
 ```
 radius = MIN_R + (MAX_R - MIN_R) * (log(1 + aggregateRate) / log(1 + MAX_RATE))
 ```
+
+Size changes are smoothly interpolated via an exponential lerp in the 60fps animation loop, preventing jumpy resizing on message bursts or decay ticks.
 
 ### D3 + React Integration
 
