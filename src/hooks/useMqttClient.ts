@@ -89,6 +89,7 @@ export function useMqttClient() {
 /** Saved connection data includes ConnectionParams fields plus UI-only state. */
 export type SavedConnection = Partial<ConnectionParams> & {
   customClientId?: boolean;
+  autoconnect?: boolean;
 };
 
 /**

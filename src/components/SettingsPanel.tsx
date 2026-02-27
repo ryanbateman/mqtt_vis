@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useTopicStore } from "../stores/topicStore";
+import { getConfig } from "../utils/config";
 
 /** Small info icon with hover tooltip rendered via portal to avoid clipping. */
 function InfoTooltip({ text }: { text: string }) {
@@ -144,7 +145,8 @@ function Section({
  * grouped sections and info-icon tooltips.
  */
 export function SettingsPanel() {
-  const [collapsed, setCollapsed] = useState(false);
+  const cfg = getConfig();
+  const [collapsed, setCollapsed] = useState(cfg.settingsCollapsed ?? false);
   const emaTau = useTopicStore((s) => s.emaTau);
   const setEmaTau = useTopicStore((s) => s.setEmaTau);
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);

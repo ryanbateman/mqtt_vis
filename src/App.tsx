@@ -1,13 +1,52 @@
-import { useMqttClient } from "./hooks/useMqttClient";
+import { useEffect, useRef } from "react";
+import { useMqttClient, loadSavedConnection } from "./hooks/useMqttClient";
 import { useTopicStore } from "./stores/topicStore";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { getConfig } from "./utils/config";
 
 function App() {
   const { connect, disconnect, connectionStatus } = useMqttClient();
   const errorMessage = useTopicStore((s) => s.errorMessage);
+  const autoconnectFired = useRef(false);
+
+  // Autoconnect on initial mount if enabled
+  useEffect(() => {
+    if (autoconnectFired.current) return;
+    autoconnectFired.current = true;
+
+    const cfg = getConfig();
+    const saved = loadSavedConnection();
+    const shouldAutoconnect = saved.autoconnect ?? cfg.autoconnect ?? false;
+
+    if (shouldAutoconnect) {
+      const brokerUrl = saved.brokerUrl ?? cfg.brokerUrl ?? "wss://broker.hivemq.com:8884/mqtt";
+      const topicFilter = saved.topicFilter ?? cfg.topicFilter ?? "robot/#";
+      const username = saved.username ?? cfg.username ?? "";
+      const password = cfg.password ?? "";
+
+      // Determine client ID: config forced > localStorage > random
+      const configForcesClientId = typeof cfg.clientId === "string" && cfg.clientId.length > 0;
+      let clientId: string;
+      if (configForcesClientId) {
+        clientId = cfg.clientId as string;
+      } else if (saved.customClientId && saved.clientId) {
+        clientId = saved.clientId;
+      } else {
+        clientId = "mqtt_visualiser_" + Math.random().toString(16).slice(2, 10);
+      }
+
+      connect({
+        brokerUrl,
+        topicFilter,
+        clientId,
+        username: username || undefined,
+        password: password || undefined,
+      });
+    }
+  }, [connect]);
 
   return (
     <div className="relative w-full h-screen bg-slate-900">

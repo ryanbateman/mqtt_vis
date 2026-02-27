@@ -1,0 +1,24 @@
+{
+  "_passwordWarning": "Passwords in this file are plaintext and visible to anyone who can access the hosted site. Do not include sensitive credentials here unless the deployment is private.",
+
+  "brokerUrl": "wss://broker.hivemq.com:8884/mqtt",
+  "topicFilter": "robot/#",
+  "clientId": null,
+  "username": "",
+  "password": "",
+  "autoconnect": false,
+
+  "emaTau": 5,
+  "labelDepthFactor": 5,
+  "ancestorPulse": true,
+  "showRootPath": false,
+
+  "repulsionStrength": -350,
+  "linkDistance": 155,
+  "linkStrength": 0.5,
+  "collisionPadding": 13,
+  "alphaDecay": 0.01,
+
+  "settingsCollapsed": false,
+  "connectionCollapsed": false
+}

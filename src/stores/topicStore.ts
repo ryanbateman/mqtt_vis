@@ -16,6 +16,7 @@ import {
   findNode,
 } from "../utils/topicParser";
 import { calculateRadius } from "../utils/sizeCalculator";
+import { getConfig } from "../utils/config";
 
 /** Default EMA time constant in seconds. Controls how quickly rates respond. */
 const DEFAULT_EMA_TAU = 5;
@@ -167,7 +168,9 @@ function buildGraphData(
   return { graphNodes, graphLinks };
 }
 
-export const useTopicStore = create<TopicStoreState>((set, get) => ({
+export const useTopicStore = create<TopicStoreState>((set, get) => {
+  const cfg = getConfig();
+  return {
   root: createTopicNode("", ""),
   graphNodes: [],
   graphLinks: [],
@@ -176,16 +179,16 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
   totalTopics: 0,
   sessionStart: Date.now(),
   errorMessage: null,
-  emaTau: DEFAULT_EMA_TAU,
-  labelDepthFactor: 5,
-  repulsionStrength: -350,
-  linkDistance: 155,
-  linkStrength: 0.5,
-  collisionPadding: 13,
-  alphaDecay: 0.01,
-  ancestorPulse: true,
-  showRootPath: false,
-  topicFilter: "#",
+  emaTau: cfg.emaTau ?? DEFAULT_EMA_TAU,
+  labelDepthFactor: cfg.labelDepthFactor ?? 5,
+  repulsionStrength: cfg.repulsionStrength ?? -350,
+  linkDistance: cfg.linkDistance ?? 155,
+  linkStrength: cfg.linkStrength ?? 0.5,
+  collisionPadding: cfg.collisionPadding ?? 13,
+  alphaDecay: cfg.alphaDecay ?? 0.01,
+  ancestorPulse: cfg.ancestorPulse ?? true,
+  showRootPath: cfg.showRootPath ?? false,
+  topicFilter: cfg.topicFilter ?? "#",
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
     const state = get();
@@ -329,7 +332,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => ({
   setTopicFilter: (filter: string) => {
     set({ topicFilter: filter });
   },
-}));
+};});
 
 /** Start the periodic decay timer. Returns a cleanup function. */
 export function startDecayTimer(): () => void {
