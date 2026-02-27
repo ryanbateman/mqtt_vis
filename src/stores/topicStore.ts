@@ -24,8 +24,10 @@ const DEFAULT_EMA_TAU = 5;
 /** Decay interval in milliseconds. */
 const DECAY_INTERVAL = 500;
 
-/** Base pulse duration in ms. Scales proportionally with EMA tau. */
-const BASE_PULSE_DURATION = 600;
+/**
+ * Pulse duration equals emaTau in milliseconds.
+ * This means "Fade Time = 5s" produces a 5-second fade window.
+ */
 
 interface TopicStoreState {
   /** Root of the topic tree. */
@@ -129,7 +131,8 @@ function buildGraphData(
   root: TopicNode,
   pulseDuration: number,
   showRootPath: boolean,
-  topicFilter: string
+  topicFilter: string,
+  ancestorPulse: boolean
 ): {
   graphNodes: GraphNode[];
   graphLinks: GraphLink[];
@@ -149,21 +152,40 @@ function buildGraphData(
     return {
       id: f.nodeId,
       label: f.label,
-      radius: calculateRadius(tn.aggregateRate),
+      radius: calculateRadius(ancestorPulse ? tn.aggregateRate : tn.messageRate),
       messageRate: tn.messageRate,
       aggregateRate: tn.aggregateRate,
       depth: f.depth,
       pulse: now - tn.lastTimestamp < pulseDuration,
       pulseTimestamp: tn.lastTimestamp,
+      pulseRate: tn.pulseRate,
     };
   });
 
+  // Build a map of node pulse state for link lookup
+  const nodePulseMap = new Map<string, { pulse: boolean; pulseTimestamp: number }>();
+  for (const gn of graphNodes) {
+    nodePulseMap.set(gn.id, { pulse: gn.pulse, pulseTimestamp: gn.pulseTimestamp });
+  }
+
   const graphLinks: GraphLink[] = flat
     .filter((f) => f.parentId !== null)
-    .map((f) => ({
-      source: f.parentId!,
-      target: f.nodeId,
-    }));
+    .map((f) => {
+      const src = nodePulseMap.get(f.parentId!);
+      const tgt = nodePulseMap.get(f.nodeId);
+      // Both endpoints must be pulsing for the link to pulse.
+      // This ensures only links on the ancestor chain (root → leaf) light up,
+      // not sibling branches that happen to share a pulsing ancestor.
+      const bothPulsing = (src?.pulse ?? false) && (tgt?.pulse ?? false);
+      return {
+        source: f.parentId!,
+        target: f.nodeId,
+        pulse: bothPulsing,
+        pulseTimestamp: bothPulsing
+          ? Math.max(src?.pulseTimestamp ?? 0, tgt?.pulseTimestamp ?? 0)
+          : 0,
+      };
+    });
 
   return { graphNodes, graphLinks };
 }
@@ -204,6 +226,11 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // The EMA decay will smooth this out over subsequent ticks
     node.messageRate += 1;
 
+    // Snapshot the peak rate at pulse time for fade colour interpolation.
+    // This value persists so the renderer can fade from a meaningful warm
+    // colour even after EMA decay has pulled messageRate back toward zero.
+    node.pulseRate = node.messageRate;
+
     // Propagate pulse timestamp up the ancestor chain if enabled
     if (state.ancestorPulse) {
       const now = node.lastTimestamp;
@@ -218,6 +245,11 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         }
         if (ancestor) {
           ancestor.lastTimestamp = now;
+          // Snapshot aggregate rate for ancestor fade colour.
+          // Use max(..., 1) because bottom-up aggregation hasn't run yet
+          // for this tick, so aggregateRate may be stale. The 1 guarantees
+          // at least a visible warm colour ("something happened in my subtree").
+          ancestor.pulseRate = Math.max(ancestor.aggregateRate, 1);
         }
       }
     }
@@ -228,6 +260,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       totalMessages: state.totalMessages + 1,
       totalTopics: newTotalTopics,
     });
+
+    // Rebuild graph immediately so the renderer gets fresh pulseTimestamp
+    // and pulseRate data without waiting for the next decayTick (500ms).
+    get().rebuildGraph();
   },
 
   setConnectionStatus: (status: ConnectionStatus, error?: string) => {
@@ -267,21 +303,21 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
 
     decayNode(root);
 
-    // Pulse duration scales with tau: longer fade = longer pulse visibility
-    const pulseDuration = BASE_PULSE_DURATION * (state.emaTau / DEFAULT_EMA_TAU);
+    // Pulse duration equals tau in milliseconds — "Fade Time = 5s" means 5s fade
+    const pulseDuration = state.emaTau * 1000;
 
     // Rebuild flat graph data (decay always runs on full tree, but rendering may skip prefix)
     const { graphNodes, graphLinks } = buildGraphData(
-      root, pulseDuration, state.showRootPath, state.topicFilter
+      root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse
     );
     set({ graphNodes, graphLinks });
   },
 
   rebuildGraph: () => {
     const state = get();
-    const pulseDuration = BASE_PULSE_DURATION * (state.emaTau / DEFAULT_EMA_TAU);
+    const pulseDuration = state.emaTau * 1000;
     const { graphNodes, graphLinks } = buildGraphData(
-      state.root, pulseDuration, state.showRootPath, state.topicFilter
+      state.root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse
     );
     set({ graphNodes, graphLinks });
   },

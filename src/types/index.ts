@@ -18,6 +18,8 @@ export interface TopicNode {
   lastTimestamp: number;
   /** QoS of the last message. */
   lastQoS: 0 | 1 | 2;
+  /** Snapshot of the aggregate rate at the moment this node was last pulsed. */
+  pulseRate: number;
 }
 
 /** A flat node for D3 force simulation. */
@@ -38,12 +40,18 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   pulse: boolean;
   /** Timestamp of the last pulse trigger. */
   pulseTimestamp: number;
+  /** Snapshot of the peak rate at pulse time, used for fade colour interpolation. */
+  pulseRate: number;
 }
 
 /** A link between parent and child for D3 force simulation. */
 export interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   source: string | GraphNode;
   target: string | GraphNode;
+  /** Whether either endpoint is currently pulsing. */
+  pulse?: boolean;
+  /** Most recent pulse timestamp of either endpoint. */
+  pulseTimestamp?: number;
 }
 
 /** Connection status of the MQTT client. */

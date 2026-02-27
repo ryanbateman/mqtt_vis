@@ -13,6 +13,7 @@ export function TopicGraph() {
   const graphNodes = useTopicStore((s) => s.graphNodes);
   const graphLinks = useTopicStore((s) => s.graphLinks);
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);
+  const emaTau = useTopicStore((s) => s.emaTau);
   const repulsionStrength = useTopicStore((s) => s.repulsionStrength);
   const linkDistance = useTopicStore((s) => s.linkDistance);
   const linkStrength = useTopicStore((s) => s.linkStrength);
@@ -55,6 +56,13 @@ export function TopicGraph() {
       rendererRef.current.setLabelDepthFactor(labelDepthFactor);
     }
   }, [labelDepthFactor]);
+
+  // Sync fade duration: "Fade Time = 5s" means a 5-second fade window.
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setFadeDuration(emaTau * 1000);
+    }
+  }, [emaTau]);
 
   useEffect(() => {
     if (rendererRef.current) {

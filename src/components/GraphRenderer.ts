@@ -39,6 +39,7 @@ export class GraphRenderer {
   private currentZoomScale = 1;
   private labelDepthFactor = DEFAULT_LABEL_DEPTH_FACTOR;
   private collisionPadding = 4;
+  private fadeDuration = 5000;
 
   // Track which nodes have been pulsed to avoid re-triggering
   private lastPulseTimestamps = new Map<string, number>();
@@ -208,16 +209,12 @@ export class GraphRenderer {
 
     this.nodeElements = entered.merge(this.nodeElements);
 
-    // Update all node visual properties
+    // Update structural node properties (size, stroke-width).
+    // Visual properties (fill, stroke, glow, opacity) are handled per-frame
+    // by updateNodeColors() in the animation loop for smooth fading.
     this.nodeElements
       .attr("r", (d) => d.radius)
-      .attr("fill", (d) => (d.depth === 0 ? "#ffffff" : rateToColor(d.messageRate)))
-      .attr("stroke", (d) =>
-        d.depth === 0 ? "#ffffff" : d.pulse ? pulseColor(d.messageRate) : IDLE_STROKE
-      )
-      .attr("stroke-width", (d) => (d.depth === 0 ? 2.5 : 2))
-      .attr("filter", (d) => (d.pulse ? "url(#glow)" : "none"))
-      .attr("stroke-opacity", (d) => (d.depth === 0 ? 1 : d.pulse ? 1 : 0.6));
+      .attr("stroke-width", (d) => (d.depth === 0 ? 2.5 : 2));
 
     // --- Update labels ---
     this.labelElements = this.labelGroup
@@ -319,6 +316,52 @@ export class GraphRenderer {
     this.simulation.alphaDecay(value);
   }
 
+  /** Update the fade duration for pulse effects (nodes and links). */
+  setFadeDuration(ms: number): void {
+    this.fadeDuration = ms;
+  }
+
+  /**
+   * Update node fill, stroke, glow, and stroke-opacity per frame.
+   * Uses time-based interpolation so ancestor nodes (and all nodes)
+   * fade smoothly from their pulse colour back to idle, respecting
+   * the Fade Time setting.
+   */
+  private updateNodeColors(): void {
+    const now = Date.now();
+    const duration = this.fadeDuration;
+
+    this.nodeElements
+      .attr("fill", (d) => {
+        if (d.depth === 0) return "#ffffff";
+        const age = now - d.pulseTimestamp;
+        const t = Math.min(age / duration, 1);
+        if (t >= 1) return rateToColor(d.messageRate);
+        // Interpolate from warm (peak-rate snapshot) colour to idle (messageRate-only)
+        const warmColor = rateToColor(d.pulseRate);
+        const idleColor = rateToColor(d.messageRate);
+        return d3.interpolateRgb(warmColor, idleColor)(t);
+      })
+      .attr("stroke", (d) => {
+        if (d.depth === 0) return "#ffffff";
+        const age = now - d.pulseTimestamp;
+        const t = Math.min(age / duration, 1);
+        if (t >= 1) return IDLE_STROKE;
+        return d3.interpolateRgb(pulseColor(d.messageRate), IDLE_STROKE)(t);
+      })
+      .attr("filter", (d) => {
+        if (d.depth === 0) return "none";
+        const age = now - d.pulseTimestamp;
+        return age < duration ? "url(#glow)" : "none";
+      })
+      .attr("stroke-opacity", (d) => {
+        if (d.depth === 0) return 1;
+        const age = now - d.pulseTimestamp;
+        const t = Math.min(age / duration, 1);
+        return 1 - 0.4 * t; // 1.0 → 0.6
+      });
+  }
+
   /** Create a drag behaviour for nodes. */
   private setupDrag(): d3.DragBehavior<SVGCircleElement, GraphNode, GraphNode | d3.SubjectPosition> {
     return d3
@@ -363,11 +406,13 @@ export class GraphRenderer {
     }
   }
 
-  /** Animation loop for particles. */
+  /** Animation loop for particles, node colours, and link colours. */
   private startAnimationLoop(): void {
     const animate = () => {
       this.updateParticles();
       this.renderParticles();
+      this.updateNodeColors();
+      this.updateLinkColors();
       this.animationFrame = requestAnimationFrame(animate);
     };
     this.animationFrame = requestAnimationFrame(animate);
@@ -406,6 +451,27 @@ export class GraphRenderer {
       .attr("r", (d) => d.radius * d.life)
       .attr("fill", (d) => d.color)
       .attr("opacity", (d) => d.life * 0.8);
+  }
+
+  /** Update link colours based on pulse state — fades from white to grey. */
+  private updateLinkColors(): void {
+    const now = Date.now();
+    const duration = this.fadeDuration;
+    const IDLE_LINK_COLOR = "#6b7280";
+
+    this.linkElements
+      .attr("stroke", (d) => {
+        if (!d.pulse) return IDLE_LINK_COLOR;
+        const age = now - (d.pulseTimestamp ?? 0);
+        const t = Math.min(age / duration, 1);
+        return d3.interpolateRgb("#ffffff", IDLE_LINK_COLOR)(t);
+      })
+      .attr("stroke-opacity", (d) => {
+        if (!d.pulse) return 0.8;
+        const age = now - (d.pulseTimestamp ?? 0);
+        const t = Math.min(age / duration, 1);
+        return 1 - 0.2 * t; // 1.0 → 0.8
+      });
   }
 
   /** Handle container resize. */

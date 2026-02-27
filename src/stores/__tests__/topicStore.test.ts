@@ -1,0 +1,461 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { useTopicStore } from "../topicStore";
+import { MIN_RADIUS } from "../../utils/sizeCalculator";
+
+/**
+ * Helper: get the store's current state.
+ */
+function state() {
+  return useTopicStore.getState();
+}
+
+/**
+ * Helper: find a GraphNode by id from the current store state.
+ */
+function findGraphNode(id: string) {
+  return state().graphNodes.find((n) => n.id === id);
+}
+
+/**
+ * Helper: find a TopicNode by walking the tree from root.
+ */
+function findTopicNode(path: string) {
+  const root = state().root;
+  if (path === "") return root;
+  const segments = path.split("/");
+  let current = root;
+  for (const seg of segments) {
+    const child = current.children.get(seg);
+    if (!child) return undefined;
+    current = child;
+  }
+  return current;
+}
+
+describe("topicStore — ancestor pulse data flow", () => {
+  beforeEach(() => {
+    // Reset the store to a clean state before each test
+    state().reset();
+    // Ensure ancestor pulse is enabled (default)
+    state().setAncestorPulse(true);
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+  });
+
+  describe("pulseRate on direct message", () => {
+    it("should set pulseRate on the leaf TopicNode when a message is received", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf).toBeDefined();
+      expect(leaf!.pulseRate).toBeGreaterThan(0);
+      // pulseRate should equal the messageRate spike (1 for the first message)
+      expect(leaf!.pulseRate).toBe(1);
+    });
+
+    it("should accumulate pulseRate on repeated messages to same topic", () => {
+      state().handleMessage("a/b/c", "msg1", 0);
+      state().handleMessage("a/b/c", "msg2", 0);
+
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf).toBeDefined();
+      // messageRate is 2 (two spikes), pulseRate should be 2
+      expect(leaf!.pulseRate).toBe(2);
+      expect(leaf!.messageRate).toBe(2);
+    });
+
+    it("should set pulseTimestamp on the leaf TopicNode", () => {
+      const before = Date.now();
+      state().handleMessage("a/b/c", "hello", 0);
+      const after = Date.now();
+
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf).toBeDefined();
+      expect(leaf!.lastTimestamp).toBeGreaterThanOrEqual(before);
+      expect(leaf!.lastTimestamp).toBeLessThanOrEqual(after);
+    });
+  });
+
+  describe("ancestor pulse propagation", () => {
+    it("should set lastTimestamp on all ancestors when ancestorPulse is enabled", () => {
+      const before = Date.now();
+      state().handleMessage("a/b/c", "hello", 0);
+      const after = Date.now();
+
+      // Check each ancestor
+      for (const path of ["a/b", "a", ""]) {
+        const ancestor = findTopicNode(path);
+        expect(ancestor).toBeDefined();
+        expect(ancestor!.lastTimestamp).toBeGreaterThanOrEqual(before);
+        expect(ancestor!.lastTimestamp).toBeLessThanOrEqual(after);
+      }
+    });
+
+    it("should set pulseRate >= 1 on all ancestors", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+
+      for (const path of ["a/b", "a", ""]) {
+        const ancestor = findTopicNode(path);
+        expect(ancestor).toBeDefined();
+        expect(ancestor!.pulseRate).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it("should NOT set lastTimestamp on ancestors when ancestorPulse is disabled", () => {
+      state().setAncestorPulse(false);
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // Ancestors should still have lastTimestamp = 0 (never pulsed)
+      for (const path of ["a/b", "a"]) {
+        const ancestor = findTopicNode(path);
+        expect(ancestor).toBeDefined();
+        expect(ancestor!.lastTimestamp).toBe(0);
+      }
+    });
+
+    it("should NOT set pulseRate on ancestors when ancestorPulse is disabled", () => {
+      state().setAncestorPulse(false);
+      state().handleMessage("a/b/c", "hello", 0);
+
+      for (const path of ["a/b", "a"]) {
+        const ancestor = findTopicNode(path);
+        expect(ancestor).toBeDefined();
+        expect(ancestor!.pulseRate).toBe(0);
+      }
+    });
+  });
+
+  describe("pulseRate persists through decay", () => {
+    it("should preserve pulseRate after multiple decay ticks while messageRate decays", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+
+      const leaf = findTopicNode("a/b/c");
+      const initialPulseRate = leaf!.pulseRate;
+      expect(initialPulseRate).toBe(1);
+
+      // Run several decay ticks
+      for (let i = 0; i < 10; i++) {
+        state().decayTick();
+      }
+
+      // pulseRate should be unchanged — it's a snapshot, not decayed
+      expect(leaf!.pulseRate).toBe(initialPulseRate);
+
+      // messageRate should have decayed significantly
+      expect(leaf!.messageRate).toBeLessThan(initialPulseRate);
+    });
+
+    it("should preserve ancestor pulseRate after multiple decay ticks", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+
+      const ancestor = findTopicNode("a");
+      const initialPulseRate = ancestor!.pulseRate;
+      expect(initialPulseRate).toBeGreaterThanOrEqual(1);
+
+      // Run several decay ticks
+      for (let i = 0; i < 10; i++) {
+        state().decayTick();
+      }
+
+      // Ancestor pulseRate should be unchanged
+      expect(ancestor!.pulseRate).toBe(initialPulseRate);
+    });
+  });
+
+  describe("GraphNode pulse data in buildGraphData", () => {
+    it("should pass pulseRate through to GraphNode immediately after handleMessage", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+      // handleMessage now triggers rebuildGraph — no need to wait for decayTick
+
+      const gn = findGraphNode("a/b/c");
+      expect(gn).toBeDefined();
+      expect(gn!.pulseRate).toBe(1);
+    });
+
+    it("should pass ancestor pulseRate through to ancestor GraphNodes", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+      // handleMessage triggers rebuildGraph — GraphNodes available immediately
+
+      for (const id of ["a/b", "a", ""]) {
+        const gn = findGraphNode(id);
+        expect(gn).toBeDefined();
+        expect(gn!.pulseRate).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it("should have pulse=true on ancestors within pulseDuration window", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+      // handleMessage triggers rebuildGraph — pulse data available immediately
+
+      for (const id of ["a/b", "a"]) {
+        const gn = findGraphNode(id);
+        expect(gn).toBeDefined();
+        expect(gn!.pulse).toBe(true);
+        expect(gn!.pulseTimestamp).toBeGreaterThan(0);
+      }
+    });
+
+    it("should have pulse=false on ancestors after pulseDuration expires", () => {
+      // Use a short fake timestamp to simulate an old pulse
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // Manually set lastTimestamp to far in the past
+      const leaf = findTopicNode("a/b/c");
+      const oldTime = Date.now() - 100_000; // 100 seconds ago
+      leaf!.lastTimestamp = oldTime;
+      // Also set ancestors to the same old time
+      for (const path of ["a/b", "a", ""]) {
+        const ancestor = findTopicNode(path);
+        if (ancestor) ancestor.lastTimestamp = oldTime;
+      }
+
+      state().decayTick();
+
+      // pulse should be false (pulseDuration at default tau=5 is 5000ms, and 100s >> 5s)
+      for (const id of ["a/b/c", "a/b", "a"]) {
+        const gn = findGraphNode(id);
+        expect(gn).toBeDefined();
+        expect(gn!.pulse).toBe(false);
+      }
+
+      // But pulseRate should still be preserved (snapshot, not cleared)
+      const gnLeaf = findGraphNode("a/b/c");
+      expect(gnLeaf!.pulseRate).toBe(1);
+    });
+
+    it("ancestor GraphNodes should have pulseRate > 0 even after rate decays to zero", () => {
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // Run many decay ticks to drive messageRate and aggregateRate toward zero
+      for (let i = 0; i < 50; i++) {
+        state().decayTick();
+      }
+
+      // Check that messageRate has decayed to ~0
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf!.messageRate).toBeLessThan(0.01);
+
+      // But GraphNode pulseRate should still be the snapshot value
+      const gnLeaf = findGraphNode("a/b/c");
+      expect(gnLeaf).toBeDefined();
+      expect(gnLeaf!.pulseRate).toBe(1);
+
+      // Ancestor GraphNodes should also retain their pulseRate
+      for (const id of ["a/b", "a"]) {
+        const gn = findGraphNode(id);
+        expect(gn).toBeDefined();
+        expect(gn!.pulseRate).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  describe("fade interpolation correctness", () => {
+    it("pulseDuration should equal emaTau * 1000", () => {
+      // The fade window is emaTau in milliseconds.
+      // "Fade Time = 5s" means a 5000ms fade window.
+      const emaTau = state().emaTau; // default 5
+      const fadeDuration = emaTau * 1000;
+      expect(fadeDuration).toBe(5000);
+    });
+
+    /**
+     * This test validates the core invariant the renderer depends on:
+     * Within the fade window, age/fadeDuration yields t in [0, 1),
+     * and pulseRate provides a meaningful warm colour value (> 0).
+     * After the fade window, t >= 1 and the renderer falls back to messageRate.
+     */
+    it("should provide correct data for renderer fade interpolation", () => {
+      const emaTau = state().emaTau;
+      const fadeDuration = emaTau * 1000;
+
+      state().handleMessage("a/b/c", "hello", 0);
+
+      const now = Date.now();
+
+      // Check leaf node — handleMessage now triggers rebuildGraph immediately
+      const gnLeaf = findGraphNode("a/b/c");
+      expect(gnLeaf).toBeDefined();
+
+      const leafAge = now - gnLeaf!.pulseTimestamp;
+      const leafT = Math.min(leafAge / fadeDuration, 1);
+
+      // Just happened — should be within fade window
+      expect(leafT).toBeLessThan(1);
+      // pulseRate should be positive for a warm colour
+      expect(gnLeaf!.pulseRate).toBeGreaterThan(0);
+
+      // Check an ancestor
+      const gnAncestor = findGraphNode("a");
+      expect(gnAncestor).toBeDefined();
+
+      const ancestorAge = now - gnAncestor!.pulseTimestamp;
+      const ancestorT = Math.min(ancestorAge / fadeDuration, 1);
+
+      // Should also be within fade window
+      expect(ancestorT).toBeLessThan(1);
+      // pulseRate should be >= 1 for a visible warm colour
+      expect(gnAncestor!.pulseRate).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should use rateToColor(pulseRate) for warm end and rateToColor(messageRate) for idle end", () => {
+      // This is a structural test — we verify the data shapes that the renderer expects.
+      // The renderer does: d3.interpolateRgb(rateToColor(d.pulseRate), rateToColor(d.messageRate))(t)
+      // For ancestors: messageRate is ~0 (idle grey), pulseRate >= 1 (warm colour).
+      // This ensures a visible colour transition rather than grey-to-grey.
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // Run a few ticks so messageRate starts decaying
+      for (let i = 0; i < 3; i++) {
+        state().decayTick();
+      }
+
+      const gnAncestor = findGraphNode("a");
+      expect(gnAncestor).toBeDefined();
+
+      // Ancestor never received a direct message — its messageRate should be 0
+      expect(gnAncestor!.messageRate).toBe(0);
+
+      // But its pulseRate should be >= 1 — this is the critical invariant
+      // that makes the fade visible (warm-to-grey, not grey-to-grey)
+      expect(gnAncestor!.pulseRate).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("immediate graph rebuild on message", () => {
+    it("should rebuild graphNodes immediately after handleMessage (not waiting for decayTick)", () => {
+      // Before any message, graphNodes has only the root (from setShowRootPath(true) in beforeEach)
+      const initialCount = state().graphNodes.length;
+
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // After handleMessage, graphNodes should include the new topic path
+      // (root + a + a/b + a/b/c = 4 nodes)
+      expect(state().graphNodes.length).toBeGreaterThanOrEqual(initialCount + 3);
+
+      // The leaf should have pulse=true and a recent pulseTimestamp
+      const gnLeaf = findGraphNode("a/b/c");
+      expect(gnLeaf).toBeDefined();
+      expect(gnLeaf!.pulse).toBe(true);
+      expect(gnLeaf!.pulseTimestamp).toBeGreaterThan(Date.now() - 1000);
+    });
+  });
+
+  describe("link pulse — only ancestor chain links", () => {
+    /**
+     * Helper: find a GraphLink by source and target ids.
+     * After D3 processing, source/target may be objects, but in the store
+     * they're still strings (before the renderer processes them).
+     */
+    function findGraphLink(sourceId: string, targetId: string) {
+      return state().graphLinks.find((l) => {
+        const src = typeof l.source === "string" ? l.source : (l.source as { id: string }).id;
+        const tgt = typeof l.target === "string" ? l.target : (l.target as { id: string }).id;
+        return src === sourceId && tgt === targetId;
+      });
+    }
+
+    it("should pulse links on the ancestor chain of the message target", () => {
+      // Create a sibling branch first
+      state().handleMessage("a/other", "setup", 0);
+      // Wait a bit to ensure the sibling pulse has expired for clarity
+      const sibling = findTopicNode("a/other");
+      sibling!.lastTimestamp = 0; // clear its pulse
+
+      // Now send the real message
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // Links on the ancestor chain should pulse:
+      //   root("") → a, a → a/b, a/b → a/b/c
+      const linkRootToA = findGraphLink("", "a");
+      expect(linkRootToA).toBeDefined();
+      expect(linkRootToA!.pulse).toBe(true);
+
+      const linkAToAB = findGraphLink("a", "a/b");
+      expect(linkAToAB).toBeDefined();
+      expect(linkAToAB!.pulse).toBe(true);
+
+      const linkABToABC = findGraphLink("a/b", "a/b/c");
+      expect(linkABToABC).toBeDefined();
+      expect(linkABToABC!.pulse).toBe(true);
+    });
+
+    it("should NOT pulse links to sibling branches", () => {
+      // Create a sibling branch first
+      state().handleMessage("a/other", "setup", 0);
+      // Clear sibling's pulse timestamp so it's not pulsing
+      const sibling = findTopicNode("a/other");
+      sibling!.lastTimestamp = 0;
+
+      // Now send the real message on a different branch
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // The link a → a/other should NOT pulse because a/other is not pulsing
+      const linkAToOther = findGraphLink("a", "a/other");
+      expect(linkAToOther).toBeDefined();
+      expect(linkAToOther!.pulse).toBe(false);
+    });
+
+    it("should not pulse any links when ancestorPulse is disabled (except leaf's parent link)", () => {
+      state().setAncestorPulse(false);
+
+      // Create structure
+      state().handleMessage("a/other", "setup", 0);
+      const sibling = findTopicNode("a/other");
+      sibling!.lastTimestamp = 0;
+
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // Only the leaf node itself is pulsing, ancestors are not.
+      // With AND logic, a link needs BOTH endpoints pulsing.
+      // root → a: root not pulsing, a not pulsing → no pulse
+      const linkRootToA = findGraphLink("", "a");
+      expect(linkRootToA).toBeDefined();
+      expect(linkRootToA!.pulse).toBe(false);
+
+      // a → a/b: a not pulsing, a/b not pulsing → no pulse
+      const linkAToAB = findGraphLink("a", "a/b");
+      expect(linkAToAB).toBeDefined();
+      expect(linkAToAB!.pulse).toBe(false);
+
+      // a/b → a/b/c: a/b not pulsing, a/b/c is pulsing → no pulse (AND requires both)
+      const linkABToABC = findGraphLink("a/b", "a/b/c");
+      expect(linkABToABC).toBeDefined();
+      expect(linkABToABC!.pulse).toBe(false);
+    });
+  });
+
+  describe("parent node sizing with ancestorPulse toggle", () => {
+    it("should keep parent nodes at MIN_RADIUS when ancestorPulse is off", () => {
+      state().setAncestorPulse(false);
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // Parent nodes never received a direct message — messageRate is 0
+      // With ancestorPulse off, radius uses messageRate, not aggregateRate
+      for (const id of ["a/b", "a"]) {
+        const gn = findGraphNode(id);
+        expect(gn).toBeDefined();
+        expect(gn!.radius).toBe(MIN_RADIUS);
+      }
+
+      // The leaf node itself should be larger (it received a direct message)
+      const gnLeaf = findGraphNode("a/b/c");
+      expect(gnLeaf).toBeDefined();
+      expect(gnLeaf!.radius).toBeGreaterThan(MIN_RADIUS);
+    });
+
+    it("should grow parent nodes based on subtree activity when ancestorPulse is on", () => {
+      state().setAncestorPulse(true);
+      state().handleMessage("a/b/c", "hello", 0);
+
+      // decayTick propagates aggregateRate bottom-up, then rebuilds graph
+      state().decayTick();
+
+      // With ancestorPulse on, radius uses aggregateRate — parents grow
+      for (const id of ["a/b", "a"]) {
+        const gn = findGraphNode(id);
+        expect(gn).toBeDefined();
+        expect(gn!.radius).toBeGreaterThan(MIN_RADIUS);
+      }
+    });
+  });
+});

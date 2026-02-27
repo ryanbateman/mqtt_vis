@@ -17,6 +17,7 @@ export function createTopicNode(id: string, segment: string): TopicNode {
     lastPayload: null,
     lastTimestamp: 0,
     lastQoS: 0,
+    pulseRate: 0,
   };
 }
 
