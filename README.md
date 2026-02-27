@@ -15,9 +15,12 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Ancestor pulse** — optional: when a message arrives, all parent nodes up to the root pulse (toggleable)
 - **Root path filtering** — hide structural ancestor nodes above the subscription prefix (e.g. subscribing to `sensors/temp/#` with this off shows only `temp` and its children)
 - **Zoom-aware labels** — labels stay constant screen size and fade smoothly across 4 depth levels when zoomed out
-- **Settings panel** — 7 sliders for visual and simulation parameters (fade time, label depth, repulsion, link distance, link strength, collision gap, settle speed) with collapsible sections and hover tooltips
-- **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID
-- **Connection persistence** — broker URL, topic filter, username, and client ID are saved to localStorage
+- **Configuration file** — ship a `config.json` alongside the app to customise all defaults for your deployment (broker URL, topic filter, simulation params, UI state, and more)
+- **Auto-connect** — optional auto-connect on page load, configurable via UI checkbox or `config.json`
+- **Collapsible panels** — both connection and settings panels collapse to save screen space; status indicator stays visible when the connection panel is collapsed
+- **Settings panel** — 7 sliders for visual and simulation parameters with collapsible sections and hover tooltips
+- **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID. Can be locked to a fixed value via `config.json`.
+- **Connection persistence** — broker URL, topic filter, username, client ID, and autoconnect preference are saved to localStorage
 - **Clear on disconnect** — optional checkbox to reset the graph when disconnecting
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
@@ -38,20 +41,26 @@ npm run build
 npm run preview    # preview the production build locally
 ```
 
-The output in `dist/` is a fully static SPA — deploy it to any static hosting (GitHub Pages, Netlify, S3, etc.).
+The output in `dist/` is a fully static SPA — deploy it to any static hosting (GitHub Pages, Netlify, S3, etc.). Edit `dist/config.json` after building to customise defaults for your deployment without rebuilding.
 
 ## Usage
 
 ### Connection Panel (top-left)
 
+The connection panel is collapsible — click the header to toggle. The status indicator (connection dot + label) remains visible when collapsed.
+
 | Field | Description |
 |---|---|
 | **Broker URL** | WebSocket endpoint (`ws://` or `wss://`) |
 | **Topic Filter** | MQTT subscription filter. `#` for all topics, `+` for single-level wildcard |
-| **Client ID** | Randomised by default. Toggle "Custom" to define your own (disabled while connected) |
+| **Client ID** | Randomised by default. Toggle "Custom" to define your own (disabled while connected). Can be locked via config. |
 | **Authentication** | Optional username/password (click "Show authentication") |
+| **Auto-connect on load** | When checked, the app connects automatically on page load using the current settings |
+| **Clear graph on disconnect** | Reset the graph when disconnecting |
 
 ### Settings Panel (top-right)
+
+The settings panel is collapsible — click the header to toggle.
 
 **Appearance**
 - **Fade Time** — how long messages affect node size and colour (EMA time constant)
@@ -70,6 +79,64 @@ The output in `dist/` is a fully static SPA — deploy it to any static hosting 
 
 Shows total messages received, unique topics discovered, and session uptime.
 
+## Configuration
+
+The app loads `config.json` from the server root on startup. Edit `public/config.json` before building, or `dist/config.json` after building, to customise defaults for your deployment.
+
+All fields are optional — omitted fields use hardcoded defaults. Values saved in the user's browser (localStorage) take precedence over config values.
+
+### Security Warning
+
+**The `password` field in `config.json` is stored in plaintext and served as a static file.** Anyone who can access the hosted site can read it by fetching `config.json` directly. Do not include sensitive credentials unless the deployment is on a private network or behind authentication.
+
+### Available Options
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `brokerUrl` | string | `"wss://broker.hivemq.com:8884/mqtt"` | Default broker WebSocket URL |
+| `topicFilter` | string | `"robot/#"` | Default MQTT subscription filter |
+| `clientId` | string \| null | `null` | Fixed MQTT client ID. When set to a string, the ID is locked and cannot be changed by the user. When `null`, a random ID is generated. |
+| `username` | string | `""` | Default username |
+| `password` | string | `""` | Default password (**see security warning above**) |
+| `autoconnect` | boolean | `false` | Connect automatically on page load |
+| `emaTau` | number | `5` | EMA time constant in seconds |
+| `labelDepthFactor` | number | `5` | Label depth visibility factor |
+| `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
+| `showRootPath` | boolean | `false` | Show structural ancestor nodes above subscription prefix |
+| `repulsionStrength` | number | `-350` | Node repulsion force |
+| `linkDistance` | number | `155` | Ideal parent-child link distance (px) |
+| `linkStrength` | number | `0.5` | Link rigidity (0-1) |
+| `collisionPadding` | number | `13` | Extra collision gap around nodes (px) |
+| `alphaDecay` | number | `0.01` | Simulation settle speed |
+| `settingsCollapsed` | boolean | `false` | Start with settings panel collapsed |
+| `connectionCollapsed` | boolean | `false` | Start with connection panel collapsed |
+
+### Precedence
+
+For any given setting, the resolution order is:
+
+1. **localStorage** (user's previous session) — highest priority
+2. **config.json** (deployment defaults)
+3. **Hardcoded defaults** — lowest priority
+
+**Exception:** when `clientId` is set to a non-null string in `config.json`, it is always used regardless of localStorage. This is intended for deployments that require a specific client identity.
+
+### Example
+
+```json
+{
+  "brokerUrl": "wss://my-broker.example.com:8884/mqtt",
+  "topicFilter": "sensors/#",
+  "autoconnect": true,
+  "settingsCollapsed": true,
+  "connectionCollapsed": true,
+  "repulsionStrength": -400,
+  "linkDistance": 120
+}
+```
+
+This would configure the app to auto-connect to a custom broker on load with both panels collapsed and a wider graph layout. The user can still change settings in the UI — their changes persist in localStorage and take priority on subsequent visits.
+
 ## Tech Stack
 
 | Layer | Choice |
@@ -85,6 +152,8 @@ Shows total messages received, unique topics discovered, and session uptime.
 ## Project Structure
 
 ```
+public/
+  config.json              # Deployment configuration (copied to dist/ on build)
 src/
   types/
     index.ts               # TopicNode, GraphNode, GraphLink, ConnectionParams, Particle
@@ -101,6 +170,7 @@ src/
     SettingsPanel.tsx       # Sliders, toggles, collapsible sections, portal tooltips
     StatusBar.tsx           # Message/topic counts, uptime
   utils/
+    config.ts              # Config loader: fetch config.json, AppConfig interface
     topicParser.ts          # Topic string parsing, tree operations, ancestor paths
     sizeCalculator.ts       # Logarithmic node radius from aggregate rate
     colorScale.ts           # Custom multi-stop colour scale (slate > sky > orange > amber > yellow)
@@ -137,6 +207,8 @@ React owns the `<svg>` container element. D3 manages the force simulation and di
 This is a purely client-side application. The hosted files are static HTML, CSS, and JS. All MQTT connections happen directly between the user's browser and whatever broker they configure.
 
 **Mixed content**: GitHub Pages (and most static hosts) serve over HTTPS. Browsers block mixed content, so users will only be able to connect to `wss://` brokers, not plain `ws://`. This is a browser security restriction, not an application limitation.
+
+**Customising a deployment**: Edit `config.json` in the deployed `dist/` directory (or `public/config.json` before building) to set broker defaults, enable autoconnect, collapse panels, or lock the client ID for your specific use case.
 
 ## Acknowledgement
 
