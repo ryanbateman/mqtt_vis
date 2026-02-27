@@ -77,6 +77,8 @@ interface TopicStoreState {
    * or just let the animation loop handle visual updates.
    */
   graphStructureVersion: number;
+  /** Incremented when an export is requested. TopicGraph watches this to trigger renderer.exportPng(). */
+  exportRequested: number;
 
   /** Toggle ancestor pulse behaviour. */
   setAncestorPulse: (enabled: boolean) => void;
@@ -112,6 +114,8 @@ interface TopicStoreState {
   setLinkStrength: (value: number) => void;
   setCollisionPadding: (value: number) => void;
   setAlphaDecay: (value: number) => void;
+  /** Request a PNG export of the current graph. */
+  requestExport: () => void;
 }
 
 /**
@@ -237,6 +241,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showRootPath: cfg.showRootPath ?? false,
   topicFilter: cfg.topicFilter ?? "#",
   graphStructureVersion: 0,
+  exportRequested: 0,
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
     const state = get();
@@ -433,6 +438,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   setTopicFilter: (filter: string) => {
     set({ topicFilter: filter });
+  },
+  requestExport: () => {
+    set({ exportRequested: get().exportRequested + 1 });
   },
 };});
 

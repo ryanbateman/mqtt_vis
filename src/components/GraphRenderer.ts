@@ -626,6 +626,112 @@ export class GraphRenderer {
     this.simulation.alpha(0.1).restart();
   }
 
+  /** Export the full graph as a PNG image and trigger a download. */
+  async exportPng(): Promise<void> {
+    const nodes = this.simulation.nodes();
+    if (nodes.length === 0) return;
+
+    // Compute bounding box of all nodes (accounting for radius + label space)
+    const LABEL_PAD = 30; // extra space for labels below nodes
+    const PADDING = 40;   // margin around the graph
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      const x = n.x ?? 0;
+      const y = n.y ?? 0;
+      const r = n.radius;
+      if (x - r < minX) minX = x - r;
+      if (y - r < minY) minY = y - r;
+      if (x + r > maxX) maxX = x + r;
+      if (y + r + LABEL_PAD > maxY) maxY = y + r + LABEL_PAD;
+    }
+    minX -= PADDING;
+    minY -= PADDING;
+    maxX += PADDING;
+    maxY += PADDING;
+
+    const vbWidth = maxX - minX;
+    const vbHeight = maxY - minY;
+
+    // Determine output resolution — 2x for crispness, capped at 4096 on longest side
+    const MAX_DIM = 4096;
+    let scale = 2;
+    if (Math.max(vbWidth, vbHeight) * scale > MAX_DIM) {
+      scale = MAX_DIM / Math.max(vbWidth, vbHeight);
+    }
+    const canvasWidth = Math.round(vbWidth * scale);
+    const canvasHeight = Math.round(vbHeight * scale);
+
+    // Clone the SVG
+    const svgNode = this.svg.node();
+    if (!svgNode) return;
+    const clone = svgNode.cloneNode(true) as SVGSVGElement;
+
+    // Set viewBox and explicit dimensions on the clone
+    clone.setAttribute("viewBox", `${minX} ${minY} ${vbWidth} ${vbHeight}`);
+    clone.setAttribute("width", String(canvasWidth));
+    clone.setAttribute("height", String(canvasHeight));
+    // Remove any Tailwind classes that won't serialize
+    clone.removeAttribute("class");
+
+    // Remove the zoom transform on the container <g> — viewBox handles framing
+    const containerG = clone.querySelector("g");
+    if (containerG) {
+      containerG.removeAttribute("transform");
+    }
+
+    // Prepend a background rect (slate-900)
+    const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bgRect.setAttribute("x", String(minX));
+    bgRect.setAttribute("y", String(minY));
+    bgRect.setAttribute("width", String(vbWidth));
+    bgRect.setAttribute("height", String(vbHeight));
+    bgRect.setAttribute("fill", "#0f172a");
+    clone.insertBefore(bgRect, clone.firstChild);
+
+    // Serialize to string
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(clone);
+
+    // Draw onto an offscreen canvas via Image
+    const img = new Image();
+    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    return new Promise<void>((resolve) => {
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+          canvas.toBlob((pngBlob) => {
+            if (pngBlob) {
+              // Generate filename: mqtt-vis-YYYY-MM-DDTHHMM.png
+              const now = new Date();
+              const ts = now.toISOString().slice(0, 16).replace(":", "");
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(pngBlob);
+              a.download = `mqtt-vis-${ts}.png`;
+              a.click();
+              URL.revokeObjectURL(a.href);
+            }
+            URL.revokeObjectURL(url);
+            resolve();
+          }, "image/png");
+        } else {
+          URL.revokeObjectURL(url);
+          resolve();
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      img.src = url;
+    });
+  }
+
   /** Clean up the renderer and stop the simulation. */
   destroy(): void {
     if (this.animationFrame !== null) {

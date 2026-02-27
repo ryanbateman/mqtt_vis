@@ -22,6 +22,7 @@ export function TopicGraph() {
   const linkStrength = useTopicStore((s) => s.linkStrength);
   const collisionPadding = useTopicStore((s) => s.collisionPadding);
   const alphaDecay = useTopicStore((s) => s.alphaDecay);
+  const exportRequested = useTopicStore((s) => s.exportRequested);
 
   // Initialize the renderer once the SVG element is mounted
   useEffect(() => {
@@ -111,6 +112,13 @@ export function TopicGraph() {
       rendererRef.current.setAlphaDecay(alphaDecay);
     }
   }, [alphaDecay]);
+
+  // Trigger PNG export when requested
+  useEffect(() => {
+    if (exportRequested > 0 && rendererRef.current) {
+      rendererRef.current.exportPng();
+    }
+  }, [exportRequested]);
 
   return (
     <svg

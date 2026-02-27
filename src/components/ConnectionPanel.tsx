@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, type FormEvent } from "react";
 import type { ConnectionParams, ConnectionStatus } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 import { getConfig } from "../utils/config";
+import { useTopicStore } from "../stores/topicStore";
 
 /** Generate a random client ID with a recognisable prefix. */
 function generateClientId(): string {
@@ -298,6 +299,17 @@ export function ConnectionPanel({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
               </svg>
               {copied ? "Copied!" : "Copy connection share link"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => useTopicStore.getState().requestExport()}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Export graph as PNG
             </button>
           </form>
 
