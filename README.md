@@ -208,6 +208,21 @@ This is a purely client-side application. The hosted files are static HTML, CSS,
 
 **Mixed content**: GitHub Pages (and most static hosts) serve over HTTPS. Browsers block mixed content, so users will only be able to connect to `wss://` brokers, not plain `ws://`. This is a browser security restriction, not an application limitation.
 
+**Self-hosted with HTTPS**: If you serve this app over HTTPS but your MQTT broker only supports plain WebSocket (`ws://`), you need a reverse proxy to bridge the protocols. Add a WebSocket proxy location to your nginx config:
+
+```nginx
+location /mqtt_ws/ {
+    proxy_pass http://your-broker-host:9001/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;
+}
+```
+
+Then set `brokerUrl` in `config.json` to `wss://your-https-host/mqtt_ws/`. The browser connects via `wss://` to nginx, which upgrades the connection and proxies to the broker over plain `ws://`.
+
 **Customising a deployment**: Edit `config.json` in the deployed `dist/` directory (or `public/config.json` before building) to set broker defaults, enable autoconnect, collapse panels, or lock the client ID for your specific use case.
 
 ## Acknowledgement

@@ -81,12 +81,17 @@ npm run preview    # Preview production build locally
 
 ## Testing
 
-No test framework is configured in v1. When tests are added, use Vitest (Vite-native). Utils in `src/utils/` are the highest-priority targets for unit tests.
+Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
+
+Current test coverage:
+- `src/stores/__tests__/topicStore.test.ts` — 23 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, and store state management.
+
+Utils in `src/utils/` are the highest-priority targets for additional unit tests.
 
 ## Common Pitfalls
 
 - **MQTT.js in the browser**: The `mqtt` package must be used with its browser bundle. Vite handles this automatically via the `browser` field in `package.json`, but be aware that Node.js-only features (like `fs`-based certificate loading) are not available.
 - **D3 and React fighting over the DOM**: Never let React re-render the SVG graph nodes. React should only own the container. D3 handles everything inside it.
-- **WebSocket connection failures**: Browsers enforce CORS and mixed-content rules. A `wss://` page cannot connect to `ws://` brokers. The connection panel should make this clear.
+- **WebSocket connection failures**: Browsers enforce CORS and mixed-content rules. An `https://` page cannot connect to `ws://` brokers (mixed content). For self-hosted deployments behind HTTPS (e.g. Tailscale), use an nginx reverse proxy to terminate `wss://` and forward to the broker's `ws://` endpoint. See the `/mqtt_ws/` location block in the pi-infra repo's `boat.horse.conf`.
 - **Performance with many topics**: SVG can handle hundreds of nodes but may struggle above ~1000. If performance becomes an issue, the first optimisation is to switch to Canvas rendering (planned as a future enhancement).
 - **Wildcard subscriptions**: MQTT wildcards (`#` multi-level, `+` single-level) are handled by the broker, not the client. The client just subscribes with the filter string as-is. The topic tree builder must handle any topic string that arrives.
