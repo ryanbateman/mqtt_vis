@@ -510,6 +510,159 @@ describe("topicStore — ancestor pulse data flow", () => {
     });
   });
 
+  describe("payload storage — LRU eviction and opt-in", () => {
+    it("should store lastPayload on the TopicNode when tooltips are enabled", () => {
+      state().setShowTooltips(true);
+      handleMessageAndFlush("a/b/c", "hello world");
+
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf).toBeDefined();
+      expect(leaf!.lastPayload).toBe("hello world");
+    });
+
+    it("should NOT store lastPayload when tooltips are disabled", () => {
+      state().setShowTooltips(false);
+      handleMessageAndFlush("a/b/c", "hello world");
+
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf).toBeDefined();
+      expect(leaf!.lastPayload).toBeNull();
+    });
+
+    it("should truncate payloads longer than 1024 characters at ingest", () => {
+      state().setShowTooltips(true);
+      const longPayload = "x".repeat(2000);
+      handleMessageAndFlush("a/b/c", longPayload);
+
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf).toBeDefined();
+      expect(leaf!.lastPayload).toHaveLength(1024);
+      expect(leaf!.lastPayload).toBe("x".repeat(1024));
+    });
+
+    it("should evict the oldest payload when LRU cap (200) is exceeded", () => {
+      state().setShowTooltips(true);
+
+      // Send messages to 201 unique topics (single-segment to keep it fast)
+      for (let i = 0; i < 201; i++) {
+        state().handleMessage(`topic${i}`, `payload${i}`, 0);
+      }
+      state().rebuildGraph();
+
+      // The first topic (topic0) should have been evicted
+      const evicted = findTopicNode("topic0");
+      expect(evicted).toBeDefined();
+      expect(evicted!.lastPayload).toBeNull();
+
+      // The most recent topic should still have its payload
+      const recent = findTopicNode("topic200");
+      expect(recent).toBeDefined();
+      expect(recent!.lastPayload).toBe("payload200");
+
+      // A topic in the middle (topic1) should still have its payload
+      // (it was the 2nd oldest, but only 1 eviction occurred for 201 topics)
+      const middle = findTopicNode("topic1");
+      expect(middle).toBeDefined();
+      expect(middle!.lastPayload).toBe("payload1");
+    });
+
+    it("should evict multiple payloads when far exceeding the LRU cap", () => {
+      state().setShowTooltips(true);
+
+      // Send messages to 210 unique topics
+      for (let i = 0; i < 210; i++) {
+        state().handleMessage(`t${i}`, `p${i}`, 0);
+      }
+      state().rebuildGraph();
+
+      // The first 10 topics (t0 through t9) should have been evicted
+      for (let i = 0; i < 10; i++) {
+        const evicted = findTopicNode(`t${i}`);
+        expect(evicted).toBeDefined();
+        expect(evicted!.lastPayload).toBeNull();
+      }
+
+      // Topic t10 should still have its payload (it's the 11th oldest, cap=200, 210-200=10 evicted)
+      const kept = findTopicNode("t10");
+      expect(kept).toBeDefined();
+      expect(kept!.lastPayload).toBe("p10");
+    });
+
+    it("should refresh LRU position when a topic receives another message", () => {
+      state().setShowTooltips(true);
+
+      // Fill up to 200 unique topics
+      for (let i = 0; i < 200; i++) {
+        state().handleMessage(`topic${i}`, `payload${i}`, 0);
+      }
+
+      // Re-send to topic0 — this moves it to the most-recent position
+      state().handleMessage("topic0", "refreshed", 0);
+
+      // Now send one more new topic to trigger an eviction
+      state().handleMessage("newTopic", "new", 0);
+      state().rebuildGraph();
+
+      // topic0 should NOT be evicted (it was refreshed)
+      const refreshed = findTopicNode("topic0");
+      expect(refreshed).toBeDefined();
+      expect(refreshed!.lastPayload).toBe("refreshed");
+
+      // topic1 should be evicted (it's now the oldest)
+      const evicted = findTopicNode("topic1");
+      expect(evicted).toBeDefined();
+      expect(evicted!.lastPayload).toBeNull();
+    });
+
+    it("should clear all payloads when setShowTooltips(false) is called", () => {
+      state().setShowTooltips(true);
+
+      handleMessageAndFlush("a/b/c", "hello");
+      handleMessageAndFlush("x/y", "world");
+
+      // Verify payloads are stored
+      expect(findTopicNode("a/b/c")!.lastPayload).toBe("hello");
+      expect(findTopicNode("x/y")!.lastPayload).toBe("world");
+
+      // Disable tooltips — should clear all payloads
+      state().setShowTooltips(false);
+
+      expect(findTopicNode("a/b/c")!.lastPayload).toBeNull();
+      expect(findTopicNode("x/y")!.lastPayload).toBeNull();
+    });
+
+    it("should clear payloads on reset()", () => {
+      state().setShowTooltips(true);
+      handleMessageAndFlush("a/b/c", "hello");
+
+      expect(findTopicNode("a/b/c")!.lastPayload).toBe("hello");
+
+      state().reset();
+
+      // After reset, the old tree is gone — a new root with no children
+      expect(state().root.children.size).toBe(0);
+    });
+
+    it("should store payload exactly at 1024 chars without truncation", () => {
+      state().setShowTooltips(true);
+      const exactPayload = "y".repeat(1024);
+      handleMessageAndFlush("a/b/c", exactPayload);
+
+      const leaf = findTopicNode("a/b/c");
+      expect(leaf!.lastPayload).toHaveLength(1024);
+      expect(leaf!.lastPayload).toBe(exactPayload);
+    });
+
+    it("should update lastPayload when a new message arrives on the same topic", () => {
+      state().setShowTooltips(true);
+      handleMessageAndFlush("a/b/c", "first");
+      expect(findTopicNode("a/b/c")!.lastPayload).toBe("first");
+
+      handleMessageAndFlush("a/b/c", "second");
+      expect(findTopicNode("a/b/c")!.lastPayload).toBe("second");
+    });
+  });
+
   describe("graphStructureVersion", () => {
     it("should start at 0", () => {
       expect(state().graphStructureVersion).toBe(0);

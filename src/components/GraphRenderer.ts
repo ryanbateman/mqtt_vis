@@ -1,6 +1,7 @@
 import * as d3 from "d3";
 import type { GraphNode, GraphLink, Particle, LabelMode, TooltipData } from "../types";
 import { rateToColor, pulseColor, IDLE_STROKE } from "../utils/colorScale";
+import { depthFontSize } from "../utils/formatters";
 
 /** Maximum number of particles alive at once. */
 const MAX_PARTICLES = 500;
@@ -369,7 +370,7 @@ export class GraphRenderer {
       .attr("x", (d) => d.x ?? 0)
       .attr("y", (d) => (d.y ?? 0) + d.displayRadius + labelGap)
       .attr("font-size", (d) => {
-        const size = depthScale ? baseSize / (1 + d.depth * 0.3) : baseSize;
+        const size = depthScale ? depthFontSize(baseSize, d.depth) : baseSize;
         return `${size}px`;
       });
   }
@@ -454,7 +455,7 @@ export class GraphRenderer {
     const baseSize = this.baseFontSize / this.currentZoomScale;
     const depthScale = this.scaleTextByDepth;
     this.labelElements.attr("font-size", (d) => {
-      const size = depthScale ? baseSize / (1 + d.depth * 0.3) : baseSize;
+      const size = depthScale ? depthFontSize(baseSize, d.depth) : baseSize;
       return `${size}px`;
     });
   }

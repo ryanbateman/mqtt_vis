@@ -1,30 +1,9 @@
 import type { TopicNode, GraphNode } from "../types";
-
-/** Maximum characters of payload to display before truncating. */
-const PAYLOAD_MAX_CHARS = 120;
+import { formatRate, formatTimestamp, truncatePayload } from "../utils/formatters";
 
 /** Offset from the node centre to the tooltip edge. */
 const OFFSET_X = 12;
 const OFFSET_Y = 12;
-
-function formatRate(rate: number): string {
-  if (rate < 0.01) return "0";
-  if (rate < 1) return rate.toFixed(2);
-  if (rate < 10) return rate.toFixed(1);
-  return Math.round(rate).toString();
-}
-
-function formatTimestamp(ts: number): string {
-  if (ts === 0) return "never";
-  const date = new Date(ts);
-  return date.toLocaleTimeString();
-}
-
-function truncatePayload(payload: string | null): string {
-  if (payload === null) return "(none)";
-  if (payload.length <= PAYLOAD_MAX_CHARS) return payload;
-  return payload.slice(0, PAYLOAD_MAX_CHARS) + "...";
-}
 
 export function NodeTooltip({
   topicNode,
