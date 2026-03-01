@@ -228,6 +228,20 @@ function buildGraphData(
   return { graphNodes, graphLinks };
 }
 
+/** Maximum number of nodes that retain their last payload (LRU eviction). */
+const PAYLOAD_LRU_CAP = 200;
+
+/** Maximum characters stored per payload at ingest. */
+const PAYLOAD_MAX_STORE = 1024;
+
+/**
+ * LRU tracker for payload storage. Insertion-ordered Set of node IDs.
+ * Most-recently-used entry is last. When the set exceeds PAYLOAD_LRU_CAP,
+ * the first (oldest) entry is evicted and its lastPayload is set to null.
+ * Lives outside the store to avoid Zustand re-render triggers.
+ */
+const _payloadLru = new Set<string>();
+
 /**
  * Module-level state for the batched rebuild scheduler.
  * Lives outside the store to avoid Zustand re-render triggers.
@@ -271,9 +285,30 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const { node, newNodes } = ensureTopicPathTracked(root, topic);
 
     node.messageCount += 1;
-    node.lastPayload = payload;
     node.lastTimestamp = Date.now();
     node.lastQoS = qos;
+
+    // Only store payloads when tooltips are enabled (opt-in).
+    // Use LRU eviction to cap the number of stored payloads.
+    if (state.showTooltips) {
+      node.lastPayload = payload.length > PAYLOAD_MAX_STORE
+        ? payload.slice(0, PAYLOAD_MAX_STORE)
+        : payload;
+
+      // Move this node to the most-recent position in the LRU set
+      _payloadLru.delete(node.id);
+      _payloadLru.add(node.id);
+
+      // Evict the oldest entry if over the cap
+      if (_payloadLru.size > PAYLOAD_LRU_CAP) {
+        const oldest = _payloadLru.values().next().value as string;
+        _payloadLru.delete(oldest);
+        // Null out the evicted node's payload
+        const segments = oldest === "" ? [] : oldest.split("/");
+        const evicted = findNode(root, segments);
+        if (evicted) evicted.lastPayload = null;
+      }
+    }
 
     // Instant rate spike: add 1 message worth of rate contribution
     // The EMA decay will smooth this out over subsequent ticks
@@ -412,6 +447,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       _rebuildScheduled = false;
       _rebuildStructural = false;
     }
+    _payloadLru.clear();
     set({
       root: createTopicNode("", ""),
       graphNodes: [],
@@ -445,6 +481,16 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   setShowTooltips: (show: boolean) => {
     set({ showTooltips: show });
+    // When disabling tooltips, clear all stored payloads to free memory
+    if (!show) {
+      const root = get().root;
+      for (const nodeId of _payloadLru) {
+        const segments = nodeId === "" ? [] : nodeId.split("/");
+        const node = findNode(root, segments);
+        if (node) node.lastPayload = null;
+      }
+      _payloadLru.clear();
+    }
   },
 
   setRepulsionStrength: (value: number) => {
