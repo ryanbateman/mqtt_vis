@@ -26,6 +26,7 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **PNG export** — export the full graph as a PNG image (auto-computed bounding box, 2x resolution, dark background)
 - **Labels toggle** — turn labels on or off entirely; label settings (mode, depth, font size, depth scaling) are grouped in a collapsible sub-section
 - **Depth-scaled text** — optional: label font size decreases with tree depth (inverse falloff), so root labels are largest and leaf labels are smallest. Font size slider sets the maximum.
+- **Hover tooltips** — hover over any node to see full topic path, message rate, aggregate rate, message count, QoS, last seen time, and last payload. Appears after a 0.5s delay. Toggleable in settings.
 - **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
@@ -80,6 +81,7 @@ The settings panel is collapsible — click the header to toggle.
 - **Scale by Depth** — toggle depth-based text scaling. When on, root-level labels use the full font size and deeper nodes get progressively smaller text (inverse falloff: `size / (1 + depth * 0.3)`).
 - **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
 - **Show Root Path** — toggle visibility of structural ancestor nodes above the subscription prefix
+- **Hover Tooltips** — toggle whether hovering over a node shows a tooltip with topic details (full path, rates, payload, etc.)
 
 **Simulation**
 - **Repulsion** — how strongly nodes push each other apart
@@ -118,6 +120,7 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `labelMode` | `"zoom"` \| `"depth"` | `"zoom"` | Label visibility mode: zoom-based fade or fixed depth cutoff |
 | `labelFontSize` | number | `14` | Base label font size in pixels (max size when depth scaling is on) |
 | `scaleTextByDepth` | boolean | `false` | Scale label text size inversely with tree depth |
+| `showTooltips` | boolean | `true` | Show hover tooltips on nodes with topic details |
 | `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
 | `showRootPath` | boolean | `false` | Show structural ancestor nodes above subscription prefix |
 | `repulsionStrength` | number | `-350` | Node repulsion force |

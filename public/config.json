@@ -12,6 +12,7 @@
   "labelDepthFactor": 5,
   "labelFontSize": 14,
   "scaleTextByDepth": false,
+  "showTooltips": true,
   "ancestorPulse": true,
   "showRootPath": false,
 

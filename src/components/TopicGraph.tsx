@@ -1,6 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useTopicStore } from "../stores/topicStore";
 import { GraphRenderer } from "./GraphRenderer";
+import { NodeTooltip } from "./NodeTooltip";
+import { findNode } from "../utils/topicParser";
+import type { TooltipData } from "../types";
 
 /**
  * React component that owns the SVG container.
@@ -25,7 +28,21 @@ export function TopicGraph() {
   const linkStrength = useTopicStore((s) => s.linkStrength);
   const collisionPadding = useTopicStore((s) => s.collisionPadding);
   const alphaDecay = useTopicStore((s) => s.alphaDecay);
+  const showTooltips = useTopicStore((s) => s.showTooltips);
   const exportRequested = useTopicStore((s) => s.exportRequested);
+
+  const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+
+  // Look up the hovered node's data for the tooltip
+  const tooltipNodes = useMemo(() => {
+    if (!tooltip) return null;
+    const root = useTopicStore.getState().root;
+    const segments = tooltip.nodeId === "" ? [] : tooltip.nodeId.split("/");
+    const topicNode = findNode(root, segments);
+    const graphNode = graphNodes.find((n) => n.id === tooltip.nodeId);
+    if (!topicNode || !graphNode) return null;
+    return { topicNode, graphNode };
+  }, [tooltip, graphNodes]);
 
   // Initialize the renderer once the SVG element is mounted
   useEffect(() => {
@@ -33,6 +50,7 @@ export function TopicGraph() {
 
     const renderer = new GraphRenderer(svgRef.current);
     rendererRef.current = renderer;
+    renderer.setTooltipCallback(setTooltip);
 
     // Handle resize
     const observer = new ResizeObserver((entries) => {
@@ -134,6 +152,12 @@ export function TopicGraph() {
     }
   }, [alphaDecay]);
 
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setShowTooltips(showTooltips);
+    }
+  }, [showTooltips]);
+
   // Trigger PNG export when requested
   useEffect(() => {
     if (exportRequested > 0 && rendererRef.current) {
@@ -142,9 +166,19 @@ export function TopicGraph() {
   }, [exportRequested]);
 
   return (
-    <svg
-      ref={svgRef}
-      className="w-full h-full bg-slate-900"
-    />
+    <>
+      <svg
+        ref={svgRef}
+        className="w-full h-full bg-slate-900"
+      />
+      {tooltip && tooltipNodes && (
+        <NodeTooltip
+          topicNode={tooltipNodes.topicNode}
+          graphNode={tooltipNodes.graphNode}
+          screenX={tooltip.screenX}
+          screenY={tooltip.screenY}
+        />
+      )}
+    </>
   );
 }

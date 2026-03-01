@@ -58,6 +58,8 @@ interface TopicStoreState {
   labelFontSize: number;
   /** Whether to scale label text size inversely with tree depth. */
   scaleTextByDepth: boolean;
+  /** Whether to show tooltips on node hover. */
+  showTooltips: boolean;
 
   // --- Simulation parameters ---
   /** Repulsion strength between nodes (negative = repel). */
@@ -120,6 +122,8 @@ interface TopicStoreState {
   setLabelFontSize: (size: number) => void;
   /** Toggle depth-based text scaling. */
   setScaleTextByDepth: (enabled: boolean) => void;
+  /** Toggle hover tooltips on nodes. */
+  setShowTooltips: (show: boolean) => void;
   /** Update simulation parameters. */
   setRepulsionStrength: (value: number) => void;
   setLinkDistance: (value: number) => void;
@@ -249,6 +253,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
   labelFontSize: cfg.labelFontSize ?? 14,
   scaleTextByDepth: cfg.scaleTextByDepth ?? false,
+  showTooltips: cfg.showTooltips ?? true,
   repulsionStrength: cfg.repulsionStrength ?? -350,
   linkDistance: cfg.linkDistance ?? 155,
   linkStrength: cfg.linkStrength ?? 0.5,
@@ -437,6 +442,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   setScaleTextByDepth: (enabled: boolean) => {
     set({ scaleTextByDepth: enabled });
+  },
+  setShowTooltips: (show: boolean) => {
+    set({ showTooltips: show });
   },
 
   setRepulsionStrength: (value: number) => {

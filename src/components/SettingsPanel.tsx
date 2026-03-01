@@ -173,6 +173,8 @@ export function SettingsPanel() {
   const setLabelFontSize = useTopicStore((s) => s.setLabelFontSize);
   const scaleTextByDepth = useTopicStore((s) => s.scaleTextByDepth);
   const setScaleTextByDepth = useTopicStore((s) => s.setScaleTextByDepth);
+  const showTooltips = useTopicStore((s) => s.showTooltips);
+  const setShowTooltips = useTopicStore((s) => s.setShowTooltips);
 
   return (
     <div className="absolute top-4 right-4 z-10 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-64 max-h-[calc(100vh-2rem)] overflow-y-auto">
@@ -331,6 +333,20 @@ export function SettingsPanel() {
               type="checkbox"
               checked={showRootPath}
               onChange={(e) => setShowRootPath(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs font-medium text-gray-400">
+                Hover Tooltips
+              </label>
+              <InfoTooltip text="Show a tooltip with topic details when hovering over a node" />
+            </div>
+            <input
+              type="checkbox"
+              checked={showTooltips}
+              onChange={(e) => setShowTooltips(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
             />
           </div>

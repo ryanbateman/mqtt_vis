@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import type { GraphNode, GraphLink, Particle, LabelMode } from "../types";
+import type { GraphNode, GraphLink, Particle, LabelMode, TooltipData } from "../types";
 import { rateToColor, pulseColor, IDLE_STROKE } from "../utils/colorScale";
 
 /** Maximum number of particles alive at once. */
@@ -47,6 +47,11 @@ export class GraphRenderer {
 
   // Track which nodes have been pulsed to avoid re-triggering
   private lastPulseTimestamps = new Map<string, number>();
+
+  // Callback invoked when a node is hovered/unhovered — bridges D3 → React.
+  private onTooltip: ((data: TooltipData | null) => void) | null = null;
+  private showTooltips = true;
+  private tooltipDelayTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Set of node IDs that are currently fading (need per-frame colour updates).
   // Nodes are added when they pulse and removed when their fade completes.
@@ -223,6 +228,32 @@ export class GraphRenderer {
       .attr("r", (d) => d.displayRadius)
       .attr("stroke-width", (d) => (d.depth === 0 ? 2.5 : 2));
 
+    // Attach hover events for tooltip (idempotent on merged selection)
+    this.nodeElements
+      .on("mouseenter", (_event: MouseEvent, d: GraphNode) => {
+        if (!this.onTooltip || !this.showTooltips) return;
+        // Clear any pending delay from a previous hover
+        if (this.tooltipDelayTimer !== null) {
+          clearTimeout(this.tooltipDelayTimer);
+        }
+        // Delay 500ms before showing the tooltip
+        this.tooltipDelayTimer = setTimeout(() => {
+          this.tooltipDelayTimer = null;
+          const containerCTM = this.container.node()?.getScreenCTM();
+          if (!containerCTM) return;
+          const screenX = (d.x ?? 0) * containerCTM.a + containerCTM.e;
+          const screenY = (d.y ?? 0) * containerCTM.d + containerCTM.f;
+          this.onTooltip?.({ nodeId: d.id, screenX, screenY });
+        }, 500);
+      })
+      .on("mouseleave", () => {
+        if (this.tooltipDelayTimer !== null) {
+          clearTimeout(this.tooltipDelayTimer);
+          this.tooltipDelayTimer = null;
+        }
+        this.onTooltip?.(null);
+      });
+
     // --- Update labels ---
     this.labelElements = this.labelGroup
       .selectAll<SVGTextElement, GraphNode>("text")
@@ -398,6 +429,24 @@ export class GraphRenderer {
   setScaleTextByDepth(enabled: boolean): void {
     this.scaleTextByDepth = enabled;
     this.updateLabelFontSizes();
+  }
+
+  /** Register a callback for node hover tooltip events. */
+  setTooltipCallback(cb: ((data: TooltipData | null) => void) | null): void {
+    this.onTooltip = cb;
+  }
+
+  /** Toggle whether hover tooltips are enabled. */
+  setShowTooltips(show: boolean): void {
+    this.showTooltips = show;
+    // If disabling, clear any pending delay and dismiss the current tooltip
+    if (!show) {
+      if (this.tooltipDelayTimer !== null) {
+        clearTimeout(this.tooltipDelayTimer);
+        this.tooltipDelayTimer = null;
+      }
+      this.onTooltip?.(null);
+    }
   }
 
   /** Reapply font sizes to all labels immediately (e.g. after settings change). */
@@ -805,6 +854,9 @@ export class GraphRenderer {
   destroy(): void {
     if (this.animationFrame !== null) {
       cancelAnimationFrame(this.animationFrame);
+    }
+    if (this.tooltipDelayTimer !== null) {
+      clearTimeout(this.tooltipDelayTimer);
     }
     this.simulation.stop();
     this.svg.selectAll("*").remove();

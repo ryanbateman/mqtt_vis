@@ -56,6 +56,16 @@ export interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   pulseTimestamp?: number;
 }
 
+/** Data passed from the renderer to React when a node is hovered. */
+export interface TooltipData {
+  /** Full topic path of the hovered node. */
+  nodeId: string;
+  /** Screen-space X coordinate for tooltip positioning. */
+  screenX: number;
+  /** Screen-space Y coordinate for tooltip positioning. */
+  screenY: number;
+}
+
 /** How label visibility is determined. */
 export type LabelMode = "zoom" | "depth";
 

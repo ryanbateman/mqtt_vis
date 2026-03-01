@@ -15,6 +15,7 @@ export interface AppConfig {
   labelMode?: "zoom" | "depth";
   labelFontSize?: number;
   scaleTextByDepth?: boolean;
+  showTooltips?: boolean;
   ancestorPulse?: boolean;
   showRootPath?: boolean;
 
