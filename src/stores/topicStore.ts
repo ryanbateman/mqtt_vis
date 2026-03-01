@@ -54,6 +54,10 @@ interface TopicStoreState {
   labelDepthFactor: number;
   /** How label visibility is determined: 'zoom' (fade by zoom level) or 'depth' (hard cutoff by tree depth). */
   labelMode: LabelMode;
+  /** Base font size for labels in pixels. Used as maximum when depth scaling is on. */
+  labelFontSize: number;
+  /** Whether to scale label text size inversely with tree depth. */
+  scaleTextByDepth: boolean;
 
   // --- Simulation parameters ---
   /** Repulsion strength between nodes (negative = repel). */
@@ -112,6 +116,10 @@ interface TopicStoreState {
   setLabelDepthFactor: (factor: number) => void;
   /** Update the label visibility mode. */
   setLabelMode: (mode: LabelMode) => void;
+  /** Update the base label font size. */
+  setLabelFontSize: (size: number) => void;
+  /** Toggle depth-based text scaling. */
+  setScaleTextByDepth: (enabled: boolean) => void;
   /** Update simulation parameters. */
   setRepulsionStrength: (value: number) => void;
   setLinkDistance: (value: number) => void;
@@ -239,6 +247,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showLabels: cfg.showLabels ?? true,
   labelDepthFactor: cfg.labelDepthFactor ?? 5,
   labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
+  labelFontSize: cfg.labelFontSize ?? 14,
+  scaleTextByDepth: cfg.scaleTextByDepth ?? false,
   repulsionStrength: cfg.repulsionStrength ?? -350,
   linkDistance: cfg.linkDistance ?? 155,
   linkStrength: cfg.linkStrength ?? 0.5,
@@ -421,6 +431,12 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   setLabelMode: (mode: LabelMode) => {
     set({ labelMode: mode });
+  },
+  setLabelFontSize: (size: number) => {
+    set({ labelFontSize: size });
+  },
+  setScaleTextByDepth: (enabled: boolean) => {
+    set({ scaleTextByDepth: enabled });
   },
 
   setRepulsionStrength: (value: number) => {

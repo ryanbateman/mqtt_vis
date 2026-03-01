@@ -169,6 +169,10 @@ export function SettingsPanel() {
   const setAncestorPulse = useTopicStore((s) => s.setAncestorPulse);
   const showRootPath = useTopicStore((s) => s.showRootPath);
   const setShowRootPath = useTopicStore((s) => s.setShowRootPath);
+  const labelFontSize = useTopicStore((s) => s.labelFontSize);
+  const setLabelFontSize = useTopicStore((s) => s.setLabelFontSize);
+  const scaleTextByDepth = useTopicStore((s) => s.scaleTextByDepth);
+  const setScaleTextByDepth = useTopicStore((s) => s.setScaleTextByDepth);
 
   return (
     <div className="absolute top-4 right-4 z-10 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-64 max-h-[calc(100vh-2rem)] overflow-y-auto">
@@ -270,6 +274,35 @@ export function SettingsPanel() {
                   maxLabel="More"
                   onChange={setLabelDepthFactor}
                 />
+                <SliderRow
+                  label="Font Size"
+                  tooltip={scaleTextByDepth
+                    ? "Maximum font size (at root level). Deeper nodes use progressively smaller text."
+                    : "Font size for all labels"
+                  }
+                  value={labelFontSize}
+                  displayValue={`${labelFontSize}px`}
+                  min={6}
+                  max={32}
+                  step={1}
+                  minLabel="Small"
+                  maxLabel="Large"
+                  onChange={setLabelFontSize}
+                />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-gray-400">
+                      Scale by Depth
+                    </label>
+                    <InfoTooltip text="Largest text at root, decreasing for deeper nodes. Font Size slider sets the maximum." />
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={scaleTextByDepth}
+                    onChange={(e) => setScaleTextByDepth(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                  />
+                </div>
               </>
             )}
           </div>

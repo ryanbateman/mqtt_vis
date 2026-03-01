@@ -13,6 +13,8 @@ export interface AppConfig {
   showLabels?: boolean;
   labelDepthFactor?: number;
   labelMode?: "zoom" | "depth";
+  labelFontSize?: number;
+  scaleTextByDepth?: boolean;
   ancestorPulse?: boolean;
   showRootPath?: boolean;
 

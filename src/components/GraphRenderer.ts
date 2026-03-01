@@ -8,8 +8,8 @@ const MAX_PARTICLES = 500;
 /** Number of particles spawned per message pulse. */
 const PARTICLES_PER_PULSE = 6;
 
-/** Base font size for labels in pixels (at zoom scale 1.0). */
-const BASE_FONT_SIZE = 14;
+/** Default base font size for labels in pixels (at zoom scale 1.0). */
+const DEFAULT_BASE_FONT_SIZE = 14;
 
 /** Default label depth factor. Higher = more labels visible when zoomed out. */
 const DEFAULT_LABEL_DEPTH_FACTOR = 5;
@@ -40,6 +40,8 @@ export class GraphRenderer {
   private labelDepthFactor = DEFAULT_LABEL_DEPTH_FACTOR;
   private labelMode: LabelMode = "zoom";
   private showLabels = true;
+  private baseFontSize = DEFAULT_BASE_FONT_SIZE;
+  private scaleTextByDepth = false;
   private collisionPadding = 4;
   private fadeDuration = 5000;
 
@@ -233,7 +235,7 @@ export class GraphRenderer {
       .append("text")
       .attr("text-anchor", "middle")
       .attr("fill", "#e2e8f0")
-      .attr("font-size", `${BASE_FONT_SIZE}px`)
+      .attr("font-size", `${this.baseFontSize}px`)
       .attr("font-family", "monospace")
       .attr("pointer-events", "none")
       .merge(this.labelElements)
@@ -327,14 +329,18 @@ export class GraphRenderer {
       .attr("cx", (d) => d.x ?? 0)
       .attr("cy", (d) => d.y ?? 0);
 
-    // Counter-scale font size so labels stay a constant screen size
-    const fontSize = BASE_FONT_SIZE / this.currentZoomScale;
+    // Counter-scale so labels stay a constant screen size
+    const baseSize = this.baseFontSize / this.currentZoomScale;
     const labelGap = 14 / this.currentZoomScale;
+    const depthScale = this.scaleTextByDepth;
 
     this.labelElements
       .attr("x", (d) => d.x ?? 0)
       .attr("y", (d) => (d.y ?? 0) + d.displayRadius + labelGap)
-      .attr("font-size", `${fontSize}px`);
+      .attr("font-size", (d) => {
+        const size = depthScale ? baseSize / (1 + d.depth * 0.3) : baseSize;
+        return `${size}px`;
+      });
   }
 
   /**
@@ -380,6 +386,28 @@ export class GraphRenderer {
   setShowLabels(show: boolean): void {
     this.showLabels = show;
     this.updateLabelVisibility();
+  }
+
+  /** Update the base font size for labels. */
+  setLabelFontSize(size: number): void {
+    this.baseFontSize = size;
+    this.updateLabelFontSizes();
+  }
+
+  /** Toggle depth-based text scaling. */
+  setScaleTextByDepth(enabled: boolean): void {
+    this.scaleTextByDepth = enabled;
+    this.updateLabelFontSizes();
+  }
+
+  /** Reapply font sizes to all labels immediately (e.g. after settings change). */
+  private updateLabelFontSizes(): void {
+    const baseSize = this.baseFontSize / this.currentZoomScale;
+    const depthScale = this.scaleTextByDepth;
+    this.labelElements.attr("font-size", (d) => {
+      const size = depthScale ? baseSize / (1 + d.depth * 0.3) : baseSize;
+      return `${size}px`;
+    });
   }
 
   /** Update the repulsion strength between all nodes. */

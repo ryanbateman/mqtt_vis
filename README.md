@@ -24,7 +24,8 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Clear on disconnect** — optional checkbox to reset the graph when disconnecting
 - **Shareable links** — copy a URL with broker and topic filter pre-filled as query params; recipients see the connection fields pre-populated
 - **PNG export** — export the full graph as a PNG image (auto-computed bounding box, 2x resolution, dark background)
-- **Labels toggle** — turn labels on or off entirely; label settings (mode, depth) are grouped in a collapsible sub-section
+- **Labels toggle** — turn labels on or off entirely; label settings (mode, depth, font size, depth scaling) are grouped in a collapsible sub-section
+- **Depth-scaled text** — optional: label font size decreases with tree depth (inverse falloff), so root labels are largest and leaf labels are smallest. Font size slider sets the maximum.
 - **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
@@ -75,6 +76,8 @@ The settings panel is collapsible — click the header to toggle.
   - **Zoom** — labels fade in/out based on zoom level and tree depth (deeper labels disappear first when zoomed out)
   - **Depth** — labels are shown or hidden by a fixed tree depth cutoff, independent of zoom level
 - **Label Depth / Max Label Depth** — the slider meaning changes with the label mode. In Zoom mode, it controls how many depth levels remain visible when zoomed out. In Depth mode, it sets the hard cutoff depth.
+- **Font Size** — slider to set the label font size (6–32px). When depth scaling is on, this is the maximum size (used at the root level).
+- **Scale by Depth** — toggle depth-based text scaling. When on, root-level labels use the full font size and deeper nodes get progressively smaller text (inverse falloff: `size / (1 + depth * 0.3)`).
 - **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
 - **Show Root Path** — toggle visibility of structural ancestor nodes above the subscription prefix
 
@@ -113,6 +116,8 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `showLabels` | boolean | `true` | Show or hide node labels |
 | `labelDepthFactor` | number | `5` | Label depth visibility factor |
 | `labelMode` | `"zoom"` \| `"depth"` | `"zoom"` | Label visibility mode: zoom-based fade or fixed depth cutoff |
+| `labelFontSize` | number | `14` | Base label font size in pixels (max size when depth scaling is on) |
+| `scaleTextByDepth` | boolean | `false` | Scale label text size inversely with tree depth |
 | `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
 | `showRootPath` | boolean | `false` | Show structural ancestor nodes above subscription prefix |
 | `repulsionStrength` | number | `-350` | Node repulsion force |
