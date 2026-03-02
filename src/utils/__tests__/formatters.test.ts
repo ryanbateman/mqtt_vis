@@ -4,6 +4,7 @@ import {
   formatTimestamp,
   truncatePayload,
   formatUptime,
+  depthScale,
   depthFontSize,
 } from "../formatters";
 
@@ -128,47 +129,65 @@ describe("formatUptime", () => {
   });
 });
 
-describe("depthFontSize", () => {
-  it("should return baseSize for depth 0", () => {
-    expect(depthFontSize(14, 0)).toBe(14);
-    expect(depthFontSize(20, 0)).toBe(20);
+describe("depthScale", () => {
+  it("should return full value for depth 0", () => {
+    expect(depthScale(14, 0)).toBe(14);
+    expect(depthScale(20, 0)).toBe(20);
+    expect(depthScale(60, 0)).toBe(60);
   });
 
-  it("should return smaller size for deeper nodes", () => {
+  it("should return smaller value for deeper nodes", () => {
     const base = 14;
-    const depth1 = depthFontSize(base, 1);
-    const depth2 = depthFontSize(base, 2);
-    const depth3 = depthFontSize(base, 3);
+    const depth1 = depthScale(base, 1);
+    const depth2 = depthScale(base, 2);
+    const depth3 = depthScale(base, 3);
 
     expect(depth1).toBeLessThan(base);
     expect(depth2).toBeLessThan(depth1);
     expect(depth3).toBeLessThan(depth2);
   });
 
-  it("should use the formula baseSize / (1 + depth * 0.3)", () => {
-    expect(depthFontSize(14, 1)).toBeCloseTo(14 / 1.3, 5);
-    expect(depthFontSize(14, 2)).toBeCloseTo(14 / 1.6, 5);
-    expect(depthFontSize(14, 5)).toBeCloseTo(14 / 2.5, 5);
-    expect(depthFontSize(20, 3)).toBeCloseTo(20 / 1.9, 5);
+  it("should use the formula value / (1 + depth * 0.3)", () => {
+    expect(depthScale(14, 1)).toBeCloseTo(14 / 1.3, 5);
+    expect(depthScale(14, 2)).toBeCloseTo(14 / 1.6, 5);
+    expect(depthScale(14, 5)).toBeCloseTo(14 / 2.5, 5);
+    expect(depthScale(20, 3)).toBeCloseTo(20 / 1.9, 5);
   });
 
   it("should always be positive for non-negative depth", () => {
     for (let depth = 0; depth <= 20; depth++) {
-      expect(depthFontSize(14, depth)).toBeGreaterThan(0);
+      expect(depthScale(14, depth)).toBeGreaterThan(0);
     }
   });
 
   it("should be monotonically decreasing with depth", () => {
     const base = 14;
     for (let depth = 1; depth <= 10; depth++) {
-      expect(depthFontSize(base, depth)).toBeLessThan(depthFontSize(base, depth - 1));
+      expect(depthScale(base, depth)).toBeLessThan(depthScale(base, depth - 1));
     }
   });
 
   it("should scale linearly with baseSize", () => {
     const depth = 3;
-    const size14 = depthFontSize(14, depth);
-    const size28 = depthFontSize(28, depth);
+    const size14 = depthScale(14, depth);
+    const size28 = depthScale(28, depth);
     expect(size28).toBeCloseTo(size14 * 2, 5);
+  });
+
+  it("should work for node radius values (not just font sizes)", () => {
+    // MIN_RADIUS=8 at depth 3 → 8 / (1 + 0.9) = 4.21
+    expect(depthScale(8, 3)).toBeCloseTo(8 / 1.9, 5);
+    // MAX_RADIUS=60 at depth 2 → 60 / (1 + 0.6) = 37.5
+    expect(depthScale(60, 2)).toBeCloseTo(37.5, 5);
+  });
+});
+
+describe("depthFontSize (backward-compat alias)", () => {
+  it("should be the same function as depthScale", () => {
+    expect(depthFontSize).toBe(depthScale);
+  });
+
+  it("should produce identical results", () => {
+    expect(depthFontSize(14, 3)).toBe(depthScale(14, 3));
   });
 });

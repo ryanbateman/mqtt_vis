@@ -79,6 +79,8 @@ The settings panel is collapsible — click the header to toggle.
 - **Label Depth / Max Label Depth** — the slider meaning changes with the label mode. In Zoom mode, it controls how many depth levels remain visible when zoomed out. In Depth mode, it sets the hard cutoff depth.
 - **Font Size** — slider to set the label font size (6–32px). When depth scaling is on, this is the maximum size (used at the root level).
 - **Scale by Depth** — toggle depth-based text scaling. When on, root-level labels use the full font size and deeper nodes get progressively smaller text (inverse falloff: `size / (1 + depth * 0.3)`).
+- **Node Scale** — slider to scale all node sizes proportionally (0.3x–2.0x). Affects both minimum and maximum radius.
+- **Scale Nodes by Depth** — toggle depth-based node sizing. When on, deeper nodes are rendered smaller using the same inverse falloff as text scaling: `radius / (1 + depth * 0.3)`. Only affects visual size, not collision radius.
 - **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
 - **Show Root Path** — toggle visibility of structural ancestor nodes above the subscription prefix
 - **Hover Tooltips** — toggle whether hovering over a node shows a tooltip with topic details (full path, rates, payload, etc.)
@@ -119,8 +121,10 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `labelDepthFactor` | number | `5` | Label depth visibility factor |
 | `labelMode` | `"zoom"` \| `"depth"` | `"zoom"` | Label visibility mode: zoom-based fade or fixed depth cutoff |
 | `labelFontSize` | number | `14` | Base label font size in pixels (max size when depth scaling is on) |
-| `scaleTextByDepth` | boolean | `false` | Scale label text size inversely with tree depth |
+| `scaleTextByDepth` | boolean | `true` | Scale label text size inversely with tree depth |
 | `showTooltips` | boolean | `true` | Show hover tooltips on nodes with topic details |
+| `nodeScale` | number | `1.0` | Node radius multiplier (0.3–2.0). Scales all nodes proportionally |
+| `scaleNodeSizeByDepth` | boolean | `false` | Scale node display radius inversely with tree depth |
 | `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
 | `showRootPath` | boolean | `false` | Show structural ancestor nodes above subscription prefix |
 | `repulsionStrength` | number | `-350` | Node repulsion force |

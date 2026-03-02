@@ -16,6 +16,8 @@ export interface AppConfig {
   labelFontSize?: number;
   scaleTextByDepth?: boolean;
   showTooltips?: boolean;
+  nodeScale?: number;
+  scaleNodeSizeByDepth?: boolean;
   ancestorPulse?: boolean;
   showRootPath?: boolean;
 

@@ -1,0 +1,35 @@
+
+MQTT visualiser
+	- mobile improvements
+		- no delay on 'hover'
+		- menu organisation
+	- bug fixes
+		- zoom bug/definition issue
+		- colour decay clearly not totally right
+		- sparkles aren't really visible sometimes?
+	- new features
+		- text 'dropoff' adjustment slider
+		- colour theme selection
+		- traffic type identification/colouring
+			- Icons for nodes for known types (homeassistant, lorawan, etc.)
+			- Toggle mode for 'contextual' visualisation: maps for last lons
+		- specific data labeling/icons - e.g. lat lons
+		- new label mode: traffic / activity related 
+		- node size slider
+		- scale node size with depth option
+		- pin/select topic
+			- including selected topic in export of png
+			- pop up data-specific views (e.g. lat-lon)
+			- Device lookup
+			- APIs for this
+		- export SVG
+		- export sankey
+		- stats table/graphs
+			- list of noisy client IDs
+			- payload size distribution graph
+			- node types
+		- accessibility mode?
+		- opinionated settings
+		- webMCP integration
+		- change the default for scaling text with node depth
+		- sounds, for specific topics

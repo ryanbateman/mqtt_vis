@@ -663,6 +663,60 @@ describe("topicStore — ancestor pulse data flow", () => {
     });
   });
 
+  describe("nodeScale — radius multiplier", () => {
+    it("should default to 1.0", () => {
+      expect(state().nodeScale).toBe(1.0);
+    });
+
+    it("should scale node radius when nodeScale > 1", () => {
+      handleMessageAndFlush("a/b/c", "hello");
+      const defaultRadius = findGraphNode("a/b/c")!.radius;
+
+      state().setNodeScale(2.0);
+      const scaledRadius = findGraphNode("a/b/c")!.radius;
+      expect(scaledRadius).toBeCloseTo(defaultRadius * 2, 1);
+    });
+
+    it("should shrink node radius when nodeScale < 1", () => {
+      handleMessageAndFlush("a/b/c", "hello");
+      const defaultRadius = findGraphNode("a/b/c")!.radius;
+
+      state().setNodeScale(0.5);
+      const scaledRadius = findGraphNode("a/b/c")!.radius;
+      expect(scaledRadius).toBeCloseTo(defaultRadius * 0.5, 1);
+    });
+
+    it("should scale MIN_RADIUS nodes proportionally", () => {
+      // An idle node (rate=0) should have radius = MIN_RADIUS * nodeScale
+      handleMessageAndFlush("a/b/c", "hello");
+
+      // Ancestor "a" has messageRate=0 when ancestorPulse uses aggregateRate,
+      // but with ancestorPulse on, it uses aggregateRate. Turn it off for a clean test.
+      state().setAncestorPulse(false);
+      state().rebuildGraph();
+
+      const parentRadius = findGraphNode("a")!.radius;
+      expect(parentRadius).toBe(MIN_RADIUS); // rate=0 → MIN_RADIUS * 1.0
+
+      state().setNodeScale(1.5);
+      const scaledParent = findGraphNode("a")!.radius;
+      expect(scaledParent).toBeCloseTo(MIN_RADIUS * 1.5, 5);
+    });
+  });
+
+  describe("scaleNodeSizeByDepth", () => {
+    it("should default to false", () => {
+      expect(state().scaleNodeSizeByDepth).toBe(false);
+    });
+
+    it("should toggle via setter", () => {
+      state().setScaleNodeSizeByDepth(true);
+      expect(state().scaleNodeSizeByDepth).toBe(true);
+      state().setScaleNodeSizeByDepth(false);
+      expect(state().scaleNodeSizeByDepth).toBe(false);
+    });
+  });
+
   describe("graphStructureVersion", () => {
     it("should start at 0", () => {
       expect(state().graphStructureVersion).toBe(0);

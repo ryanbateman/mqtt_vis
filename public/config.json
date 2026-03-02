@@ -11,8 +11,10 @@
   "emaTau": 5,
   "labelDepthFactor": 5,
   "labelFontSize": 14,
-  "scaleTextByDepth": false,
+  "scaleTextByDepth": true,
   "showTooltips": true,
+  "nodeScale": 1.0,
+  "scaleNodeSizeByDepth": false,
   "ancestorPulse": true,
   "showRootPath": false,
 

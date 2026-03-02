@@ -60,6 +60,10 @@ interface TopicStoreState {
   scaleTextByDepth: boolean;
   /** Whether to show tooltips on node hover. */
   showTooltips: boolean;
+  /** Multiplier for node radius (0.3–2.0). Scales both min and max radius proportionally. */
+  nodeScale: number;
+  /** Whether to scale node display radius inversely with tree depth. */
+  scaleNodeSizeByDepth: boolean;
 
   // --- Simulation parameters ---
   /** Repulsion strength between nodes (negative = repel). */
@@ -124,6 +128,10 @@ interface TopicStoreState {
   setScaleTextByDepth: (enabled: boolean) => void;
   /** Toggle hover tooltips on nodes. */
   setShowTooltips: (show: boolean) => void;
+  /** Update the node radius scale multiplier. */
+  setNodeScale: (scale: number) => void;
+  /** Toggle depth-based node size scaling. */
+  setScaleNodeSizeByDepth: (enabled: boolean) => void;
   /** Update simulation parameters. */
   setRepulsionStrength: (value: number) => void;
   setLinkDistance: (value: number) => void;
@@ -168,7 +176,8 @@ function buildGraphData(
   pulseDuration: number,
   showRootPath: boolean,
   topicFilter: string,
-  ancestorPulse: boolean
+  ancestorPulse: boolean,
+  nodeScale: number
 ): {
   graphNodes: GraphNode[];
   graphLinks: GraphLink[];
@@ -185,7 +194,7 @@ function buildGraphData(
 
   const graphNodes: GraphNode[] = flat.map((f) => {
     const tn = nodeMap.get(f.nodeId)!;
-    const r = calculateRadius(ancestorPulse ? tn.aggregateRate : tn.messageRate);
+    const r = calculateRadius(ancestorPulse ? tn.aggregateRate : tn.messageRate) * nodeScale;
     return {
       id: f.nodeId,
       label: f.label,
@@ -266,8 +275,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   labelDepthFactor: cfg.labelDepthFactor ?? 5,
   labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
   labelFontSize: cfg.labelFontSize ?? 14,
-  scaleTextByDepth: cfg.scaleTextByDepth ?? false,
+  scaleTextByDepth: cfg.scaleTextByDepth ?? true,
   showTooltips: cfg.showTooltips ?? true,
+  nodeScale: cfg.nodeScale ?? 1.0,
+  scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
   repulsionStrength: cfg.repulsionStrength ?? -350,
   linkDistance: cfg.linkDistance ?? 155,
   linkStrength: cfg.linkStrength ?? 0.5,
@@ -396,7 +407,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
 
     // Rebuild flat graph data (decay always runs on full tree, but rendering may skip prefix)
     const { graphNodes, graphLinks } = buildGraphData(
-      root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse
+      root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse, state.nodeScale
     );
     set({ graphNodes, graphLinks });
   },
@@ -405,7 +416,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const state = get();
     const pulseDuration = state.emaTau * 1000;
     const { graphNodes, graphLinks } = buildGraphData(
-      state.root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse
+      state.root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse, state.nodeScale
     );
     set({ graphNodes, graphLinks });
   },
@@ -425,7 +436,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         const s = get();
         const pulseDuration = s.emaTau * 1000;
         const { graphNodes, graphLinks } = buildGraphData(
-          s.root, pulseDuration, s.showRootPath, s.topicFilter, s.ancestorPulse
+          s.root, pulseDuration, s.showRootPath, s.topicFilter, s.ancestorPulse, s.nodeScale
         );
         set({
           graphNodes,
@@ -457,6 +468,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       sessionStart: Date.now(),
       errorMessage: null,
       graphStructureVersion: 0,
+      nodeScale: cfg.nodeScale ?? 1.0,
+      scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
     });
   },
 
@@ -491,6 +504,15 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
       _payloadLru.clear();
     }
+  },
+
+  setNodeScale: (scale: number) => {
+    set({ nodeScale: scale });
+    // Rebuild graph so node radii update immediately
+    get().rebuildGraph();
+  },
+  setScaleNodeSizeByDepth: (enabled: boolean) => {
+    set({ scaleNodeSizeByDepth: enabled });
   },
 
   setRepulsionStrength: (value: number) => {

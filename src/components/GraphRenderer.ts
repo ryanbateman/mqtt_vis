@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 import type { GraphNode, GraphLink, Particle, LabelMode, TooltipData } from "../types";
 import { rateToColor, pulseColor, IDLE_STROKE } from "../utils/colorScale";
-import { depthFontSize } from "../utils/formatters";
+import { depthScale } from "../utils/formatters";
 
 /** Maximum number of particles alive at once. */
 const MAX_PARTICLES = 500;
@@ -43,6 +43,7 @@ export class GraphRenderer {
   private showLabels = true;
   private baseFontSize = DEFAULT_BASE_FONT_SIZE;
   private scaleTextByDepth = false;
+  private scaleNodeSizeByDepth = false;
   private collisionPadding = 4;
   private fadeDuration = 5000;
 
@@ -364,13 +365,13 @@ export class GraphRenderer {
     // Counter-scale so labels stay a constant screen size
     const baseSize = this.baseFontSize / this.currentZoomScale;
     const labelGap = 14 / this.currentZoomScale;
-    const depthScale = this.scaleTextByDepth;
+    const useDepthText = this.scaleTextByDepth;
 
     this.labelElements
       .attr("x", (d) => d.x ?? 0)
       .attr("y", (d) => (d.y ?? 0) + d.displayRadius + labelGap)
       .attr("font-size", (d) => {
-        const size = depthScale ? depthFontSize(baseSize, d.depth) : baseSize;
+        const size = useDepthText ? depthScale(baseSize, d.depth) : baseSize;
         return `${size}px`;
       });
   }
@@ -432,6 +433,11 @@ export class GraphRenderer {
     this.updateLabelFontSizes();
   }
 
+  /** Toggle depth-based node size scaling. */
+  setScaleNodeSizeByDepth(enabled: boolean): void {
+    this.scaleNodeSizeByDepth = enabled;
+  }
+
   /** Register a callback for node hover tooltip events. */
   setTooltipCallback(cb: ((data: TooltipData | null) => void) | null): void {
     this.onTooltip = cb;
@@ -453,9 +459,9 @@ export class GraphRenderer {
   /** Reapply font sizes to all labels immediately (e.g. after settings change). */
   private updateLabelFontSizes(): void {
     const baseSize = this.baseFontSize / this.currentZoomScale;
-    const depthScale = this.scaleTextByDepth;
+    const useDepthText = this.scaleTextByDepth;
     this.labelElements.attr("font-size", (d) => {
-      const size = depthScale ? depthFontSize(baseSize, d.depth) : baseSize;
+      const size = useDepthText ? depthScale(baseSize, d.depth) : baseSize;
       return `${size}px`;
     });
   }
@@ -600,13 +606,16 @@ export class GraphRenderer {
   private updateNodeSizes(): void {
     const LERP_FACTOR = 0.12;
     const SNAP_THRESHOLD = 0.3; // snap when within 0.3px to avoid endless micro-updates
+    const scaleByDepth = this.scaleNodeSizeByDepth;
     let anyChanged = false;
 
     this.simulation.nodes().forEach((d) => {
-      const diff = d.radius - d.displayRadius;
+      // Target radius: apply depth scaling if enabled (visual only, not collision)
+      const target = scaleByDepth ? depthScale(d.radius, d.depth) : d.radius;
+      const diff = target - d.displayRadius;
       if (Math.abs(diff) < SNAP_THRESHOLD) {
-        if (d.displayRadius !== d.radius) {
-          d.displayRadius = d.radius;
+        if (d.displayRadius !== target) {
+          d.displayRadius = target;
           anyChanged = true;
         }
         return;

@@ -60,10 +60,14 @@ export function formatUptime(ms: number): string {
 }
 
 /**
- * Calculate font size for a label based on its tree depth.
- * Uses an inverse falloff: `baseSize / (1 + depth * 0.3)`.
- * Root nodes (depth 0) get the full baseSize; deeper nodes get progressively smaller text.
+ * Apply inverse depth scaling to a value.
+ * Uses the formula: `value / (1 + depth * 0.3)`.
+ * At depth 0, returns the full value; deeper levels get progressively smaller.
+ * Used for both font sizing and node radius scaling.
  */
-export function depthFontSize(baseSize: number, depth: number): number {
-  return baseSize / (1 + depth * 0.3);
+export function depthScale(value: number, depth: number): number {
+  return value / (1 + depth * 0.3);
 }
+
+/** @deprecated Use `depthScale` instead. Alias kept for backward compatibility. */
+export const depthFontSize = depthScale;
