@@ -147,11 +147,11 @@ describe("depthScale", () => {
     expect(depth3).toBeLessThan(depth2);
   });
 
-  it("should use the formula value / (1 + depth * 0.3)", () => {
-    expect(depthScale(14, 1)).toBeCloseTo(14 / 1.3, 5);
-    expect(depthScale(14, 2)).toBeCloseTo(14 / 1.6, 5);
-    expect(depthScale(14, 5)).toBeCloseTo(14 / 2.5, 5);
-    expect(depthScale(20, 3)).toBeCloseTo(20 / 1.9, 5);
+  it("should use the formula value / (1 + depth * 0.4)", () => {
+    expect(depthScale(14, 1)).toBeCloseTo(14 / 1.4, 5);
+    expect(depthScale(14, 2)).toBeCloseTo(14 / 1.8, 5);
+    expect(depthScale(14, 5)).toBeCloseTo(14 / 3.0, 5);
+    expect(depthScale(20, 3)).toBeCloseTo(20 / 2.2, 5);
   });
 
   it("should always be positive for non-negative depth", () => {
@@ -175,10 +175,27 @@ describe("depthScale", () => {
   });
 
   it("should work for node radius values (not just font sizes)", () => {
-    // MIN_RADIUS=8 at depth 3 → 8 / (1 + 0.9) = 4.21
-    expect(depthScale(8, 3)).toBeCloseTo(8 / 1.9, 5);
-    // MAX_RADIUS=60 at depth 2 → 60 / (1 + 0.6) = 37.5
-    expect(depthScale(60, 2)).toBeCloseTo(37.5, 5);
+    // MIN_RADIUS=8 at depth 3 → 8 / (1 + 1.2) = 3.636
+    expect(depthScale(8, 3)).toBeCloseTo(8 / 2.2, 5);
+    // MAX_RADIUS=60 at depth 2 → 60 / (1 + 0.8) = 33.33
+    expect(depthScale(60, 2)).toBeCloseTo(60 / 1.8, 5);
+  });
+
+  it("should accept a custom factor parameter", () => {
+    // factor=0.25 (used for text): 14 / (1 + 3 * 0.25) = 14 / 1.75 = 8
+    expect(depthScale(14, 3, 0.25)).toBeCloseTo(14 / 1.75, 5);
+    // factor=0.6: 14 / (1 + 3 * 0.6) = 14 / 2.8 = 5
+    expect(depthScale(14, 3, 0.6)).toBeCloseTo(14 / 2.8, 5);
+  });
+
+  it("should use 0.4 as the default factor when not specified", () => {
+    expect(depthScale(14, 3)).toBe(depthScale(14, 3, 0.4));
+  });
+
+  it("should produce gentler dropoff with factor 0.25 than default 0.4", () => {
+    for (let depth = 1; depth <= 5; depth++) {
+      expect(depthScale(14, depth, 0.25)).toBeGreaterThan(depthScale(14, depth, 0.4));
+    }
   });
 });
 

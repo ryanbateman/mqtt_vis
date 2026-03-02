@@ -61,12 +61,16 @@ export function formatUptime(ms: number): string {
 
 /**
  * Apply inverse depth scaling to a value.
- * Uses the formula: `value / (1 + depth * 0.3)`.
+ * Uses the formula: `value / (1 + depth * factor)`.
  * At depth 0, returns the full value; deeper levels get progressively smaller.
- * Used for both font sizing and node radius scaling.
+ *
+ * @param value  The base value (font size, radius, etc.)
+ * @param depth  Tree depth (0 = root)
+ * @param factor Dropoff rate. Higher = faster shrinkage. Default 0.4 (used for nodes).
+ *               Text scaling uses 0.25 for a gentler dropoff.
  */
-export function depthScale(value: number, depth: number): number {
-  return value / (1 + depth * 0.3);
+export function depthScale(value: number, depth: number, factor: number = 0.4): number {
+  return value / (1 + depth * factor);
 }
 
 /** @deprecated Use `depthScale` instead. Alias kept for backward compatibility. */

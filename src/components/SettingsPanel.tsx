@@ -221,8 +221,8 @@ export function SettingsPanel() {
                 tooltip="Scale all node sizes. Affects both minimum and maximum radius proportionally."
                 value={nodeScale}
                 displayValue={`${nodeScale.toFixed(1)}x`}
-                min={0.3}
-                max={2.0}
+                min={0.5}
+                max={4.0}
                 step={0.1}
                 minLabel="Small"
                 maxLabel="Large"

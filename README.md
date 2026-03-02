@@ -78,9 +78,9 @@ The settings panel is collapsible — click the header to toggle.
   - **Depth** — labels are shown or hidden by a fixed tree depth cutoff, independent of zoom level
 - **Label Depth / Max Label Depth** — the slider meaning changes with the label mode. In Zoom mode, it controls how many depth levels remain visible when zoomed out. In Depth mode, it sets the hard cutoff depth.
 - **Font Size** — slider to set the label font size (6–32px). When depth scaling is on, this is the maximum size (used at the root level).
-- **Scale by Depth** — toggle depth-based text scaling. When on, root-level labels use the full font size and deeper nodes get progressively smaller text (inverse falloff: `size / (1 + depth * 0.3)`).
-- **Node Scale** — slider to scale all node sizes proportionally (0.3x–2.0x). Affects both minimum and maximum radius.
-- **Scale Nodes by Depth** — toggle depth-based node sizing. When on, deeper nodes are rendered smaller using the same inverse falloff as text scaling: `radius / (1 + depth * 0.3)`. Only affects visual size, not collision radius.
+- **Scale by Depth** — toggle depth-based text scaling. When on, root-level labels use the full font size and deeper nodes get progressively smaller text (inverse falloff: `size / (1 + depth * 0.25)`).
+- **Node Scale** — slider to scale all node sizes proportionally (0.5x–4.0x). Affects both minimum and maximum radius.
+- **Scale Nodes by Depth** — toggle depth-based node sizing. When on, deeper nodes are rendered smaller using inverse falloff: `radius / (1 + depth * 0.4)`. Only affects visual size, not collision radius.
 - **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
 - **Show Root Path** — toggle visibility of structural ancestor nodes above the subscription prefix
 - **Hover Tooltips** — toggle whether hovering over a node shows a tooltip with topic details (full path, rates, payload, etc.)

@@ -371,7 +371,7 @@ export class GraphRenderer {
       .attr("x", (d) => d.x ?? 0)
       .attr("y", (d) => (d.y ?? 0) + d.displayRadius + labelGap)
       .attr("font-size", (d) => {
-        const size = useDepthText ? depthScale(baseSize, d.depth) : baseSize;
+        const size = useDepthText ? depthScale(baseSize, d.depth, 0.25) : baseSize;
         return `${size}px`;
       });
   }
@@ -392,10 +392,13 @@ export class GraphRenderer {
       const maxDepth = this.labelDepthFactor;
       this.labelElements.attr("opacity", (d) => (d.depth <= maxDepth ? 1 : 0));
     } else {
-      // Zoom mode: deeper labels fade out when zoomed out
-      const maxDepth = this.currentZoomScale * this.labelDepthFactor;
+      // Zoom mode: deeper labels fade out when zoomed out.
+      // The +2 offset ensures shallow labels (depth 1-2) resist fading
+      // much longer when zoomed out, keeping them readable.
+      const maxDepth = this.currentZoomScale * this.labelDepthFactor + 2;
       const FADE_BAND = 4;
       this.labelElements.attr("opacity", (d) => {
+        if (d.depth === 0) return 1; // Root label always visible
         if (d.depth >= maxDepth) return 0;
         if (d.depth <= maxDepth - FADE_BAND) return 1;
         return (maxDepth - d.depth) / FADE_BAND;
@@ -461,7 +464,7 @@ export class GraphRenderer {
     const baseSize = this.baseFontSize / this.currentZoomScale;
     const useDepthText = this.scaleTextByDepth;
     this.labelElements.attr("font-size", (d) => {
-      const size = useDepthText ? depthScale(baseSize, d.depth) : baseSize;
+      const size = useDepthText ? depthScale(baseSize, d.depth, 0.25) : baseSize;
       return `${size}px`;
     });
   }
