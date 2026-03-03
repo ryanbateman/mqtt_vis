@@ -61,7 +61,7 @@ interface TopicStoreState {
   scaleTextByDepth: boolean;
   /** Whether to show tooltips on node hover. */
   showTooltips: boolean;
-  /** Multiplier for node radius (0.3–2.0). Scales both min and max radius proportionally. */
+  /** Multiplier for node radius (0.5–4.0). Scales both min and max radius proportionally. */
   nodeScale: number;
   /** Whether to scale node display radius inversely with tree depth. */
   scaleNodeSizeByDepth: boolean;

@@ -27,7 +27,7 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Labels toggle** — turn labels on or off entirely; label settings (mode, depth, font size, depth scaling) are grouped in a collapsible sub-section
 - **Depth-scaled text** — optional: label font size decreases with tree depth (inverse falloff), so root labels are largest and leaf labels are smallest. Font size slider sets the maximum.
 - **Hover tooltips** — hover over any node to see full topic path, message rate, aggregate rate, message count, QoS, last seen time, and last payload. Appears after a 0.5s delay. Toggleable in settings.
-- **Node selection & detail panel** — click any node to select it (highlighted with a blue ring). A persistent detail panel appears below the connection panel showing full topic path (click to copy), message stats, children count, QoS, last seen time, and full scrollable payload. Click background or press Escape to deselect. The connection panel auto-collapses to make room.
+- **Node selection & detail panel** — click any node to select it (highlighted with a zoom-scaled blue ring). A persistent detail panel appears below the connection panel showing full topic path (click to copy), message stats, children count, QoS, last seen time, and full scrollable payload. JSON payloads can be pretty-printed via a `{ }` toggle button. Click background or press Escape to deselect. The connection panel auto-collapses to make room.
 - **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
@@ -125,7 +125,7 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `labelFontSize` | number | `14` | Base label font size in pixels (max size when depth scaling is on) |
 | `scaleTextByDepth` | boolean | `true` | Scale label text size inversely with tree depth |
 | `showTooltips` | boolean | `true` | Show hover tooltips on nodes with topic details |
-| `nodeScale` | number | `1.0` | Node radius multiplier (0.3–2.0). Scales all nodes proportionally |
+| `nodeScale` | number | `1.0` | Node radius multiplier (0.5–4.0). Scales all nodes proportionally |
 | `scaleNodeSizeByDepth` | boolean | `false` | Scale node display radius inversely with tree depth |
 | `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
 | `showRootPath` | boolean | `false` | Show structural ancestor nodes above subscription prefix |
