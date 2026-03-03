@@ -608,7 +608,7 @@ export class GraphRenderer {
           return d3.interpolateRgb(pulseColor(d.messageRate), IDLE_STROKE)(t);
         })
         .attr("stroke-width", (d) => {
-          if (d.id === selectedId) return 3.5;
+          if (d.id === selectedId) return 3.5 / this.currentZoomScale;
           return d.depth === 0 ? 2.5 : 2;
         })
         .attr("filter", (d) => {
@@ -637,7 +637,7 @@ export class GraphRenderer {
       this.nodeElements
         .filter((d) => d.id === selectedId && !this.activeNodeIds.has(d.id))
         .attr("stroke", "#60a5fa")
-        .attr("stroke-width", 3.5)
+        .attr("stroke-width", 3.5 / this.currentZoomScale)
         .attr("stroke-opacity", 1);
     }
 

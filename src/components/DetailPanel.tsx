@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { TopicNode, GraphNode } from "../types";
 import { formatRate, formatTimestamp } from "../utils/formatters";
 
@@ -16,8 +16,29 @@ export function DetailPanel({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [prettyJson, setPrettyJson] = useState(false);
+
+  // Reset pretty-print toggle when switching to a different node
+  useEffect(() => {
+    setPrettyJson(false);
+  }, [graphNode.id]);
 
   const topicPath = graphNode.id || "(root)";
+
+  // Try to parse the payload as JSON for pretty-printing.
+  // Only format objects/arrays — bare strings/numbers stay raw.
+  const formattedPayload = (() => {
+    if (!topicNode.lastPayload) return null;
+    try {
+      const parsed = JSON.parse(topicNode.lastPayload);
+      if (typeof parsed === "object" && parsed !== null) {
+        return JSON.stringify(parsed, null, 2);
+      }
+    } catch { /* not JSON */ }
+    return null;
+  })();
+
+  const isJson = formattedPayload !== null;
 
   const handleCopy = async () => {
     try {
@@ -107,9 +128,24 @@ export function DetailPanel({
       {/* Payload — full content, scrollable */}
       {topicNode.lastPayload !== null && (
         <div className="p-3 overflow-y-auto min-h-0 flex-1">
-          <div className="text-[10px] text-gray-500 mb-1">Last Payload</div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-gray-500">Last Payload</span>
+            {isJson && (
+              <button
+                onClick={() => setPrettyJson(!prettyJson)}
+                className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                  prettyJson
+                    ? "bg-blue-600/30 text-blue-300"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+                title="Toggle JSON pretty-print"
+              >
+                {"{ }"}
+              </button>
+            )}
+          </div>
           <pre className="text-[11px] font-mono text-gray-300 whitespace-pre-wrap break-all leading-snug max-h-60 overflow-y-auto">
-            {topicNode.lastPayload}
+            {prettyJson && formattedPayload ? formattedPayload : topicNode.lastPayload}
           </pre>
         </div>
       )}
