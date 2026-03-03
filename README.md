@@ -27,9 +27,11 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Labels toggle** — turn labels on or off entirely; label settings (mode, depth, font size, depth scaling) are grouped in a collapsible sub-section
 - **Depth-scaled text** — optional: label font size decreases with tree depth (inverse falloff), so root labels are largest and leaf labels are smallest. Font size slider sets the maximum.
 - **Hover tooltips** — hover over any node to see full topic path, message rate, aggregate rate, message count, QoS, last seen time, and last payload. Appears after a 0.5s delay. Toggleable in settings.
+- **Node selection & detail panel** — click any node to select it (highlighted with a blue ring). A persistent detail panel appears below the connection panel showing full topic path (click to copy), message stats, children count, QoS, last seen time, and full scrollable payload. Click background or press Escape to deselect. The connection panel auto-collapses to make room.
 - **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
+- **Performance debug mode** — add `?perf` to the URL to enable console-based performance instrumentation: FPS counter, frame timing, D3 tick duration, decay tick cost, node/link counts, heap usage, and automatic long-frame detection via PerformanceObserver. Zero overhead when disabled.
 
 ## Quick Start
 
@@ -192,6 +194,8 @@ src/
     ConnectionPanel.tsx     # Broker URL, topic filter, client ID, auth, connect/disconnect
     TopicGraph.tsx          # SVG container, syncs store state to GraphRenderer
     GraphRenderer.ts        # D3 force simulation, nodes/links/labels/effects/particles
+    DetailPanel.tsx         # Selected node detail panel (topic path, stats, payload)
+    NodeTooltip.tsx         # Hover tooltip for node details
     SettingsPanel.tsx       # Sliders, toggles, collapsible sections, portal tooltips
     StatusBar.tsx           # Message/topic counts, uptime
   utils/
@@ -199,6 +203,8 @@ src/
     topicParser.ts          # Topic string parsing, tree operations, ancestor paths
     sizeCalculator.ts       # Logarithmic node radius from aggregate rate
     colorScale.ts           # Custom multi-stop colour scale (slate > sky > orange > amber > yellow)
+    formatters.ts           # Rate/timestamp formatting, payload truncation, depth scaling
+    perfDebug.ts            # Performance debug module (?perf URL param activation)
 ```
 
 ## How It Works

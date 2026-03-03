@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, type FormEvent } from "react";
+import { useState, useCallback, useMemo, useEffect, type FormEvent } from "react";
 import type { ConnectionParams, ConnectionStatus } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 import { getConfig } from "../utils/config";
@@ -40,6 +40,16 @@ export function ConnectionPanel({
   const urlParams = useMemo(() => getUrlParams(), []);
 
   const [collapsed, setCollapsed] = useState(cfg.connectionCollapsed ?? false);
+  const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
+
+  // Auto-collapse when a node is selected (to make room for the DetailPanel).
+  // Deselecting does NOT re-expand — the user can manually expand if they want.
+  useEffect(() => {
+    if (selectedNodeId !== null) {
+      setCollapsed(true);
+    }
+  }, [selectedNodeId]);
+
   const [brokerUrl, setBrokerUrl] = useState(urlParams.broker ?? saved.brokerUrl ?? cfg.brokerUrl ?? "wss://broker.hivemq.com:8884/mqtt");
   const [topicFilter, setTopicFilter] = useState(urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? "robot/#");
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
@@ -125,7 +135,7 @@ export function ConnectionPanel({
           : "Disconnected";
 
   return (
-    <div className="absolute top-4 left-4 z-10 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-80">
+    <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-80">
       <button
         type="button"
         onClick={() => setCollapsed(!collapsed)}

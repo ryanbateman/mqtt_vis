@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useTopicStore } from "../stores/topicStore";
 import { GraphRenderer } from "./GraphRenderer";
 import { NodeTooltip } from "./NodeTooltip";
@@ -31,8 +31,22 @@ export function TopicGraph() {
   const alphaDecay = useTopicStore((s) => s.alphaDecay);
   const showTooltips = useTopicStore((s) => s.showTooltips);
   const exportRequested = useTopicStore((s) => s.exportRequested);
+  const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
+  const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+
+  // Callbacks for node click / background click (stable refs via useCallback)
+  const handleNodeClick = useCallback(
+    (nodeId: string) => {
+      setSelectedNodeId(nodeId);
+    },
+    [setSelectedNodeId]
+  );
+
+  const handleBackgroundClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, [setSelectedNodeId]);
 
   // Look up the hovered node's data for the tooltip
   const tooltipNodes = useMemo(() => {
@@ -171,6 +185,32 @@ export function TopicGraph() {
       rendererRef.current.exportPng();
     }
   }, [exportRequested]);
+
+  // Sync click callbacks to the renderer
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setClickCallback(handleNodeClick);
+      rendererRef.current.setBackgroundClickCallback(handleBackgroundClick);
+    }
+  }, [handleNodeClick, handleBackgroundClick]);
+
+  // Sync selected node ID to the renderer for the selection ring
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setSelectedNodeId(selectedNodeId);
+    }
+  }, [selectedNodeId]);
+
+  // Escape key deselects the current node
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedNodeId !== null) {
+        setSelectedNodeId(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodeId, setSelectedNodeId]);
 
   return (
     <>

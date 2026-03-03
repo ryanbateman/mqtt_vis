@@ -2,6 +2,16 @@ import * as d3 from "d3";
 import type { GraphNode, GraphLink, Particle, LabelMode, TooltipData } from "../types";
 import { rateToColor, pulseColor, IDLE_STROKE } from "../utils/colorScale";
 import { depthScale } from "../utils/formatters";
+import {
+  PERF_ENABLED,
+  perfMark,
+  perfMeasure,
+  perfStats,
+  RollingAvg,
+  getHeapMB,
+  logPerfSummary,
+  initPerfObserver,
+} from "../utils/perfDebug";
 
 /** Maximum number of particles alive at once. */
 const MAX_PARTICLES = 500;
@@ -61,6 +71,23 @@ export class GraphRenderer {
   // Same for links — keyed by "sourceId-targetId"
   private activeLinkKeys = new Set<string>();
 
+  // Selection state — the currently selected/pinned node ID.
+  private selectedNodeId: string | null = null;
+
+  // Callback invoked when a node is clicked (D3 → React bridge).
+  private onNodeClick: ((nodeId: string) => void) | null = null;
+  // Callback invoked when the SVG background is clicked (deselect).
+  private onBackgroundClick: (() => void) | null = null;
+
+  // --- Perf debug fields (only used when PERF_ENABLED) ---
+  private perfFrameCount = 0;
+  private perfLastSummaryTime = 0;
+  private perfLastFpsTime = 0;
+  private perfFps = 0;
+  private perfFrameAvg = PERF_ENABLED ? new RollingAvg(60) : null;
+  private perfTickAvg = PERF_ENABLED ? new RollingAvg(60) : null;
+  private perfNodeColorAvg = PERF_ENABLED ? new RollingAvg(60) : null;
+
   constructor(svgElement: SVGSVGElement) {
     this.svg = d3.select(svgElement);
     this.width = svgElement.clientWidth;
@@ -109,6 +136,16 @@ export class GraphRenderer {
       });
 
     this.svg.call(zoom);
+
+    // Background click: deselect when clicking empty space.
+    // Use mousedown + check target to distinguish from drags and node clicks.
+    this.svg.on("click", (event: MouseEvent) => {
+      // Only fire if the click target is the SVG itself or the container <g>,
+      // not a child element (node/link/label).
+      if (event.target === this.svg.node() || event.target === this.container.node()) {
+        this.onBackgroundClick?.();
+      }
+    });
 
     // Layer ordering: links → nodes → particles → labels
     this.linkGroup = this.container.append("g").attr("class", "links");
@@ -352,6 +389,8 @@ export class GraphRenderer {
 
   /** Position elements on each simulation tick. */
   private tick(): void {
+    perfMark("d3-tick-start");
+
     this.linkElements
       .attr("x1", (d) => (d.source as GraphNode).x ?? 0)
       .attr("y1", (d) => (d.source as GraphNode).y ?? 0)
@@ -374,6 +413,10 @@ export class GraphRenderer {
         const size = useDepthText ? depthScale(baseSize, d.depth, 0.25) : baseSize;
         return `${size}px`;
       });
+
+    perfMark("d3-tick-end");
+    const dur = perfMeasure("d3-tick", "d3-tick-start", "d3-tick-end");
+    this.perfTickAvg?.push(dur);
   }
 
   /**
@@ -446,6 +489,26 @@ export class GraphRenderer {
     this.onTooltip = cb;
   }
 
+  /** Register a callback for node click events. */
+  setClickCallback(cb: ((nodeId: string) => void) | null): void {
+    this.onNodeClick = cb;
+  }
+
+  /** Register a callback for background (empty space) click events. */
+  setBackgroundClickCallback(cb: (() => void) | null): void {
+    this.onBackgroundClick = cb;
+  }
+
+  /** Update the selected node ID. Clears the ring on the previous selection. */
+  setSelectedNodeId(id: string | null): void {
+    const prev = this.selectedNodeId;
+    this.selectedNodeId = id;
+    // Clear the visual ring on the previously selected node
+    if (prev !== null && prev !== id) {
+      this.clearSelectionRing(prev);
+    }
+  }
+
   /** Toggle whether hover tooltips are enabled. */
   setShowTooltips(show: boolean): void {
     this.showTooltips = show;
@@ -512,49 +575,90 @@ export class GraphRenderer {
    * Idle nodes are set once when their fade completes and then skipped.
    */
   private updateNodeColors(): void {
-    if (this.activeNodeIds.size === 0) return;
+    if (this.activeNodeIds.size === 0 && this.selectedNodeId === null) return;
 
+    perfMark("node-colors-start");
     const now = Date.now();
     const duration = this.fadeDuration;
     const toRemove: string[] = [];
+    const selectedId = this.selectedNodeId;
 
+    if (this.activeNodeIds.size > 0) {
+      this.nodeElements
+        .filter((d) => this.activeNodeIds.has(d.id))
+        .attr("fill", (d) => {
+          if (d.depth === 0) return "#ffffff";
+          const age = now - d.pulseTimestamp;
+          const t = Math.min(age / duration, 1);
+          if (t >= 1) {
+            toRemove.push(d.id);
+            return rateToColor(d.messageRate);
+          }
+          const warmColor = rateToColor(d.pulseRate);
+          const idleColor = rateToColor(d.messageRate);
+          return d3.interpolateRgb(warmColor, idleColor)(t);
+        })
+        .attr("stroke", (d) => {
+          // Selected node gets a bright ring regardless of pulse state
+          if (d.id === selectedId) return "#60a5fa";
+          if (d.depth === 0) return "#ffffff";
+          const age = now - d.pulseTimestamp;
+          const t = Math.min(age / duration, 1);
+          if (t >= 1) return IDLE_STROKE;
+          return d3.interpolateRgb(pulseColor(d.messageRate), IDLE_STROKE)(t);
+        })
+        .attr("stroke-width", (d) => {
+          if (d.id === selectedId) return 3.5;
+          return d.depth === 0 ? 2.5 : 2;
+        })
+        .attr("filter", (d) => {
+          if (d.depth === 0) return "none";
+          const age = now - d.pulseTimestamp;
+          return age < duration ? "url(#glow)" : "none";
+        })
+        .attr("stroke-opacity", (d) => {
+          // Selected node always has full opacity stroke
+          if (d.id === selectedId) return 1;
+          if (d.depth === 0) return 1;
+          const age = now - d.pulseTimestamp;
+          const t = Math.min(age / duration, 1);
+          return 1 - 0.4 * t; // 1.0 → 0.6
+        });
+
+      // Remove completed fades from the active set
+      for (const id of toRemove) {
+        this.activeNodeIds.delete(id);
+      }
+    }
+
+    // Apply selection ring to the selected node even when it's not actively fading.
+    // This ensures the ring persists after the pulse animation completes.
+    if (selectedId !== null) {
+      this.nodeElements
+        .filter((d) => d.id === selectedId && !this.activeNodeIds.has(d.id))
+        .attr("stroke", "#60a5fa")
+        .attr("stroke-width", 3.5)
+        .attr("stroke-opacity", 1);
+    }
+
+    perfMark("node-colors-end");
+    const dur = perfMeasure("node-colors", "node-colors-start", "node-colors-end");
+    this.perfNodeColorAvg?.push(dur);
+  }
+
+  /**
+   * Reapply default stroke styles to the previously selected node
+   * when selection changes. Called internally by setSelectedNodeId().
+   */
+  private clearSelectionRing(prevId: string): void {
     this.nodeElements
-      .filter((d) => this.activeNodeIds.has(d.id))
-      .attr("fill", (d) => {
-        if (d.depth === 0) return "#ffffff";
-        const age = now - d.pulseTimestamp;
-        const t = Math.min(age / duration, 1);
-        if (t >= 1) {
-          toRemove.push(d.id);
-          return rateToColor(d.messageRate);
-        }
-        const warmColor = rateToColor(d.pulseRate);
-        const idleColor = rateToColor(d.messageRate);
-        return d3.interpolateRgb(warmColor, idleColor)(t);
-      })
+      .filter((d) => d.id === prevId)
       .attr("stroke", (d) => {
         if (d.depth === 0) return "#ffffff";
-        const age = now - d.pulseTimestamp;
-        const t = Math.min(age / duration, 1);
-        if (t >= 1) return IDLE_STROKE;
-        return d3.interpolateRgb(pulseColor(d.messageRate), IDLE_STROKE)(t);
+        return IDLE_STROKE;
       })
-      .attr("filter", (d) => {
-        if (d.depth === 0) return "none";
-        const age = now - d.pulseTimestamp;
-        return age < duration ? "url(#glow)" : "none";
-      })
-      .attr("stroke-opacity", (d) => {
-        if (d.depth === 0) return 1;
-        const age = now - d.pulseTimestamp;
-        const t = Math.min(age / duration, 1);
-        return 1 - 0.4 * t; // 1.0 → 0.6
-      });
-
-    // Remove completed fades from the active set
-    for (const id of toRemove) {
-      this.activeNodeIds.delete(id);
-    }
+      .attr("stroke-width", (d) => (d.depth === 0 ? 2.5 : 2))
+      .attr("stroke-opacity", (d) => (d.depth === 0 ? 1 : 0.6));
   }
 
   /** Create a drag behaviour for nodes. */
@@ -574,6 +678,11 @@ export class GraphRenderer {
         if (!event.active) this.simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
+
+        // Detect click: drag ended at exactly the starting position
+        if (event.dx === 0 && event.dy === 0) {
+          this.onNodeClick?.(d.id);
+        }
       });
   }
 
@@ -639,16 +748,64 @@ export class GraphRenderer {
 
   /** Animation loop for particles, node colours, link colours, and smooth sizing. */
   private startAnimationLoop(): void {
-    const animate = () => {
+    // Initialise perf observer once (long-animation-frame / longtask detection)
+    if (PERF_ENABLED) {
+      initPerfObserver();
+      this.perfLastFpsTime = performance.now();
+      this.perfLastSummaryTime = performance.now();
+    }
+
+    const animate = (timestamp: DOMHighResTimeStamp) => {
+      // --- FPS counting ---
+      if (PERF_ENABLED) {
+        perfMark("frame-start");
+        this.perfFrameCount++;
+
+        const fpsDelta = timestamp - this.perfLastFpsTime;
+        if (fpsDelta >= 1000) {
+          this.perfFps = Math.round((this.perfFrameCount * 1000) / fpsDelta);
+          this.perfFrameCount = 0;
+          this.perfLastFpsTime = timestamp;
+        }
+      }
+
       this.updateParticles();
       this.renderParticles();
       this.updateNodeSizes();
       this.updateNodeColors();
       this.updateLinkColors();
+
+      // --- Frame measurement + periodic summary ---
+      if (PERF_ENABLED) {
+        perfMark("frame-end");
+        const frameDur = perfMeasure("frame", "frame-start", "frame-end");
+        this.perfFrameAvg?.push(frameDur);
+
+        // Log summary every 5 seconds
+        const summaryDelta = timestamp - this.perfLastSummaryTime;
+        if (summaryDelta >= 5000) {
+          this.perfLastSummaryTime = timestamp;
+          const nodes = this.simulation.nodes();
+          logPerfSummary({
+            fps: this.perfFps,
+            frameMs: +(this.perfFrameAvg?.avg() ?? 0).toFixed(2),
+            d3TickMs: +(this.perfTickAvg?.avg() ?? 0).toFixed(2),
+            nodeColorMs: +(this.perfNodeColorAvg?.avg() ?? 0).toFixed(2),
+            decayTickMs: +perfStats.lastDecayTickMs.toFixed(2),
+            nodeCount: nodes.length,
+            linkCount: (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>)?.links().length ?? 0,
+            activeNodes: this.activeNodeIds.size,
+            particles: this.particles.length,
+            heapMB: getHeapMB(),
+          });
+        }
+      }
+
       this.animationFrame = requestAnimationFrame(animate);
     };
     this.animationFrame = requestAnimationFrame(animate);
   }
+
 
   /** Update particle positions and lifetimes. Uses swap-and-pop to avoid O(n) splice. */
   private updateParticles(): void {

@@ -773,4 +773,37 @@ describe("topicStore — ancestor pulse data flow", () => {
       });
     });
   });
+
+  describe("selectedNodeId", () => {
+    beforeEach(() => {
+      state().reset();
+    });
+
+    it("should default to null", () => {
+      expect(state().selectedNodeId).toBeNull();
+    });
+
+    it("should set a node ID", () => {
+      state().setSelectedNodeId("home/kitchen/temp");
+      expect(state().selectedNodeId).toBe("home/kitchen/temp");
+    });
+
+    it("should switch to a different node ID", () => {
+      state().setSelectedNodeId("home/kitchen/temp");
+      state().setSelectedNodeId("home/living/light");
+      expect(state().selectedNodeId).toBe("home/living/light");
+    });
+
+    it("should clear selection when set to null", () => {
+      state().setSelectedNodeId("home/kitchen/temp");
+      state().setSelectedNodeId(null);
+      expect(state().selectedNodeId).toBeNull();
+    });
+
+    it("should reset to null on reset()", () => {
+      state().setSelectedNodeId("home/kitchen/temp");
+      state().reset();
+      expect(state().selectedNodeId).toBeNull();
+    });
+  });
 });

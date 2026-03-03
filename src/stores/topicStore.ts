@@ -17,6 +17,7 @@ import {
 } from "../utils/topicParser";
 import { calculateRadius } from "../utils/sizeCalculator";
 import { getConfig } from "../utils/config";
+import { perfMark, perfMeasure, perfStats } from "../utils/perfDebug";
 
 /** Default EMA time constant in seconds. Controls how quickly rates respond. */
 const DEFAULT_EMA_TAU = 5;
@@ -91,6 +92,8 @@ interface TopicStoreState {
   graphStructureVersion: number;
   /** Incremented when an export is requested. TopicGraph watches this to trigger renderer.exportPng(). */
   exportRequested: number;
+  /** ID of the currently selected/pinned node, or null if nothing is selected. */
+  selectedNodeId: string | null;
 
   /** Toggle ancestor pulse behaviour. */
   setAncestorPulse: (enabled: boolean) => void;
@@ -140,6 +143,8 @@ interface TopicStoreState {
   setAlphaDecay: (value: number) => void;
   /** Request a PNG export of the current graph. */
   requestExport: () => void;
+  /** Set the currently selected/pinned node (or null to deselect). */
+  setSelectedNodeId: (id: string | null) => void;
 }
 
 /**
@@ -289,8 +294,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   topicFilter: cfg.topicFilter ?? "#",
   graphStructureVersion: 0,
   exportRequested: 0,
+  selectedNodeId: null,
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
+    perfMark("handle-msg-start");
     const state = get();
     const root = state.root;
     const { node, newNodes } = ensureTopicPathTracked(root, topic);
@@ -363,6 +370,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // Schedule a batched graph rebuild instead of rebuilding immediately.
     // Multiple messages within the same animation frame are coalesced into one rebuild.
     get().scheduleRebuild(newNodes > 0);
+
+    perfMark("handle-msg-end");
+    perfMeasure("handle-message", "handle-msg-start", "handle-msg-end");
   },
 
   setConnectionStatus: (status: ConnectionStatus, error?: string) => {
@@ -374,6 +384,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
 
   decayTick: () => {
+    perfMark("decay-tick-start");
     const state = get();
     const root = state.root;
     const dt = DECAY_INTERVAL / 1000; // seconds
@@ -410,6 +421,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse, state.nodeScale
     );
     set({ graphNodes, graphLinks });
+
+    perfMark("decay-tick-end");
+    perfStats.lastDecayTickMs = perfMeasure("decay-tick", "decay-tick-start", "decay-tick-end");
   },
 
   rebuildGraph: () => {
@@ -428,6 +442,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     if (!_rebuildScheduled) {
       _rebuildScheduled = true;
       _rebuildRafId = requestAnimationFrame(() => {
+        perfMark("rebuild-start");
         _rebuildScheduled = false;
         _rebuildRafId = null;
         const wasStructural = _rebuildStructural;
@@ -446,6 +461,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
             ? s.graphStructureVersion + 1
             : s.graphStructureVersion,
         });
+
+        perfMark("rebuild-end");
+        perfMeasure("rebuild", "rebuild-start", "rebuild-end");
       });
     }
   },
@@ -470,6 +488,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       graphStructureVersion: 0,
       nodeScale: cfg.nodeScale ?? 1.0,
       scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
+      selectedNodeId: null,
     });
   },
 
@@ -543,6 +562,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   requestExport: () => {
     set({ exportRequested: get().exportRequested + 1 });
+  },
+  setSelectedNodeId: (id: string | null) => {
+    set({ selectedNodeId: id });
   },
 };});
 

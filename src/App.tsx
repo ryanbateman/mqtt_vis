@@ -1,16 +1,32 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { useMqttClient, loadSavedConnection } from "./hooks/useMqttClient";
 import { useTopicStore } from "./stores/topicStore";
 import { ConnectionPanel } from "./components/ConnectionPanel";
+import { DetailPanel } from "./components/DetailPanel";
 import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { getConfig } from "./utils/config";
+import { findNode } from "./utils/topicParser";
 
 function App() {
   const { connect, disconnect, connectionStatus } = useMqttClient();
   const errorMessage = useTopicStore((s) => s.errorMessage);
+  const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
+  const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
+  const graphNodes = useTopicStore((s) => s.graphNodes);
   const autoconnectFired = useRef(false);
+
+  // Look up the selected node's data for the detail panel
+  const selectedNodes = useMemo(() => {
+    if (!selectedNodeId) return null;
+    const root = useTopicStore.getState().root;
+    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
+    const topicNode = findNode(root, segments);
+    const graphNode = graphNodes.find((n) => n.id === selectedNodeId);
+    if (!topicNode || !graphNode) return null;
+    return { topicNode, graphNode };
+  }, [selectedNodeId, graphNodes]);
 
   // Autoconnect on initial mount if enabled
   useEffect(() => {
@@ -51,12 +67,21 @@ function App() {
   return (
     <div className="relative w-full h-screen bg-slate-900">
       <TopicGraph />
-      <ConnectionPanel
-        onConnect={connect}
-        onDisconnect={disconnect}
-        connectionStatus={connectionStatus}
-        errorMessage={errorMessage}
-      />
+      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 max-h-[calc(100vh-2rem)]">
+        <ConnectionPanel
+          onConnect={connect}
+          onDisconnect={disconnect}
+          connectionStatus={connectionStatus}
+          errorMessage={errorMessage}
+        />
+        {selectedNodes && (
+          <DetailPanel
+            topicNode={selectedNodes.topicNode}
+            graphNode={selectedNodes.graphNode}
+            onClose={() => setSelectedNodeId(null)}
+          />
+        )}
+      </div>
       <SettingsPanel />
       <StatusBar />
       <a
