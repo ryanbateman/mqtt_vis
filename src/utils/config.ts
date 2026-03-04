@@ -1,3 +1,5 @@
+import type { PublicBroker } from "../types";
+
 /** All configurable fields. Every field is optional — omitted fields use hardcoded defaults. */
 export interface AppConfig {
   // Connection
@@ -7,6 +9,9 @@ export interface AppConfig {
   username?: string;
   password?: string;
   autoconnect?: boolean;
+
+  // Public brokers (quick-connect dropdown)
+  publicBrokers?: PublicBroker[];
 
   // Appearance
   emaTau?: number;

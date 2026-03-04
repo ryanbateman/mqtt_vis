@@ -8,6 +8,12 @@
   "password": "",
   "autoconnect": false,
 
+  "publicBrokers": [
+    { "name": "HiveMQ Public Broker", "url": "wss://broker.hivemq.com:8884/mqtt" },
+    { "name": "EMQX Public Broker", "url": "wss://broker.emqx.io:8084/mqtt" },
+    { "name": "Mosquitto Test Server", "url": "wss://test.mosquitto.org:8081" }
+  ],
+
   "emaTau": 5,
   "labelDepthFactor": 5,
   "labelFontSize": 14,

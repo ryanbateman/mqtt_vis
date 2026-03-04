@@ -92,6 +92,10 @@ Current test coverage (154 tests total):
 
 Utils in `src/utils/` are the highest-priority targets for additional unit tests.
 
+### Broker Icons
+
+SVG icons for known MQTT brokers are bundled in `src/utils/brokerIcons.ts` (sourced from Simple Icons, CC0 public domain). The `getBrokerIcon(url)` function matches a broker URL by domain substring and returns the appropriate icon path + brand colour. Unknown brokers get the generic MQTT protocol icon. Native HTML `<select>` elements cannot render images inside `<option>` tags — the icon is rendered as a separate `<svg>` element beside the dropdown.
+
 ## Common Pitfalls
 
 - **MQTT.js in the browser**: The `mqtt` package must be used with its browser bundle. Vite handles this automatically via the `browser` field in `package.json`, but be aware that Node.js-only features (like `fs`-based certificate loading) are not available.

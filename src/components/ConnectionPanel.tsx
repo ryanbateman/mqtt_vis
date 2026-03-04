@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect, type FormEvent } from "react
 import type { ConnectionParams, ConnectionStatus } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 import { getConfig } from "../utils/config";
+import { getBrokerIcon } from "../utils/brokerIcons";
 import { useTopicStore } from "../stores/topicStore";
 
 /** Generate a random client ID with a recognisable prefix. */
@@ -58,6 +59,7 @@ export function ConnectionPanel({
   const [clearOnDisconnect, setClearOnDisconnect] = useState(false);
   const [autoconnect, setAutoconnect] = useState(saved.autoconnect ?? cfg.autoconnect ?? false);
   const [copied, setCopied] = useState(false);
+  const [selectedBrokerUrl, setSelectedBrokerUrl] = useState("");
 
   // Client ID: config can force a fixed ID, otherwise random by default
   const configForcesClientId = typeof cfg.clientId === "string" && cfg.clientId.length > 0;
@@ -159,6 +161,48 @@ export function ConnectionPanel({
       {!collapsed && (
         <>
           <form onSubmit={handleSubmit} className="space-y-3 mt-3">
+            {cfg.publicBrokers && cfg.publicBrokers.length > 0 && (() => {
+              const icon = getBrokerIcon(selectedBrokerUrl);
+              return (
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Quick Connect
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <svg
+                      className="w-5 h-5 flex-shrink-0"
+                      viewBox="0 0 24 24"
+                      fill={icon.color}
+                      role="img"
+                      aria-label={icon.label}
+                    >
+                      <path d={icon.path} />
+                    </svg>
+                    <select
+                      value={selectedBrokerUrl}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setBrokerUrl(e.target.value);
+                          setSelectedBrokerUrl(e.target.value);
+                        }
+                      }}
+                      disabled={isConnected || isConnecting}
+                      className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
+                    >
+                      <option value="" disabled>
+                        Select a known broker...
+                      </option>
+                      {cfg.publicBrokers.map((broker) => (
+                        <option key={broker.url} value={broker.url}>
+                          {broker.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">
                 Broker URL
@@ -166,7 +210,15 @@ export function ConnectionPanel({
               <input
                 type="text"
                 value={brokerUrl}
-                onChange={(e) => setBrokerUrl(e.target.value)}
+                onChange={(e) => {
+                  const newUrl = e.target.value;
+                  setBrokerUrl(newUrl);
+                  // Reset dropdown if the user manually edits the URL to something
+                  // that doesn't match the currently selected broker.
+                  if (selectedBrokerUrl && newUrl !== selectedBrokerUrl) {
+                    setSelectedBrokerUrl("");
+                  }
+                }}
                 disabled={isConnected || isConnecting}
                 placeholder="ws://localhost:9001"
                 className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
