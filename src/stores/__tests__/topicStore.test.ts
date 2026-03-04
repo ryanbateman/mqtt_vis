@@ -898,3 +898,68 @@ describe("topicStore — ancestor pulse data flow", () => {
     });
   });
 });
+
+describe("topicStore — highlight sets", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+    state().clearHighlights();
+  });
+
+  it("should initialise with an empty highlighted nodes map", () => {
+    expect(state().highlightedNodes.size).toBe(0);
+  });
+
+  it("setHighlightedNodes should store the provided map", () => {
+    const highlights = new Map([
+      ["home/kitchen/temp", "#f59e0b"],
+      ["home/living/light", "#60a5fa"],
+    ]);
+    state().setHighlightedNodes(highlights);
+    expect(state().highlightedNodes.size).toBe(2);
+    expect(state().highlightedNodes.get("home/kitchen/temp")).toBe("#f59e0b");
+    expect(state().highlightedNodes.get("home/living/light")).toBe("#60a5fa");
+  });
+
+  it("setHighlightedNodes should replace the previous map entirely", () => {
+    state().setHighlightedNodes(new Map([["home/kitchen/temp", "#f59e0b"]]));
+    state().setHighlightedNodes(new Map([["home/living/light", "#60a5fa"]]));
+    expect(state().highlightedNodes.size).toBe(1);
+    expect(state().highlightedNodes.has("home/kitchen/temp")).toBe(false);
+    expect(state().highlightedNodes.get("home/living/light")).toBe("#60a5fa");
+  });
+
+  it("setHighlightedNodes should cap entries at 200", () => {
+    const large = new Map<string, string>();
+    for (let i = 0; i < 250; i++) {
+      large.set(`topic/${i}`, "#f59e0b");
+    }
+    state().setHighlightedNodes(large);
+    expect(state().highlightedNodes.size).toBe(200);
+  });
+
+  it("clearHighlights should remove all highlighted nodes", () => {
+    state().setHighlightedNodes(new Map([
+      ["home/kitchen/temp", "#f59e0b"],
+      ["home/living/light", "#60a5fa"],
+    ]));
+    expect(state().highlightedNodes.size).toBe(2);
+    state().clearHighlights();
+    expect(state().highlightedNodes.size).toBe(0);
+  });
+
+  it("reset() should clear highlighted nodes", () => {
+    state().setHighlightedNodes(new Map([["home/kitchen/temp", "#f59e0b"]]));
+    expect(state().highlightedNodes.size).toBe(1);
+    state().reset();
+    expect(state().highlightedNodes.size).toBe(0);
+  });
+
+  it("resetSettings() should NOT clear highlighted nodes", () => {
+    state().setHighlightedNodes(new Map([["home/kitchen/temp", "#f59e0b"]]));
+    state().resetSettings();
+    expect(state().highlightedNodes.size).toBe(1);
+    expect(state().highlightedNodes.get("home/kitchen/temp")).toBe("#f59e0b");
+  });
+});

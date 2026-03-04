@@ -83,8 +83,8 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (158 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 56 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, and settings reset.
+Current test coverage (165 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 63 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, and highlight sets.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 33 tests for rate/timestamp formatting, payload truncation, and depth scaling.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.
@@ -106,7 +106,7 @@ Key patterns:
 - **Read from store** — all tool execute functions read from `useTopicStore.getState()`. No new data structures needed.
 - **Ambient types** — `src/types/webmcp.d.ts` declares the WebMCP interfaces globally (no `export`). This is an ambient declaration file that augments the `Navigator` interface.
 - **Registration lifecycle** — `registerWebMcpTools()` on App mount, `unregisterWebMcpTools()` on unmount.
-- **Phase 2 (not yet implemented)** — interactive tools (`highlightNodes`, `clearHighlights`, `focusNode`) will require new store fields and renderer methods.
+- **Phase 2 (implemented in v1.7.2)** — interactive tools `highlightNodes` and `clearHighlights` are registered. They write to `highlightedNodes: Map<string, string>` in the store; `TopicGraph` syncs this to `GraphRenderer.setHighlightedNodes()`. A dedicated `highlight-rings` SVG layer (below `nodes`) renders one `<circle>` per highlighted node at `displayRadius + 4` with the caller-specified colour. Cap: 200 nodes. `focusNode` remains future work.
 
 ## Common Pitfalls
 

@@ -200,6 +200,65 @@ async function executeExportGraph(): Promise<unknown> {
   return { success: true, message: "Export triggered" };
 }
 
+/** Default highlight colour used when none is specified. */
+const DEFAULT_HIGHLIGHT_COLOR = "#f59e0b"; // amber-400
+
+/** Basic hex colour validation — accepts #rgb and #rrggbb formats. */
+function isValidHexColor(value: string): boolean {
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
+}
+
+async function executeHighlightNodes(
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  const nodeIds = Array.isArray(input.nodeIds)
+    ? (input.nodeIds as unknown[]).filter((id): id is string => typeof id === "string")
+    : [];
+
+  if (nodeIds.length === 0) {
+    return { error: "nodeIds must be a non-empty array of topic path strings" };
+  }
+
+  const color =
+    typeof input.color === "string" && isValidHexColor(input.color)
+      ? input.color
+      : DEFAULT_HIGHLIGHT_COLOR;
+
+  const { graphNodes, setHighlightedNodes } = useTopicStore.getState();
+  const knownIds = new Set(graphNodes.map((n) => n.id));
+
+  // Only highlight nodes that exist in the current graph; skip unknowns silently
+  const highlightMap = new Map<string, string>();
+  const notFound: string[] = [];
+  for (const id of nodeIds) {
+    if (knownIds.has(id)) {
+      highlightMap.set(id, color);
+    } else {
+      notFound.push(id);
+    }
+  }
+
+  setHighlightedNodes(highlightMap);
+
+  const result: Record<string, unknown> = {
+    success: true,
+    highlighted: highlightMap.size,
+    color,
+  };
+  if (notFound.length > 0) {
+    result.notFound = notFound;
+    result.message = `Highlighted ${highlightMap.size} node(s). ${notFound.length} topic(s) not found in the current graph.`;
+  } else {
+    result.message = `Highlighted ${highlightMap.size} node(s).`;
+  }
+  return result;
+}
+
+async function executeClearHighlights(): Promise<unknown> {
+  useTopicStore.getState().clearHighlights();
+  return { success: true, message: "All highlights cleared" };
+}
+
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
 const TOOLS: ModelContextTool[] = [
@@ -345,6 +404,51 @@ const TOOLS: ModelContextTool[] = [
       properties: {},
     },
     execute: executeExportGraph,
+    annotations: { readOnlyHint: false },
+  },
+  {
+    name: "highlightNodes",
+    description:
+      "Highlight one or more nodes in the graph with a coloured ring. " +
+      "Replaces any existing highlights — call again with a new set to update, " +
+      "or use clearHighlights to remove all rings. " +
+      "The highlight ring appears just outside the node circle and is visible " +
+      "alongside any selection ring the user may have active. " +
+      "Topic IDs must match the full path as seen in the visualiser " +
+      "(e.g. 'home/kitchen/temp'). Unknown topics are silently skipped and " +
+      "reported in the response.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeIds: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Array of full topic path strings to highlight. " +
+            "Maximum 200 entries — excess entries are silently dropped.",
+        },
+        color: {
+          type: "string",
+          description:
+            "CSS hex colour for the highlight ring, e.g. '#f59e0b'. " +
+            "Accepts #rgb and #rrggbb formats. Defaults to '#f59e0b' (amber).",
+        },
+      },
+      required: ["nodeIds"],
+    },
+    execute: executeHighlightNodes,
+    annotations: { readOnlyHint: false },
+  },
+  {
+    name: "clearHighlights",
+    description:
+      "Remove all node highlight rings from the graph. " +
+      "Has no effect if no highlights are currently active.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    execute: executeClearHighlights,
     annotations: { readOnlyHint: false },
   },
 ];

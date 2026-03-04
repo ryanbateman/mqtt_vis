@@ -39,6 +39,7 @@ export class GraphRenderer {
   private defs!: d3.Selection<SVGDefsElement, unknown, null, undefined>;
 
   private linkGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private highlightRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private nodeGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private labelGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private particleGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
@@ -70,6 +71,11 @@ export class GraphRenderer {
   private activeNodeIds = new Set<string>();
   // Same for links — keyed by "sourceId-targetId"
   private activeLinkKeys = new Set<string>();
+
+  // Highlight ring elements — one <circle> per highlighted node.
+  private highlightRingElements!: d3.Selection<SVGCircleElement, { id: string; color: string }, SVGGElement, unknown>;
+  // Map of nodeId → colour hex for externally highlighted nodes.
+  private highlightedNodes: Map<string, string> = new Map();
 
   // Selection state — the currently selected/pinned node ID.
   private selectedNodeId: string | null = null;
@@ -147,14 +153,18 @@ export class GraphRenderer {
       }
     });
 
-    // Layer ordering: links → nodes → particles → labels
+    // Layer ordering: links → highlight rings → nodes → particles → labels
+    // Highlight rings sit below node circles so the selection ring (on the node itself)
+    // is always visually on top.
     this.linkGroup = this.container.append("g").attr("class", "links");
+    this.highlightRingGroup = this.container.append("g").attr("class", "highlight-rings");
     this.nodeGroup = this.container.append("g").attr("class", "nodes");
     this.particleGroup = this.container.append("g").attr("class", "particles");
     this.labelGroup = this.container.append("g").attr("class", "labels");
 
     // Initialize empty selections
     this.linkElements = this.linkGroup.selectAll<SVGLineElement, GraphLink>("line");
+    this.highlightRingElements = this.highlightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
     this.nodeElements = this.nodeGroup.selectAll<SVGCircleElement, GraphNode>("circle");
     this.labelElements = this.labelGroup.selectAll<SVGTextElement, GraphNode>("text");
   }
@@ -401,6 +411,11 @@ export class GraphRenderer {
       .attr("cx", (d) => d.x ?? 0)
       .attr("cy", (d) => d.y ?? 0);
 
+    // Sync highlight rings with animated node positions (only when rings exist)
+    if (this.highlightedNodes.size > 0) {
+      this.syncHighlightRingPositions();
+    }
+
     // Counter-scale so labels stay a constant screen size
     const baseSize = this.baseFontSize / this.currentZoomScale;
     const labelGap = 14 / this.currentZoomScale;
@@ -507,6 +522,15 @@ export class GraphRenderer {
     if (prev !== null && prev !== id) {
       this.clearSelectionRing(prev);
     }
+  }
+
+  /**
+   * Replace the set of highlighted nodes and refresh the highlight ring D3 join.
+   * Pass an empty Map to remove all highlight rings.
+   */
+  setHighlightedNodes(nodes: Map<string, string>): void {
+    this.highlightedNodes = nodes;
+    this.refreshHighlightRings();
   }
 
   /** Toggle whether hover tooltips are enabled. */
@@ -647,6 +671,54 @@ export class GraphRenderer {
   }
 
   /**
+   * Perform a D3 data join for highlight ring circles.
+   * Called whenever the highlighted node set changes.
+   * Positions are synced in tick() so rings track animated displayRadius.
+   */
+  private refreshHighlightRings(): void {
+    const data = Array.from(this.highlightedNodes.entries()).map(([id, color]) => ({ id, color }));
+
+    this.highlightRingElements = this.highlightRingGroup
+      .selectAll<SVGCircleElement, { id: string; color: string }>("circle")
+      .data(data, (d) => d.id);
+
+    this.highlightRingElements.exit().remove();
+
+    this.highlightRingElements = this.highlightRingElements
+      .enter()
+      .append("circle")
+      .attr("fill", "none")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-opacity", 0.85)
+      .attr("pointer-events", "none")
+      .merge(this.highlightRingElements)
+      // Update colour on both enter and update (handles colour changes)
+      .attr("stroke", (d) => d.color);
+
+    // Sync initial positions from current simulation state
+    this.syncHighlightRingPositions();
+  }
+
+  /**
+   * Sync highlight ring positions and sizes from the current simulation nodes.
+   * Called in refreshHighlightRings() and every tick() while rings exist.
+   */
+  private syncHighlightRingPositions(): void {
+    if (this.highlightedNodes.size === 0) return;
+
+    // Build a lookup of simulated node positions
+    const nodePositions = new Map<string, { x: number; y: number; r: number }>();
+    this.simulation.nodes().forEach((n) => {
+      nodePositions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, r: n.displayRadius });
+    });
+
+    this.highlightRingElements
+      .attr("cx", (d) => nodePositions.get(d.id)?.x ?? 0)
+      .attr("cy", (d) => nodePositions.get(d.id)?.y ?? 0)
+      .attr("r", (d) => (nodePositions.get(d.id)?.r ?? 0) + 4);
+  }
+
+  /**
    * Reapply default stroke styles to the previously selected node
    * when selection changes. Called internally by setSelectedNodeId().
    */
@@ -774,6 +846,10 @@ export class GraphRenderer {
       this.updateNodeSizes();
       this.updateNodeColors();
       this.updateLinkColors();
+      // Sync highlight ring radii with lerped displayRadius each frame
+      if (this.highlightedNodes.size > 0) {
+        this.syncHighlightRingPositions();
+      }
 
       // --- Frame measurement + periodic summary ---
       if (PERF_ENABLED) {

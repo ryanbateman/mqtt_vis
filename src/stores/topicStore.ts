@@ -94,6 +94,12 @@ interface TopicStoreState {
   exportRequested: number;
   /** ID of the currently selected/pinned node, or null if nothing is selected. */
   selectedNodeId: string | null;
+  /**
+   * Map of nodeId → CSS colour hex for externally highlighted nodes.
+   * Populated by WebMCP tools or other internal consumers.
+   * Capped at MAX_HIGHLIGHTED_NODES entries (silently truncated).
+   */
+  highlightedNodes: Map<string, string>;
 
   /** Toggle ancestor pulse behaviour. */
   setAncestorPulse: (enabled: boolean) => void;
@@ -147,6 +153,13 @@ interface TopicStoreState {
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
   setSelectedNodeId: (id: string | null) => void;
+  /**
+   * Replace the full highlighted-node set. Entries beyond MAX_HIGHLIGHTED_NODES
+   * are silently dropped. Pass an empty Map (or call clearHighlights) to remove all highlights.
+   */
+  setHighlightedNodes: (nodes: Map<string, string>) => void;
+  /** Remove all node highlights. */
+  clearHighlights: () => void;
 }
 
 /**
@@ -247,6 +260,9 @@ function buildGraphData(
 /** Maximum number of nodes that retain their last payload (LRU eviction). */
 const PAYLOAD_LRU_CAP = 200;
 
+/** Maximum number of simultaneously highlighted nodes. Excess entries are silently truncated. */
+const MAX_HIGHLIGHTED_NODES = 200;
+
 /** Maximum characters stored per payload at ingest. */
 const PAYLOAD_MAX_STORE = 1024;
 
@@ -297,6 +313,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   graphStructureVersion: 0,
   exportRequested: 0,
   selectedNodeId: null,
+  highlightedNodes: new Map<string, string>(),
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
     perfMark("handle-msg-start");
@@ -491,6 +508,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       nodeScale: cfg.nodeScale ?? 1.0,
       scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
       selectedNodeId: null,
+      highlightedNodes: new Map<string, string>(),
     });
   },
 
@@ -601,6 +619,23 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   setSelectedNodeId: (id: string | null) => {
     set({ selectedNodeId: id });
+  },
+  setHighlightedNodes: (nodes: Map<string, string>) => {
+    // Enforce cap: keep only the first MAX_HIGHLIGHTED_NODES entries
+    let capped = nodes;
+    if (nodes.size > MAX_HIGHLIGHTED_NODES) {
+      capped = new Map<string, string>();
+      let count = 0;
+      for (const [id, color] of nodes) {
+        if (count >= MAX_HIGHLIGHTED_NODES) break;
+        capped.set(id, color);
+        count++;
+      }
+    }
+    set({ highlightedNodes: capped });
+  },
+  clearHighlights: () => {
+    set({ highlightedNodes: new Map<string, string>() });
   },
 };});
 

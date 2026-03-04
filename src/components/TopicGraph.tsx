@@ -33,6 +33,7 @@ export function TopicGraph() {
   const exportRequested = useTopicStore((s) => s.exportRequested);
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
+  const highlightedNodes = useTopicStore((s) => s.highlightedNodes);
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
@@ -200,6 +201,13 @@ export function TopicGraph() {
       rendererRef.current.setSelectedNodeId(selectedNodeId);
     }
   }, [selectedNodeId]);
+
+  // Sync highlighted nodes to the renderer
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setHighlightedNodes(highlightedNodes);
+    }
+  }, [highlightedNodes]);
 
   // Escape key deselects the current node
   useEffect(() => {
