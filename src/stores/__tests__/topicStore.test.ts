@@ -806,4 +806,95 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(state().selectedNodeId).toBeNull();
     });
   });
+
+  describe("resetSettings", () => {
+    beforeEach(() => {
+      state().reset();
+    });
+
+    it("should reset all visual/label/simulation settings to defaults after modification", () => {
+      // Modify every settings field away from defaults
+      state().setEmaTau(20);
+      state().setShowLabels(false);
+      state().setLabelDepthFactor(10);
+      state().setLabelMode("depth");
+      state().setLabelFontSize(32);
+      state().setScaleTextByDepth(false);
+      state().setShowTooltips(false);
+      state().setNodeScale(3.5);
+      state().setScaleNodeSizeByDepth(true);
+      state().setRepulsionStrength(-999);
+      state().setLinkDistance(500);
+      state().setLinkStrength(0.1);
+      state().setCollisionPadding(50);
+      state().setAlphaDecay(0.05);
+      state().setAncestorPulse(false);
+      state().setShowRootPath(true);
+
+      // Verify they changed
+      expect(state().emaTau).toBe(20);
+      expect(state().showLabels).toBe(false);
+      expect(state().nodeScale).toBe(3.5);
+      expect(state().repulsionStrength).toBe(-999);
+
+      // Reset settings
+      state().resetSettings();
+
+      // All should be back to defaults (config.json values or hardcoded fallbacks)
+      expect(state().emaTau).toBe(5);
+      expect(state().showLabels).toBe(true);
+      expect(state().labelDepthFactor).toBe(5);
+      expect(state().labelMode).toBe("zoom");
+      expect(state().labelFontSize).toBe(14);
+      expect(state().scaleTextByDepth).toBe(true);
+      expect(state().showTooltips).toBe(true);
+      expect(state().nodeScale).toBe(1.0);
+      expect(state().scaleNodeSizeByDepth).toBe(false);
+      expect(state().repulsionStrength).toBe(-350);
+      expect(state().linkDistance).toBe(155);
+      expect(state().linkStrength).toBe(0.5);
+      expect(state().collisionPadding).toBe(13);
+      expect(state().alphaDecay).toBe(0.01);
+      expect(state().ancestorPulse).toBe(true);
+      expect(state().showRootPath).toBe(false);
+    });
+
+    it("should NOT reset topic tree data", () => {
+      // Build up some topic tree state
+      handleMessageAndFlush("home/kitchen/temp", "22.5");
+      handleMessageAndFlush("home/living/light", "on");
+      const messagesBefore = state().totalMessages;
+      const topicsBefore = state().totalTopics;
+      const nodeCountBefore = state().graphNodes.length;
+      expect(messagesBefore).toBe(2);
+      expect(topicsBefore).toBeGreaterThan(0);
+      expect(nodeCountBefore).toBeGreaterThan(0);
+
+      // Modify a setting
+      state().setEmaTau(20);
+
+      // Reset settings
+      state().resetSettings();
+
+      // Topic tree data should be untouched
+      expect(state().totalMessages).toBe(messagesBefore);
+      expect(state().totalTopics).toBe(topicsBefore);
+      expect(state().graphNodes.length).toBe(nodeCountBefore);
+      expect(findTopicNode("home/kitchen/temp")).toBeDefined();
+    });
+
+    it("should NOT reset topicFilter", () => {
+      state().setTopicFilter("sensors/#");
+      state().resetSettings();
+      expect(state().topicFilter).toBe("sensors/#");
+    });
+
+    it("should NOT reset selectedNodeId or connectionStatus", () => {
+      state().setSelectedNodeId("home/kitchen/temp");
+      state().setConnectionStatus("connected");
+      state().resetSettings();
+      expect(state().selectedNodeId).toBe("home/kitchen/temp");
+      expect(state().connectionStatus).toBe("connected");
+    });
+  });
 });

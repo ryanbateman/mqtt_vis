@@ -18,6 +18,7 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Quick Connect** — an inline dropdown of known MQTT brokers with brand icons (HiveMQ, Mosquitto, EMQX, or your own). Selecting a broker populates the URL field. Configured entirely via `config.json` — deployers ship their own list of brokers (or remove it to hide the dropdown)
 - **Configuration file** — ship a `config.json` alongside the app to customise all defaults for your deployment (broker URL, topic filter, public brokers, simulation params, UI state, and more)
 - **Auto-connect** — optional auto-connect on page load, configurable via UI checkbox or `config.json`
+- **Reset to defaults** — reset all visual, label, and simulation settings back to `config.json` defaults with a two-click confirmation
 - **Collapsible panels** — both connection and settings panels collapse to save screen space; status indicator stays visible when the connection panel is collapsed
 - **Settings panel** — sliders for visual and simulation parameters with collapsible sections and hover tooltips
 - **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID. Can be locked to a fixed value via `config.json`.
@@ -95,6 +96,8 @@ The settings panel is collapsible — click the header to toggle.
 - **Link Strength** — how rigidly links enforce their ideal distance
 - **Collision Gap** — extra space around nodes to prevent overlap
 - **Settle Speed** — how quickly the graph stops moving after changes
+
+**Reset to Defaults** — resets all visual, label, and simulation settings back to deployment defaults from `config.json`. Requires a confirmation click to prevent accidental resets. Does not affect the connection, topic tree, or topic filter.
 
 ### Status Bar (bottom)
 

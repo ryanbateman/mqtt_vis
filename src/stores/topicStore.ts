@@ -117,6 +117,8 @@ interface TopicStoreState {
   scheduleRebuild: (structural: boolean) => void;
   /** Reset the store (on disconnect). */
   reset: () => void;
+  /** Reset all visual, label, and simulation settings to config.json defaults. */
+  resetSettings: () => void;
   /** Update the EMA time constant. */
   setEmaTau: (tau: number) => void;
   /** Toggle label visibility. */
@@ -490,6 +492,40 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
       selectedNodeId: null,
     });
+  },
+
+  resetSettings: () => {
+    const tooltipsWillDisable = !(cfg.showTooltips ?? true);
+    // If tooltips are being turned off, clear payload LRU (matches setShowTooltips behaviour)
+    if (tooltipsWillDisable && get().showTooltips) {
+      const root = get().root;
+      for (const nodeId of _payloadLru) {
+        const segments = nodeId === "" ? [] : nodeId.split("/");
+        const node = findNode(root, segments);
+        if (node) node.lastPayload = null;
+      }
+      _payloadLru.clear();
+    }
+    set({
+      emaTau: cfg.emaTau ?? DEFAULT_EMA_TAU,
+      showLabels: cfg.showLabels ?? true,
+      labelDepthFactor: cfg.labelDepthFactor ?? 5,
+      labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
+      labelFontSize: cfg.labelFontSize ?? 14,
+      scaleTextByDepth: cfg.scaleTextByDepth ?? true,
+      showTooltips: cfg.showTooltips ?? true,
+      nodeScale: cfg.nodeScale ?? 1.0,
+      scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
+      repulsionStrength: cfg.repulsionStrength ?? -350,
+      linkDistance: cfg.linkDistance ?? 155,
+      linkStrength: cfg.linkStrength ?? 0.5,
+      collisionPadding: cfg.collisionPadding ?? 13,
+      alphaDecay: cfg.alphaDecay ?? 0.01,
+      ancestorPulse: cfg.ancestorPulse ?? true,
+      showRootPath: cfg.showRootPath ?? false,
+    });
+    // Rebuild graph for nodeScale and showRootPath side effects
+    get().rebuildGraph();
   },
 
   setEmaTau: (tau: number) => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTopicStore } from "../stores/topicStore";
 import { getConfig } from "../utils/config";
@@ -170,6 +170,15 @@ export function SettingsPanel() {
   const setNodeScale = useTopicStore((s) => s.setNodeScale);
   const scaleNodeSizeByDepth = useTopicStore((s) => s.scaleNodeSizeByDepth);
   const setScaleNodeSizeByDepth = useTopicStore((s) => s.setScaleNodeSizeByDepth);
+  const resetSettings = useTopicStore((s) => s.resetSettings);
+
+  const [confirmReset, setConfirmReset] = useState(false);
+  // Auto-revert the confirmation prompt after 3 seconds
+  useEffect(() => {
+    if (!confirmReset) return;
+    const timer = setTimeout(() => setConfirmReset(false), 3000);
+    return () => clearTimeout(timer);
+  }, [confirmReset]);
 
   return (
     <div className="absolute top-4 right-4 z-10 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-64 max-h-[calc(100vh-2rem)] overflow-y-auto">
@@ -452,6 +461,25 @@ export function SettingsPanel() {
             </>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (confirmReset) {
+              resetSettings();
+              setConfirmReset(false);
+            } else {
+              setConfirmReset(true);
+            }
+          }}
+          className={`w-full mt-3 pt-3 border-t border-gray-700 text-xs transition-colors ${
+            confirmReset
+              ? "text-amber-400 hover:text-amber-300"
+              : "text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          {confirmReset ? "Click again to confirm reset" : "Reset to Defaults"}
+        </button>
       </>}
     </div>
   );
