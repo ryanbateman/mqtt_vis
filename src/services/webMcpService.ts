@@ -183,16 +183,32 @@ async function executeGetNoisyTopics(
 ): Promise<unknown> {
   const limit =
     typeof input.limit === "number" && input.limit > 0 ? input.limit : 10;
+  const leafOnly = input.leafOnly === true;
+  const mustHaveMessages = input.mustHaveMessages === true;
 
   const { graphNodes } = useTopicStore.getState();
-  return [...graphNodes]
-    .sort((a, b) => b.aggregateRate - a.aggregateRate)
-    .slice(0, limit)
-    .map((n) => ({
+
+  let nodes = [...graphNodes].sort((a, b) => b.aggregateRate - a.aggregateRate);
+
+  if (leafOnly || mustHaveMessages) {
+    nodes = nodes.filter((n) => {
+      const topicNode = findTopicByPath(n.id);
+      if (!topicNode) return false;
+      if (leafOnly && topicNode.children.size > 0) return false;
+      if (mustHaveMessages && topicNode.messageCount === 0) return false;
+      return true;
+    });
+  }
+
+  return nodes.slice(0, limit).map((n) => {
+    const topicNode = findTopicByPath(n.id);
+    return {
       id: n.id,
       messageRate: Math.round(n.messageRate * 1000) / 1000,
       aggregateRate: Math.round(n.aggregateRate * 1000) / 1000,
-    }));
+      messageCount: topicNode?.messageCount ?? 0,
+    };
+  });
 }
 
 async function executeExportGraph(): Promise<unknown> {
@@ -380,7 +396,11 @@ const TOOLS: ModelContextTool[] = [
       "List the highest-traffic areas of the topic tree, ranked by aggregate rate " +
       "(the node's own rate plus all descendants). Use this to find which branches " +
       "or subtrees are generating the most total traffic. For finding specific leaf " +
-      "topics that are actively publishing, use getActiveTopics instead.",
+      "topics that are actively publishing, use getActiveTopics instead. " +
+      "Use leafOnly=true to restrict results to leaf nodes (no children) — useful " +
+      "for highlighting actual publishers rather than aggregate branch nodes. " +
+      "Use mustHaveMessages=true to exclude structural intermediate nodes that have " +
+      "never received a direct message on that exact topic path.",
     inputSchema: {
       type: "object",
       properties: {
@@ -388,6 +408,21 @@ const TOOLS: ModelContextTool[] = [
           type: "number",
           description:
             "Maximum number of topics to return. Defaults to 10.",
+        },
+        leafOnly: {
+          type: "boolean",
+          description:
+            "If true, only return leaf nodes (nodes with no children). " +
+            "Excludes intermediate branch nodes whose traffic is entirely " +
+            "aggregated from descendants. Defaults to false.",
+        },
+        mustHaveMessages: {
+          type: "boolean",
+          description:
+            "If true, only return nodes that have received at least one " +
+            "message directly on that exact topic path (messageCount > 0). " +
+            "Excludes structural intermediate nodes that exist only as " +
+            "path segments and have never been published to directly. Defaults to false.",
         },
       },
     },
