@@ -1,8 +1,8 @@
 {
   "_passwordWarning": "Passwords in this file are plaintext and visible to anyone who can access the hosted site. Do not include sensitive credentials here unless the deployment is private.",
 
-  "brokerUrl": "wss://broker.hivemq.com:8884/mqtt",
-  "topicFilter": "robot/#",
+  "brokerUrl": "wss://test.mosquitto.org:8081",
+  "topicFilter": "test/#",
   "clientId": null,
   "username": "",
   "password": "",

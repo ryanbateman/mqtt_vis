@@ -59,7 +59,12 @@ export function ConnectionPanel({
   const [clearOnDisconnect, setClearOnDisconnect] = useState(false);
   const [autoconnect, setAutoconnect] = useState(saved.autoconnect ?? cfg.autoconnect ?? false);
   const [copied, setCopied] = useState(false);
-  const [selectedBrokerUrl, setSelectedBrokerUrl] = useState("");
+  // Pre-select the Quick Connect entry that matches the config default broker URL (if any)
+  const [selectedBrokerUrl, setSelectedBrokerUrl] = useState(
+    () => cfg.publicBrokers?.some((b) => b.url === cfg.brokerUrl)
+      ? (cfg.brokerUrl ?? "")
+      : ""
+  );
 
   // Client ID: config can force a fixed ID, otherwise random by default
   const configForcesClientId = typeof cfg.clientId === "string" && cfg.clientId.length > 0;
