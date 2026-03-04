@@ -688,7 +688,6 @@ export class GraphRenderer {
       .enter()
       .append("circle")
       .attr("fill", "none")
-      .attr("stroke-width", 1.5)
       .attr("stroke-opacity", 0.85)
       .attr("pointer-events", "none")
       .merge(this.highlightRingElements)
@@ -712,10 +711,15 @@ export class GraphRenderer {
       nodePositions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, r: n.displayRadius });
     });
 
+    // Counter-scale stroke-width so the ring stays visually consistent at any zoom level.
+    // 1.5px at zoom 1.0 → thicker when zoomed in, thinner when zoomed out, always readable.
+    const ringStrokeWidth = 1.5 / this.currentZoomScale;
+
     this.highlightRingElements
       .attr("cx", (d) => nodePositions.get(d.id)?.x ?? 0)
       .attr("cy", (d) => nodePositions.get(d.id)?.y ?? 0)
-      .attr("r", (d) => (nodePositions.get(d.id)?.r ?? 0) + 4);
+      .attr("r", (d) => (nodePositions.get(d.id)?.r ?? 0) + 4 / this.currentZoomScale)
+      .attr("stroke-width", ringStrokeWidth);
   }
 
   /**
