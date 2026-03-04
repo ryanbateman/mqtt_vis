@@ -36,6 +36,9 @@ export interface AppConfig {
   // UI state
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
+
+  // WebMCP integration
+  webmcpEnabled?: boolean;
 }
 
 let config: AppConfig = {};

@@ -31,5 +31,7 @@
   "alphaDecay": 0.01,
 
   "settingsCollapsed": false,
-  "connectionCollapsed": false
+  "connectionCollapsed": false,
+
+  "webmcpEnabled": true
 }

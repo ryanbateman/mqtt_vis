@@ -25,6 +25,7 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Connection persistence** — broker URL, topic filter, username, client ID, and autoconnect preference are saved to localStorage
 - **Clear on disconnect** — optional checkbox to reset the graph when disconnecting
 - **Shareable links** — copy a URL with broker and topic filter pre-filled as query params; recipients see the connection fields pre-populated
+- **WebMCP integration** — exposes the topic tree, traffic stats, and graph export as tools for browser-integrated AI agents via the [W3C WebMCP API](https://webmachinelearning.github.io/webmcp/) (Chrome 146+). Configurable via `webmcpEnabled` in `config.json`
 - **PNG export** — export the full graph as a PNG image (auto-computed bounding box, 2x resolution, dark background)
 - **Labels toggle** — turn labels on or off entirely; label settings (mode, depth, font size, depth scaling) are grouped in a collapsible sub-section
 - **Depth-scaled text** — optional: label font size decreases with tree depth (inverse falloff), so root labels are largest and leaf labels are smallest. Font size slider sets the maximum.
@@ -142,6 +143,7 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `alphaDecay` | number | `0.01` | Simulation settle speed |
 | `settingsCollapsed` | boolean | `false` | Start with settings panel collapsed |
 | `connectionCollapsed` | boolean | `false` | Start with connection panel collapsed |
+| `webmcpEnabled` | boolean | `true` | Enable WebMCP tool registration for browser AI agents. Set to `false` to disable. |
 
 ### Precedence
 
@@ -185,6 +187,24 @@ The `publicBrokers` array populates the "Quick Connect" dropdown in the connecti
 
 To hide the dropdown entirely, set `"publicBrokers": []` or omit the field.
 
+### WebMCP Integration
+
+The app registers tools with the browser's [WebMCP API](https://webmachinelearning.github.io/webmcp/) (`navigator.modelContext`), enabling browser-integrated AI agents to query the MQTT topic tree and traffic data. Requires Chrome 146+ with the WebMCP flag enabled. Gracefully no-ops on unsupported browsers.
+
+**Available tools:**
+
+| Tool | Description |
+|---|---|
+| `getTopicTree` | Get the topic tree structure (capped at `maxDepth`, default 5) |
+| `getActiveTopics` | List topics currently receiving messages, sorted by direct rate |
+| `getNoisyTopics` | List highest-traffic subtrees, ranked by aggregate rate |
+| `findTopics` | Search topics by substring pattern with optional rate/depth filters |
+| `getTopicDetails` | Get full details for a specific topic (rate, payload, QoS, etc.) |
+| `getStats` | Session statistics: total messages, topics, uptime, top 10 active |
+| `exportGraph` | Trigger a PNG export of the graph |
+
+All query tools are marked `readOnlyHint: true`. To disable WebMCP registration entirely, set `"webmcpEnabled": false` in `config.json`.
+
 ## Tech Stack
 
 | Layer | Choice |
@@ -205,12 +225,14 @@ public/
 src/
   types/
     index.ts               # TopicNode, GraphNode, GraphLink, ConnectionParams, Particle
+    webmcp.d.ts            # Ambient type declarations for W3C WebMCP API
   stores/
     topicStore.ts           # Zustand store: topic tree, EMA rates, decay, settings
   hooks/
     useMqttClient.ts        # MQTT lifecycle hook, localStorage persistence
   services/
     mqttService.ts          # mqtt.js WebSocket wrapper
+    webMcpService.ts        # WebMCP tool registration (navigator.modelContext)
   components/
     ConnectionPanel.tsx     # Broker URL, topic filter, client ID, auth, connect/disconnect
     TopicGraph.tsx          # SVG container, syncs store state to GraphRenderer

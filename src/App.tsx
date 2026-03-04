@@ -8,6 +8,7 @@ import { StatusBar } from "./components/StatusBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { getConfig } from "./utils/config";
 import { findNode } from "./utils/topicParser";
+import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
 
 function App() {
   const { connect, disconnect, connectionStatus } = useMqttClient();
@@ -63,6 +64,12 @@ function App() {
       });
     }
   }, [connect]);
+
+  // Register WebMCP tools on mount (no-op if navigator.modelContext unavailable)
+  useEffect(() => {
+    registerWebMcpTools();
+    return () => unregisterWebMcpTools();
+  }, []);
 
   return (
     <div className="relative w-full h-screen bg-slate-900">

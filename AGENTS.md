@@ -83,8 +83,8 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (154 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 52 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, and node selection.
+Current test coverage (158 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 56 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, and settings reset.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 33 tests for rate/timestamp formatting, payload truncation, and depth scaling.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.
@@ -95,6 +95,18 @@ Utils in `src/utils/` are the highest-priority targets for additional unit tests
 ### Broker Icons
 
 SVG icons for known MQTT brokers are bundled in `src/utils/brokerIcons.ts` (sourced from Simple Icons, CC0 public domain). The `getBrokerIcon(url)` function matches a broker URL by domain substring and returns the appropriate icon path + brand colour. Unknown brokers get the generic MQTT protocol icon. Native HTML `<select>` elements cannot render images inside `<option>` tags — the icon is rendered as a separate `<svg>` element beside the dropdown.
+
+### WebMCP Integration
+
+`src/services/webMcpService.ts` registers tools with the browser's `navigator.modelContext` API ([W3C WebMCP spec](https://webmachinelearning.github.io/webmcp/)). This enables browser AI agents to query the topic tree and traffic data.
+
+Key patterns:
+- **Feature detection** — `navigator.modelContext` is checked at registration time. If unavailable (not Chrome 146+), the entire module no-ops silently.
+- **Config gating** — `webmcpEnabled: false` in `config.json` disables registration.
+- **Read from store** — all tool execute functions read from `useTopicStore.getState()`. No new data structures needed.
+- **Ambient types** — `src/types/webmcp.d.ts` declares the WebMCP interfaces globally (no `export`). This is an ambient declaration file that augments the `Navigator` interface.
+- **Registration lifecycle** — `registerWebMcpTools()` on App mount, `unregisterWebMcpTools()` on unmount.
+- **Phase 2 (not yet implemented)** — interactive tools (`highlightNodes`, `clearHighlights`, `focusNode`) will require new store fields and renderer methods.
 
 ## Common Pitfalls
 
