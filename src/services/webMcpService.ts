@@ -217,7 +217,7 @@ async function executeExportGraph(): Promise<unknown> {
 }
 
 /** Default highlight colour used when none is specified. */
-const DEFAULT_HIGHLIGHT_COLOR = "#f59e0b"; // amber-400
+const DEFAULT_HIGHLIGHT_COLOR = "#cc0000"; // fire-engine red
 
 /** Basic hex colour validation — accepts #rgb and #rrggbb formats. */
 function isValidHexColor(value: string): boolean {
@@ -465,8 +465,8 @@ const TOOLS: ModelContextTool[] = [
         color: {
           type: "string",
           description:
-            "CSS hex colour for the highlight ring, e.g. '#f59e0b'. " +
-            "Accepts #rgb and #rrggbb formats. Defaults to '#f59e0b' (amber).",
+            "CSS hex colour for the highlight ring, e.g. '#cc0000'. " +
+            "Accepts #rgb and #rrggbb formats. Defaults to '#cc0000' (red).",
         },
       },
       required: ["nodeIds"],
