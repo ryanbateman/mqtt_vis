@@ -34,7 +34,7 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
-- **Performance debug mode** — add `?perf` to the URL to enable console-based performance instrumentation: FPS counter, frame timing, D3 tick duration, decay tick cost, node/link counts, heap usage, and automatic long-frame detection via PerformanceObserver. Zero overhead when disabled.
+- **Performance debug mode** — add `?perf` to the URL to enable console-based performance instrumentation: FPS counter, frame timing, D3 tick duration, decay tick cost, node/link counts, heap usage, and automatic long-frame detection via PerformanceObserver. Zero overhead when disabled. See [Performance Profiling](docs/performance-profiling.md) for automated collection and report interpretation.
 
 ## Quick Start
 
@@ -204,6 +204,19 @@ The app registers tools with the browser's [WebMCP API](https://webmachinelearni
 | `exportGraph` | Trigger a PNG export of the graph |
 
 All query tools are marked `readOnlyHint: true`. To disable WebMCP registration entirely, set `"webmcpEnabled": false` in `config.json`.
+
+## Performance Profiling
+
+The app includes a `?perf` debug mode and a Playwright-based profiler script for automated data collection.
+
+```bash
+# Start the app, then in a second terminal:
+npm run perf -- --broker wss://test.mosquitto.org:8081 --topic "test/#" --duration 60 --output report.json
+```
+
+The profiler connects to the running app via a headless Chromium browser, fills in the connection form, collects `[PERF:SUMMARY]` console output and long-frame traces, then writes a structured JSON report. Add `--headed` to watch it run in a real browser window.
+
+See **[docs/performance-profiling.md](docs/performance-profiling.md)** for full usage, all CLI options, report field definitions, bottleneck diagnosis guidance, and known scale limits.
 
 ## Tech Stack
 

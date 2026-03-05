@@ -38,9 +38,12 @@ function App() {
     const saved = loadSavedConnection();
     const shouldAutoconnect = saved.autoconnect ?? cfg.autoconnect ?? false;
 
-    if (shouldAutoconnect) {
-      const brokerUrl = saved.brokerUrl ?? cfg.brokerUrl ?? "wss://broker.hivemq.com:8884/mqtt";
-      const topicFilter = saved.topicFilter ?? cfg.topicFilter ?? "robot/#";
+    // Only autoconnect if the user has previously connected (brokerUrl in localStorage).
+    // We do not fall back to config defaults — autoconnect without an explicit prior
+    // connection would be surprising to a first-time visitor.
+    if (shouldAutoconnect && saved.brokerUrl) {
+      const brokerUrl = saved.brokerUrl;
+      const topicFilter = saved.topicFilter ?? cfg.topicFilter ?? "";
       const username = saved.username ?? cfg.username ?? "";
       const password = cfg.password ?? "";
 

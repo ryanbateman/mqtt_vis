@@ -81,13 +81,16 @@ export interface ConnectionParams {
   password?: string;
 }
 
-/** A public broker entry for the quick-connect dropdown. */
-export interface PublicBroker {
+/** A broker entry for the quick-connect dropdown. */
+export interface Broker {
   /** Display name shown in the dropdown (e.g. "HiveMQ"). */
   name: string;
   /** WebSocket URL for the broker (e.g. "wss://broker.hivemq.com:8884/mqtt"). */
   url: string;
 }
+
+/** @deprecated Use Broker instead. */
+export type PublicBroker = Broker;
 
 /** A particle in a burst effect. */
 export interface Particle {

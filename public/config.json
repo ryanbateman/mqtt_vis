@@ -1,32 +1,31 @@
 {
   "_passwordWarning": "Passwords in this file are plaintext and visible to anyone who can access the hosted site. Do not include sensitive credentials here unless the deployment is private.",
 
-  "brokerUrl": "wss://test.mosquitto.org:8081",
   "topicFilter": "test/#",
   "clientId": null,
   "username": "",
   "password": "",
   "autoconnect": false,
 
-  "publicBrokers": [
+  "brokers": [
+    { "name": "Mosquitto Test Server", "url": "wss://test.mosquitto.org:8081" },
     { "name": "HiveMQ Public Broker", "url": "wss://broker.hivemq.com:8884/mqtt" },
-    { "name": "EMQX Public Broker", "url": "wss://broker.emqx.io:8084/mqtt" },
-    { "name": "Mosquitto Test Server", "url": "wss://test.mosquitto.org:8081" }
+    { "name": "EMQX Public Broker", "url": "wss://broker.emqx.io:8084/mqtt" }
   ],
 
   "emaTau": 5,
-  "labelDepthFactor": 5,
-  "labelFontSize": 14,
+  "labelDepthFactor": 2,
+  "labelFontSize": 15,
   "scaleTextByDepth": true,
   "showTooltips": true,
-  "nodeScale": 1.0,
-  "scaleNodeSizeByDepth": false,
+  "nodeScale": 2.5,
+  "scaleNodeSizeByDepth": true,
   "ancestorPulse": true,
   "showRootPath": false,
 
   "repulsionStrength": -350,
   "linkDistance": 155,
-  "linkStrength": 0.5,
+  "linkStrength": 0.3,
   "collisionPadding": 13,
   "alphaDecay": 0.01,
 

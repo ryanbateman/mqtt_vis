@@ -70,6 +70,12 @@ Three layered effects on message publish:
 - All utility functions in `src/utils/` should be pure and unit-testable.
 - Use descriptive variable names. Avoid abbreviations except for widely understood ones (`msg`, `btn`, `idx`).
 
+## Agent Workflow Rules
+
+- **Never commit or push without user testing first.** Always stop at "ready for you to test" and wait for explicit sign-off before running `git commit` or `git push`.
+- **Run `npm run build` and `npm test` before declaring work complete.** Both must pass clean (no type errors, no test failures) before handing off to the user.
+- **Bump version on every commit**: patch (x.x.N) for bug fixes and QoL improvements, minor (x.N.0) for new user-facing features.
+
 ## Build & Run
 
 ```bash
@@ -83,8 +89,9 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (170 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 68 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, and decay rebuild suppression.
+Current test coverage (216 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 88 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, and localStorage settings persistence.
+- `src/utils/__tests__/settingsStorage.test.ts` — 26 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, and full round-trip for all 18 persisted fields.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 33 tests for rate/timestamp formatting, payload truncation, and depth scaling.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.
@@ -94,7 +101,19 @@ Utils in `src/utils/` are the highest-priority targets for additional unit tests
 
 ### Broker Icons
 
-SVG icons for known MQTT brokers are bundled in `src/utils/brokerIcons.ts` (sourced from Simple Icons, CC0 public domain). The `getBrokerIcon(url)` function matches a broker URL by domain substring and returns the appropriate icon path + brand colour. Unknown brokers get the generic MQTT protocol icon. Native HTML `<select>` elements cannot render images inside `<option>` tags — the icon is rendered as a separate `<svg>` element beside the dropdown.
+SVG icons for known MQTT brokers are bundled in `src/utils/brokerIcons.ts` (sourced from Simple Icons, CC0 public domain). The `getBrokerIcon(url)` function matches a broker URL by domain substring and returns the appropriate icon path + brand colour. Unknown brokers (including the "Custom Broker" option) get the generic MQTT protocol icon. Native HTML `<select>` elements cannot render images inside `<option>` tags — the icon is rendered as a separate `<svg>` element beside the dropdown.
+
+### Broker Config and Quick Connect Dropdown
+
+Brokers are defined in `config.json` under the `brokers` key (array of `{ name, url }`). The first entry is used as the default on first load. The dropdown always includes a "Custom Broker" option (sentinel value `__custom__`) as the last entry.
+
+Dropdown/URL field state machine:
+- **First-time visitor (no localStorage):** first broker from `cfg.brokers` pre-selected; URL field shows its URL.
+- **Returning visitor:** `saved.brokerUrl` from localStorage determines state — if it matches a known broker, that broker is selected; otherwise "Custom Broker" is selected.
+- **User edits URL field:** if the typed URL exactly matches a known broker URL, the dropdown syncs to that broker; otherwise it switches to "Custom Broker" and the typed URL is stored as `customBrokerUrl` state.
+- **User selects "Custom Broker":** URL field populated with last custom URL they typed/used; empty on first visit.
+- **URL param `?broker=`:** highest precedence; shown as "Custom Broker" if not matching a known broker.
+- `PublicBroker` type is kept as a deprecated alias for `Broker` for backward compatibility.
 
 ### WebMCP Integration
 

@@ -1,17 +1,17 @@
-import type { PublicBroker } from "../types";
+import type { Broker } from "../types";
 
 /** All configurable fields. Every field is optional — omitted fields use hardcoded defaults. */
 export interface AppConfig {
   // Connection
-  brokerUrl?: string;
   topicFilter?: string;
   clientId?: string | null;
   username?: string;
   password?: string;
   autoconnect?: boolean;
 
-  // Public brokers (quick-connect dropdown)
-  publicBrokers?: PublicBroker[];
+  // Brokers for the quick-connect dropdown.
+  // The first entry is used as the default on first load.
+  brokers?: Broker[];
 
   // Appearance
   emaTau?: number;

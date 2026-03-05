@@ -35,6 +35,13 @@ const MQTT_GENERIC: BrokerIcon = {
   path: "M10.657 23.994h-9.45A1.212 1.212 0 0 1 0 22.788v-9.18h.071c5.784 0 10.504 4.65 10.586 10.386Zm7.606 0h-4.045C14.135 16.246 7.795 9.977 0 9.942V6.038h.071c9.983 0 18.121 8.044 18.192 17.956Zm4.53 0h-.97C21.754 12.071 11.995 2.407 0 2.372v-1.16C0 .55.544.006 1.207.006h7.64C15.733 2.49 21.257 7.789 24 14.508v8.291c0 .663-.544 1.195-1.207 1.195ZM16.713.006h6.092A1.19 1.19 0 0 1 24 1.2v5.914c-.91-1.242-2.046-2.65-3.158-3.762C19.588 2.11 18.122.987 16.714.005Z",
 };
 
+/** Icon shown when "Custom Broker" is selected in the Quick Connect dropdown. */
+export const CUSTOM_BROKER_ICON: BrokerIcon = {
+  label: "Custom Broker",
+  color: "#94a3b8", // slate-400 — neutral, matches the UI's muted text colour
+  path: "M21.731 2.269a2.625 2.625 0 0 0-3.712 0l-1.157 1.157 3.712 3.712 1.157-1.157a2.625 2.625 0 0 0 0-3.712zm-2.218 5.93-3.712-3.712-8.4 8.4a5.25 5.25 0 0 0-1.32 2.214l-.8 2.685a.75.75 0 0 0 .933.933l2.685-.8a5.25 5.25 0 0 0 2.214-1.32l8.4-8.4z",
+};
+
 // ── Domain → icon mapping ────────────────────────────────────────────────────
 
 /** Ordered list of domain substrings to match against broker URLs. */

@@ -1,6 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { useTopicStore } from "../topicStore";
 import { MIN_RADIUS } from "../../utils/sizeCalculator";
+import {
+  persistSettings,
+  clearSavedSettings,
+  loadSavedSettings,
+} from "../../utils/settingsStorage";
 
 // Polyfill requestAnimationFrame / cancelAnimationFrame for the Node.js test environment.
 // scheduleRebuild uses rAF to batch graph rebuilds. In tests, we simulate the
@@ -716,8 +721,8 @@ describe("topicStore — ancestor pulse data flow", () => {
   });
 
   describe("scaleNodeSizeByDepth", () => {
-    it("should default to false", () => {
-      expect(state().scaleNodeSizeByDepth).toBe(false);
+    it("should default to true", () => {
+      expect(state().scaleNodeSizeByDepth).toBe(true);
     });
 
     it("should toggle via setter", () => {
@@ -854,16 +859,16 @@ describe("topicStore — ancestor pulse data flow", () => {
       // All should be back to defaults (config.json values or hardcoded fallbacks)
       expect(state().emaTau).toBe(5);
       expect(state().showLabels).toBe(true);
-      expect(state().labelDepthFactor).toBe(5);
+      expect(state().labelDepthFactor).toBe(2);
       expect(state().labelMode).toBe("zoom");
-      expect(state().labelFontSize).toBe(14);
+      expect(state().labelFontSize).toBe(15);
       expect(state().scaleTextByDepth).toBe(true);
       expect(state().showTooltips).toBe(true);
-      expect(state().nodeScale).toBe(1.0);
-      expect(state().scaleNodeSizeByDepth).toBe(false);
+      expect(state().nodeScale).toBe(2.5);
+      expect(state().scaleNodeSizeByDepth).toBe(true);
       expect(state().repulsionStrength).toBe(-350);
       expect(state().linkDistance).toBe(155);
-      expect(state().linkStrength).toBe(0.5);
+      expect(state().linkStrength).toBe(0.3);
       expect(state().collisionPadding).toBe(13);
       expect(state().alphaDecay).toBe(0.01);
       expect(state().ancestorPulse).toBe(true);
@@ -1066,5 +1071,166 @@ describe("topicStore — decay rebuild suppression during burst (Part 3)", () =>
     state().decayTick();
     // Node count should be unchanged (no structural change)
     expect(state().graphNodes.length).toBe(nodesBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settings persistence (localStorage round-trip) — Issue #21
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal in-memory localStorage shim for the Node/Vitest environment.
+ * The store reads from localStorage at module initialisation, so we can only
+ * test the setter → localStorage → loadSavedSettings() path here, not the
+ * initial-state-read path (the store is already created by import time).
+ */
+class LocalStorageMock {
+  private store: Record<string, string> = {};
+  getItem(key: string): string | null {
+    return Object.prototype.hasOwnProperty.call(this.store, key) ? this.store[key] : null;
+  }
+  setItem(key: string, value: string): void { this.store[key] = value; }
+  removeItem(key: string): void { delete this.store[key]; }
+  clear(): void { this.store = {}; }
+}
+
+const lsMock = new LocalStorageMock();
+
+describe("topicStore — settings localStorage persistence (Issue #21)", () => {
+  beforeEach(() => {
+    lsMock.clear();
+    Object.defineProperty(globalThis, "localStorage", {
+      value: lsMock,
+      configurable: true,
+      writable: true,
+    });
+    state().reset();
+  });
+
+  afterEach(() => {
+    lsMock.clear();
+  });
+
+  it("setEmaTau persists emaTau to localStorage", () => {
+    state().setEmaTau(8);
+    expect(loadSavedSettings().emaTau).toBe(8);
+  });
+
+  it("setShowLabels persists showLabels to localStorage", () => {
+    state().setShowLabels(false);
+    expect(loadSavedSettings().showLabels).toBe(false);
+  });
+
+  it("setLabelDepthFactor persists labelDepthFactor", () => {
+    state().setLabelDepthFactor(12);
+    expect(loadSavedSettings().labelDepthFactor).toBe(12);
+  });
+
+  it("setLabelMode persists labelMode", () => {
+    state().setLabelMode("depth");
+    expect(loadSavedSettings().labelMode).toBe("depth");
+  });
+
+  it("setLabelFontSize persists labelFontSize", () => {
+    state().setLabelFontSize(20);
+    expect(loadSavedSettings().labelFontSize).toBe(20);
+  });
+
+  it("setScaleTextByDepth persists scaleTextByDepth", () => {
+    state().setScaleTextByDepth(false);
+    expect(loadSavedSettings().scaleTextByDepth).toBe(false);
+  });
+
+  it("setShowTooltips persists showTooltips", () => {
+    state().setShowTooltips(false);
+    expect(loadSavedSettings().showTooltips).toBe(false);
+  });
+
+  it("setNodeScale persists nodeScale", () => {
+    state().setNodeScale(2.5);
+    expect(loadSavedSettings().nodeScale).toBe(2.5);
+  });
+
+  it("setScaleNodeSizeByDepth persists scaleNodeSizeByDepth", () => {
+    state().setScaleNodeSizeByDepth(true);
+    expect(loadSavedSettings().scaleNodeSizeByDepth).toBe(true);
+  });
+
+  it("setRepulsionStrength persists repulsionStrength", () => {
+    state().setRepulsionStrength(-200);
+    expect(loadSavedSettings().repulsionStrength).toBe(-200);
+  });
+
+  it("setLinkDistance persists linkDistance", () => {
+    state().setLinkDistance(200);
+    expect(loadSavedSettings().linkDistance).toBe(200);
+  });
+
+  it("setLinkStrength persists linkStrength", () => {
+    state().setLinkStrength(0.8);
+    expect(loadSavedSettings().linkStrength).toBe(0.8);
+  });
+
+  it("setCollisionPadding persists collisionPadding", () => {
+    state().setCollisionPadding(10);
+    expect(loadSavedSettings().collisionPadding).toBe(10);
+  });
+
+  it("setAlphaDecay persists alphaDecay", () => {
+    state().setAlphaDecay(0.02);
+    expect(loadSavedSettings().alphaDecay).toBeCloseTo(0.02);
+  });
+
+  it("setAncestorPulse persists ancestorPulse", () => {
+    state().setAncestorPulse(false);
+    expect(loadSavedSettings().ancestorPulse).toBe(false);
+  });
+
+  it("setShowRootPath persists showRootPath", () => {
+    state().setShowRootPath(true);
+    expect(loadSavedSettings().showRootPath).toBe(true);
+  });
+
+  it("multiple setter calls accumulate in localStorage (merge, not replace)", () => {
+    state().setEmaTau(7);
+    state().setNodeScale(3);
+    state().setShowLabels(false);
+    const saved = loadSavedSettings();
+    expect(saved.emaTau).toBe(7);
+    expect(saved.nodeScale).toBe(3);
+    expect(saved.showLabels).toBe(false);
+  });
+
+  it("resetSettings clears localStorage saved settings", () => {
+    // Save something first
+    persistSettings({ emaTau: 10, nodeScale: 3 });
+    expect(loadSavedSettings().emaTau).toBe(10);
+
+    state().resetSettings();
+
+    // localStorage should be cleared after resetSettings
+    expect(loadSavedSettings()).toEqual({});
+  });
+
+  it("clearSavedSettings removes all persisted settings", () => {
+    state().setEmaTau(9);
+    state().setLabelFontSize(24);
+    expect(loadSavedSettings().emaTau).toBe(9);
+
+    clearSavedSettings();
+    expect(loadSavedSettings()).toEqual({});
+  });
+
+  it("reset() preserves nodeScale and scaleNodeSizeByDepth from localStorage (reconnect bug)", () => {
+    // Simulate: user sets nodeScale, then reconnects (which calls reset())
+    state().setNodeScale(2.5);
+    state().setScaleNodeSizeByDepth(true);
+    expect(loadSavedSettings().nodeScale).toBe(2.5);
+
+    // reset() is called on connect — should NOT wipe back to config defaults
+    state().reset();
+
+    expect(state().nodeScale).toBe(2.5);
+    expect(state().scaleNodeSizeByDepth).toBe(true);
   });
 });

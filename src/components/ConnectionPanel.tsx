@@ -2,8 +2,12 @@ import { useState, useCallback, useMemo, useEffect, type FormEvent } from "react
 import type { ConnectionParams, ConnectionStatus } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 import { getConfig } from "../utils/config";
-import { getBrokerIcon } from "../utils/brokerIcons";
+import { getBrokerIcon, CUSTOM_BROKER_ICON } from "../utils/brokerIcons";
+import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
 import { useTopicStore } from "../stores/topicStore";
+
+/** Sentinel value used as the <select> value for the Custom Broker option. */
+const CUSTOM_BROKER = "__custom__";
 
 /** Generate a random client ID with a recognisable prefix. */
 function generateClientId(): string {
@@ -30,6 +34,59 @@ function getUrlParams(): { broker?: string; topic?: string } {
   }
 }
 
+/**
+ * Derive initial broker URL and dropdown selection from the precedence chain:
+ *   URL param > localStorage > config brokers[0] > empty
+ *
+ * Returns:
+ *   brokerUrl      — the URL to populate in the input field
+ *   dropdownValue  — the <select> value (a known broker URL or CUSTOM_BROKER)
+ *   customBrokerUrl — the URL to restore when the user picks "Custom Broker"
+ */
+function deriveInitialBrokerState(
+  urlParamBroker: string | undefined,
+  savedBrokerUrl: string | undefined,
+  configBrokers: { url: string }[]
+): { brokerUrl: string; dropdownValue: string; customBrokerUrl: string } {
+  const knownUrls = new Set(configBrokers.map((b) => b.url));
+
+  // URL param overrides everything
+  if (urlParamBroker) {
+    const dropdownValue = knownUrls.has(urlParamBroker)
+      ? urlParamBroker
+      : CUSTOM_BROKER;
+    return {
+      brokerUrl: urlParamBroker,
+      dropdownValue,
+      customBrokerUrl: knownUrls.has(urlParamBroker) ? "" : urlParamBroker,
+    };
+  }
+
+  // Returning visitor: restore from localStorage
+  if (savedBrokerUrl) {
+    const dropdownValue = knownUrls.has(savedBrokerUrl)
+      ? savedBrokerUrl
+      : CUSTOM_BROKER;
+    return {
+      brokerUrl: savedBrokerUrl,
+      dropdownValue,
+      customBrokerUrl: knownUrls.has(savedBrokerUrl) ? "" : savedBrokerUrl,
+    };
+  }
+
+  // First-time visitor: use first broker in config list
+  if (configBrokers.length > 0) {
+    return {
+      brokerUrl: configBrokers[0].url,
+      dropdownValue: configBrokers[0].url,
+      customBrokerUrl: "",
+    };
+  }
+
+  // No brokers configured at all
+  return { brokerUrl: "", dropdownValue: CUSTOM_BROKER, customBrokerUrl: "" };
+}
+
 export function ConnectionPanel({
   onConnect,
   onDisconnect,
@@ -38,9 +95,21 @@ export function ConnectionPanel({
 }: ConnectionPanelProps) {
   const cfg = getConfig();
   const saved = loadSavedConnection();
+  const savedSettings = loadSavedSettings();
   const urlParams = useMemo(() => getUrlParams(), []);
 
-  const [collapsed, setCollapsed] = useState(cfg.connectionCollapsed ?? false);
+  const brokers = cfg.brokers ?? [];
+
+  // Derive initial state once
+  const initialBrokerState = useMemo(
+    () => deriveInitialBrokerState(urlParams.broker, saved.brokerUrl, brokers),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const [collapsed, setCollapsed] = useState(
+    savedSettings.connectionCollapsed ?? cfg.connectionCollapsed ?? false
+  );
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
 
   // Auto-collapse when a node is selected (to make room for the DetailPanel).
@@ -51,20 +120,20 @@ export function ConnectionPanel({
     }
   }, [selectedNodeId]);
 
-  const [brokerUrl, setBrokerUrl] = useState(urlParams.broker ?? saved.brokerUrl ?? cfg.brokerUrl ?? "wss://broker.hivemq.com:8884/mqtt");
-  const [topicFilter, setTopicFilter] = useState(urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? "robot/#");
+  const [brokerUrl, setBrokerUrl] = useState(initialBrokerState.brokerUrl);
+  const [dropdownValue, setDropdownValue] = useState(initialBrokerState.dropdownValue);
+  // The last custom URL the user typed/used — restored when they pick "Custom Broker"
+  const [customBrokerUrl, setCustomBrokerUrl] = useState(initialBrokerState.customBrokerUrl);
+
+  const [topicFilter, setTopicFilter] = useState(
+    urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? ""
+  );
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
   const [showAuth, setShowAuth] = useState(false);
   const [clearOnDisconnect, setClearOnDisconnect] = useState(false);
   const [autoconnect, setAutoconnect] = useState(saved.autoconnect ?? cfg.autoconnect ?? false);
   const [copied, setCopied] = useState(false);
-  // Pre-select the Quick Connect entry that matches the config default broker URL (if any)
-  const [selectedBrokerUrl, setSelectedBrokerUrl] = useState(
-    () => cfg.publicBrokers?.some((b) => b.url === cfg.brokerUrl)
-      ? (cfg.brokerUrl ?? "")
-      : ""
-  );
 
   // Client ID: config can force a fixed ID, otherwise random by default
   const configForcesClientId = typeof cfg.clientId === "string" && cfg.clientId.length > 0;
@@ -81,6 +150,34 @@ export function ConnectionPanel({
   const isConnected = connectionStatus === "connected";
   const isConnecting = connectionStatus === "connecting";
 
+  const knownBrokerUrls = useMemo(() => new Set(brokers.map((b) => b.url)), [brokers]);
+
+  /** Handle dropdown selection changes. */
+  const handleDropdownChange = useCallback((value: string) => {
+    if (value === CUSTOM_BROKER) {
+      // Restore the last custom URL (may be empty on first visit)
+      setBrokerUrl(customBrokerUrl);
+      setDropdownValue(CUSTOM_BROKER);
+    } else {
+      // Known broker selected
+      setBrokerUrl(value);
+      setDropdownValue(value);
+    }
+  }, [customBrokerUrl]);
+
+  /** Handle manual edits to the Broker URL input. */
+  const handleBrokerUrlChange = useCallback((newUrl: string) => {
+    setBrokerUrl(newUrl);
+    if (knownBrokerUrls.has(newUrl)) {
+      // Typed URL exactly matches a known broker — sync the dropdown
+      setDropdownValue(newUrl);
+    } else {
+      // Non-matching URL — switch to Custom Broker and remember it
+      setDropdownValue(CUSTOM_BROKER);
+      setCustomBrokerUrl(newUrl);
+    }
+  }, [knownBrokerUrls]);
+
   /** Persist the autoconnect preference to localStorage. */
   const persistAutoconnect = useCallback((value: boolean) => {
     try {
@@ -93,7 +190,6 @@ export function ConnectionPanel({
 
   const handleCopyShareLink = useCallback(() => {
     const url = new URL(window.location.href);
-    // Clear any existing params and set only broker + topic
     url.search = "";
     url.searchParams.set("broker", brokerUrl);
     url.searchParams.set("topic", topicFilter);
@@ -141,11 +237,21 @@ export function ConnectionPanel({
           ? "Error"
           : "Disconnected";
 
+  // Icon reflects the currently selected broker (custom = pencil icon, known = brand icon)
+  const brokerIcon =
+    dropdownValue === CUSTOM_BROKER
+      ? CUSTOM_BROKER_ICON
+      : getBrokerIcon(dropdownValue);
+
   return (
     <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-80">
       <button
         type="button"
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => {
+          const next = !collapsed;
+          setCollapsed(next);
+          persistSettings({ connectionCollapsed: next });
+        }}
         className="flex items-center gap-2 w-full hover:opacity-80 transition-opacity"
       >
         <svg
@@ -166,47 +272,39 @@ export function ConnectionPanel({
       {!collapsed && (
         <>
           <form onSubmit={handleSubmit} className="space-y-3 mt-3">
-            {cfg.publicBrokers && cfg.publicBrokers.length > 0 && (() => {
-              const icon = getBrokerIcon(selectedBrokerUrl);
-              return (
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">
-                    Quick Connect
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <svg
-                      className="w-5 h-5 flex-shrink-0"
-                      viewBox="0 0 24 24"
-                      fill={icon.color}
-                      role="img"
-                      aria-label={icon.label}
-                    >
-                      <path d={icon.path} />
-                    </svg>
-                    <select
-                      value={selectedBrokerUrl}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setBrokerUrl(e.target.value);
-                          setSelectedBrokerUrl(e.target.value);
-                        }
-                      }}
-                      disabled={isConnected || isConnecting}
-                      className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
-                    >
-                      <option value="" disabled>
-                        Select a known broker...
+
+            {/* Quick Connect dropdown — always shown when brokers list is non-empty */}
+            {brokers.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">
+                  Quick Connect
+                </label>
+                <div className="flex items-center gap-2">
+                  <svg
+                    className="w-5 h-5 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill={brokerIcon.color}
+                    role="img"
+                    aria-label={brokerIcon.label}
+                  >
+                    <path d={brokerIcon.path} />
+                  </svg>
+                  <select
+                    value={dropdownValue}
+                    onChange={(e) => handleDropdownChange(e.target.value)}
+                    disabled={isConnected || isConnecting}
+                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
+                  >
+                    {brokers.map((broker) => (
+                      <option key={broker.url} value={broker.url}>
+                        {broker.name}
                       </option>
-                      {cfg.publicBrokers.map((broker) => (
-                        <option key={broker.url} value={broker.url}>
-                          {broker.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    ))}
+                    <option value={CUSTOM_BROKER}>Custom Broker</option>
+                  </select>
                 </div>
-              );
-            })()}
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">
@@ -215,17 +313,9 @@ export function ConnectionPanel({
               <input
                 type="text"
                 value={brokerUrl}
-                onChange={(e) => {
-                  const newUrl = e.target.value;
-                  setBrokerUrl(newUrl);
-                  // Reset dropdown if the user manually edits the URL to something
-                  // that doesn't match the currently selected broker.
-                  if (selectedBrokerUrl && newUrl !== selectedBrokerUrl) {
-                    setSelectedBrokerUrl("");
-                  }
-                }}
+                onChange={(e) => handleBrokerUrlChange(e.target.value)}
                 disabled={isConnected || isConnecting}
-                placeholder="ws://localhost:9001"
+                placeholder="wss://broker.example.com:8884/mqtt"
                 className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
               />
             </div>

@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTopicStore } from "../stores/topicStore";
 import { getConfig } from "../utils/config";
+import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
 
 type SettingsTab = "visual" | "labels" | "simulation";
 
@@ -136,7 +137,10 @@ function TabButton({
  */
 export function SettingsPanel() {
   const cfg = getConfig();
-  const [collapsed, setCollapsed] = useState(cfg.settingsCollapsed ?? false);
+  const savedSettings = loadSavedSettings();
+  const [collapsed, setCollapsed] = useState(
+    savedSettings.settingsCollapsed ?? cfg.settingsCollapsed ?? false
+  );
   const [activeTab, setActiveTab] = useState<SettingsTab>("visual");
   const emaTau = useTopicStore((s) => s.emaTau);
   const setEmaTau = useTopicStore((s) => s.setEmaTau);
@@ -184,7 +188,11 @@ export function SettingsPanel() {
     <div className="absolute top-4 right-4 z-10 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-64 max-h-[calc(100vh-2rem)] overflow-y-auto">
       <button
         type="button"
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => {
+          const next = !collapsed;
+          setCollapsed(next);
+          persistSettings({ settingsCollapsed: next });
+        }}
         className="flex items-center gap-1.5 text-sm font-medium text-gray-300 hover:text-gray-100 transition-colors w-full"
       >
         <svg
@@ -230,12 +238,12 @@ export function SettingsPanel() {
                 tooltip="Scale all node sizes. Affects both minimum and maximum radius proportionally."
                 value={nodeScale}
                 displayValue={`${nodeScale.toFixed(1)}x`}
-                min={0.5}
-                max={4.0}
-                step={0.1}
-                minLabel="Small"
-                maxLabel="Large"
-                onChange={setNodeScale}
+                 min={0.5}
+                 max={5.0}
+                 step={0.1}
+                 minLabel="Small"
+                 maxLabel="Large"
+                 onChange={setNodeScale}
               />
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">

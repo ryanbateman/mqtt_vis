@@ -18,6 +18,11 @@ import {
 import { calculateRadius } from "../utils/sizeCalculator";
 import { getConfig } from "../utils/config";
 import { perfMark, perfMeasure, perfStats } from "../utils/perfDebug";
+import {
+  loadSavedSettings,
+  persistSettings,
+  clearSavedSettings,
+} from "../utils/settingsStorage";
 
 /** Default EMA time constant in seconds. Controls how quickly rates respond. */
 const DEFAULT_EMA_TAU = 5;
@@ -292,6 +297,10 @@ let _pendingNewTopics = 0;
 
 export const useTopicStore = create<TopicStoreState>((set, get) => {
   const cfg = getConfig();
+  // Merge saved settings (localStorage) → config.json → hardcoded fallback.
+  // Connection parameters (brokerUrl, topicFilter, etc.) are persisted
+  // separately by useMqttClient under "mqtt_connection".
+  const saved = loadSavedSettings();
   return {
   root: createTopicNode("", ""),
   graphNodes: [],
@@ -301,22 +310,22 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   totalTopics: 0,
   sessionStart: Date.now(),
   errorMessage: null,
-  emaTau: cfg.emaTau ?? DEFAULT_EMA_TAU,
-  showLabels: cfg.showLabels ?? true,
-  labelDepthFactor: cfg.labelDepthFactor ?? 5,
-  labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
-  labelFontSize: cfg.labelFontSize ?? 14,
-  scaleTextByDepth: cfg.scaleTextByDepth ?? true,
-  showTooltips: cfg.showTooltips ?? true,
-  nodeScale: cfg.nodeScale ?? 1.0,
-  scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
-  repulsionStrength: cfg.repulsionStrength ?? -350,
-  linkDistance: cfg.linkDistance ?? 155,
-  linkStrength: cfg.linkStrength ?? 0.5,
-  collisionPadding: cfg.collisionPadding ?? 13,
-  alphaDecay: cfg.alphaDecay ?? 0.01,
-  ancestorPulse: cfg.ancestorPulse ?? true,
-  showRootPath: cfg.showRootPath ?? false,
+  emaTau:               saved.emaTau             ?? cfg.emaTau             ?? DEFAULT_EMA_TAU,
+  showLabels:           saved.showLabels          ?? cfg.showLabels          ?? true,
+  labelDepthFactor:     saved.labelDepthFactor    ?? cfg.labelDepthFactor    ?? 2,
+  labelMode:            saved.labelMode           ?? ((cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode),
+  labelFontSize:        saved.labelFontSize       ?? cfg.labelFontSize       ?? 15,
+  scaleTextByDepth:     saved.scaleTextByDepth    ?? cfg.scaleTextByDepth    ?? true,
+  showTooltips:         saved.showTooltips        ?? cfg.showTooltips        ?? true,
+  nodeScale:            saved.nodeScale           ?? cfg.nodeScale           ?? 2.5,
+  scaleNodeSizeByDepth: saved.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
+  repulsionStrength:    saved.repulsionStrength   ?? cfg.repulsionStrength   ?? -350,
+  linkDistance:         saved.linkDistance        ?? cfg.linkDistance        ?? 155,
+  linkStrength:         saved.linkStrength        ?? cfg.linkStrength        ?? 0.3,
+  collisionPadding:     saved.collisionPadding    ?? cfg.collisionPadding    ?? 13,
+  alphaDecay:           saved.alphaDecay          ?? cfg.alphaDecay          ?? 0.01,
+  ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
+  showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
   graphStructureVersion: 0,
   exportRequested: 0,
@@ -547,6 +556,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _payloadLru.clear();
     _pendingMessages = 0;
     _pendingNewTopics = 0;
+    // Preserve user's saved visual settings across resets (e.g. on reconnect).
+    // reset() clears topic tree data but must not discard localStorage settings.
+    const savedForReset = loadSavedSettings();
     set({
       root: createTopicNode("", ""),
       graphNodes: [],
@@ -556,8 +568,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       sessionStart: Date.now(),
       errorMessage: null,
       graphStructureVersion: 0,
-      nodeScale: cfg.nodeScale ?? 1.0,
-      scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
+      nodeScale: savedForReset.nodeScale ?? cfg.nodeScale ?? 1.0,
+      scaleNodeSizeByDepth: savedForReset.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
       selectedNodeId: null,
       highlightedNodes: new Map<string, string>(),
     });
@@ -578,46 +590,55 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     set({
       emaTau: cfg.emaTau ?? DEFAULT_EMA_TAU,
       showLabels: cfg.showLabels ?? true,
-      labelDepthFactor: cfg.labelDepthFactor ?? 5,
+      labelDepthFactor: cfg.labelDepthFactor ?? 2,
       labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
-      labelFontSize: cfg.labelFontSize ?? 14,
+      labelFontSize: cfg.labelFontSize ?? 15,
       scaleTextByDepth: cfg.scaleTextByDepth ?? true,
       showTooltips: cfg.showTooltips ?? true,
-      nodeScale: cfg.nodeScale ?? 1.0,
-      scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? false,
+      nodeScale: cfg.nodeScale ?? 2.5,
+      scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? true,
       repulsionStrength: cfg.repulsionStrength ?? -350,
       linkDistance: cfg.linkDistance ?? 155,
-      linkStrength: cfg.linkStrength ?? 0.5,
+      linkStrength: cfg.linkStrength ?? 0.3,
       collisionPadding: cfg.collisionPadding ?? 13,
       alphaDecay: cfg.alphaDecay ?? 0.01,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
+    // Clear localStorage overrides so the reset truly returns to config.json defaults.
+    clearSavedSettings();
     // Rebuild graph for nodeScale and showRootPath side effects
     get().rebuildGraph();
   },
 
   setEmaTau: (tau: number) => {
     set({ emaTau: tau });
+    persistSettings({ emaTau: tau });
   },
 
   setShowLabels: (show: boolean) => {
     set({ showLabels: show });
+    persistSettings({ showLabels: show });
   },
   setLabelDepthFactor: (factor: number) => {
     set({ labelDepthFactor: factor });
+    persistSettings({ labelDepthFactor: factor });
   },
   setLabelMode: (mode: LabelMode) => {
     set({ labelMode: mode });
+    persistSettings({ labelMode: mode });
   },
   setLabelFontSize: (size: number) => {
     set({ labelFontSize: size });
+    persistSettings({ labelFontSize: size });
   },
   setScaleTextByDepth: (enabled: boolean) => {
     set({ scaleTextByDepth: enabled });
+    persistSettings({ scaleTextByDepth: enabled });
   },
   setShowTooltips: (show: boolean) => {
     set({ showTooltips: show });
+    persistSettings({ showTooltips: show });
     // When disabling tooltips, clear all stored payloads to free memory
     if (!show) {
       const root = get().root;
@@ -632,33 +653,42 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
 
   setNodeScale: (scale: number) => {
     set({ nodeScale: scale });
+    persistSettings({ nodeScale: scale });
     // Rebuild graph so node radii update immediately
     get().rebuildGraph();
   },
   setScaleNodeSizeByDepth: (enabled: boolean) => {
     set({ scaleNodeSizeByDepth: enabled });
+    persistSettings({ scaleNodeSizeByDepth: enabled });
   },
 
   setRepulsionStrength: (value: number) => {
     set({ repulsionStrength: value });
+    persistSettings({ repulsionStrength: value });
   },
   setLinkDistance: (value: number) => {
     set({ linkDistance: value });
+    persistSettings({ linkDistance: value });
   },
   setLinkStrength: (value: number) => {
     set({ linkStrength: value });
+    persistSettings({ linkStrength: value });
   },
   setCollisionPadding: (value: number) => {
     set({ collisionPadding: value });
+    persistSettings({ collisionPadding: value });
   },
   setAlphaDecay: (value: number) => {
     set({ alphaDecay: value });
+    persistSettings({ alphaDecay: value });
   },
   setAncestorPulse: (enabled: boolean) => {
     set({ ancestorPulse: enabled });
+    persistSettings({ ancestorPulse: enabled });
   },
   setShowRootPath: (enabled: boolean) => {
     set({ showRootPath: enabled });
+    persistSettings({ showRootPath: enabled });
     // Rebuild graph immediately so the change is visible
     get().rebuildGraph();
   },
