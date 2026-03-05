@@ -234,9 +234,6 @@ export class GraphRenderer {
       (d) => d.displayRadius + this.collisionPadding
     );
 
-    // Reheat simulation slightly for new nodes
-    this.simulation.alpha(0.3).restart();
-
     // Check for new pulses and spawn particles
     this.checkPulses(nodes);
     this.checkLinkPulses(links);
@@ -263,13 +260,16 @@ export class GraphRenderer {
 
     this.nodeElements.exit().remove();
 
-    const entered = this.nodeElements
+    const enterSelection = this.nodeElements
       .enter()
       .append("circle")
       .attr("stroke-width", 2)
       .call(this.setupDrag());
 
-    this.nodeElements = entered.merge(this.nodeElements);
+    // Capture enter count before merge — used for burst-aware reheat below.
+    const enterCount = enterSelection.size();
+
+    this.nodeElements = enterSelection.merge(this.nodeElements);
 
     // Initialise displayRadius for new nodes; existing nodes keep their current displayRadius.
     // The animation loop will smoothly lerp displayRadius toward radius.
@@ -323,6 +323,23 @@ export class GraphRenderer {
 
     // Reapply depth-based label visibility for newly entered labels
     this.updateLabelVisibility();
+
+    // Burst-aware simulation reheat.
+    // During an initial connection burst, hundreds of nodes enter across many consecutive
+    // update() calls. Using a full alpha(0.3) on every call keeps reheating the simulation
+    // before it can settle, causing continuous jitter and high d3TickMs.
+    //
+    // If more than BURST_ENTER_THRESHOLD new nodes entered this update, use a low alpha
+    // so the simulation moves gently without destabilising existing nodes. Once a normal
+    // (small) update arrives, restore the full alpha to let the layout settle properly.
+    const BURST_ENTER_THRESHOLD = 50;
+    if (enterCount > BURST_ENTER_THRESHOLD) {
+      // Burst: nudge gently — don't destabilise nodes that are already positioned
+      this.simulation.alpha(0.05).restart();
+    } else {
+      // Normal update: full reheat so new nodes find their place
+      this.simulation.alpha(0.3).restart();
+    }
   }
 
   /**

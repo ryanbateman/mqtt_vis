@@ -282,6 +282,14 @@ let _rebuildScheduled = false;
 let _rebuildStructural = false;
 let _rebuildRafId: number | null = null;
 
+/**
+ * Pending counter deltas accumulated across messages within the current rAF batch.
+ * Flushed into Zustand state in the scheduleRebuild rAF callback alongside the
+ * graph data — collapses N set() calls per frame down to 1.
+ */
+let _pendingMessages = 0;
+let _pendingNewTopics = 0;
+
 export const useTopicStore = create<TopicStoreState>((set, get) => {
   const cfg = getConfig();
   return {
@@ -379,12 +387,11 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
     }
 
-    // Update counters using the running count from ensureTopicPathTracked.
-    // This avoids a full recursive countNodes() traversal per message.
-    set({
-      totalMessages: state.totalMessages + 1,
-      totalTopics: state.totalTopics + newNodes,
-    });
+    // Accumulate counter deltas — flushed in the rAF callback alongside the graph rebuild.
+    // This collapses N Zustand set() calls per frame (one per message) into 1,
+    // eliminating per-message React re-render notifications for the status bar counters.
+    _pendingMessages += 1;
+    _pendingNewTopics += newNodes;
 
     // Schedule a batched graph rebuild instead of rebuilding immediately.
     // Multiple messages within the same animation frame are coalesced into one rebuild.
@@ -435,23 +442,55 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // Pulse duration equals tau in milliseconds — "Fade Time = 5s" means 5s fade
     const pulseDuration = state.emaTau * 1000;
 
-    // Rebuild flat graph data (decay always runs on full tree, but rendering may skip prefix)
-    const { graphNodes, graphLinks } = buildGraphData(
-      root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse, state.nodeScale
-    );
-    set({ graphNodes, graphLinks });
+    // Skip rebuilding graph data if a structural rAF rebuild is already pending.
+    // The rAF callback will call buildGraphData() + set() moments later, so doing
+    // it here too is pure duplicate work during a burst. Rate decay above has
+    // already run (the tree is updated), which is what matters for correctness.
+    if (!(_rebuildScheduled && _rebuildStructural)) {
+      const { graphNodes, graphLinks } = buildGraphData(
+        root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse, state.nodeScale
+      );
+      set({ graphNodes, graphLinks });
+    }
 
     perfMark("decay-tick-end");
     perfStats.lastDecayTickMs = perfMeasure("decay-tick", "decay-tick-start", "decay-tick-end");
   },
 
   rebuildGraph: () => {
+    // Cancel any pending rAF and clear the scheduling flags.
+    // rebuildGraph() is the synchronous stand-in for the rAF callback used in tests,
+    // so it must fully replicate what the rAF callback does — including clearing the
+    // flags so that a subsequent decayTick() can safely rebuild graph data.
+    if (_rebuildRafId !== null) {
+      cancelAnimationFrame(_rebuildRafId);
+      _rebuildRafId = null;
+    }
+    const wasStructural = _rebuildStructural;
+    _rebuildScheduled = false;
+    _rebuildStructural = false;
+
     const state = get();
     const pulseDuration = state.emaTau * 1000;
     const { graphNodes, graphLinks } = buildGraphData(
       state.root, pulseDuration, state.showRootPath, state.topicFilter, state.ancestorPulse, state.nodeScale
     );
-    set({ graphNodes, graphLinks });
+    // Also drain any pending counter deltas (mirrors the rAF callback behaviour).
+    // This ensures tests that call rebuildGraph() as a synchronous rAF stand-in
+    // see correct totalMessages/totalTopics values immediately.
+    const pendingMsgs = _pendingMessages;
+    const pendingTopics = _pendingNewTopics;
+    _pendingMessages = 0;
+    _pendingNewTopics = 0;
+    set({
+      graphNodes,
+      graphLinks,
+      ...(wasStructural
+        ? { graphStructureVersion: state.graphStructureVersion + 1 }
+        : {}),
+      totalMessages: state.totalMessages + pendingMsgs,
+      totalTopics: state.totalTopics + pendingTopics,
+    });
   },
 
   scheduleRebuild: (structural: boolean) => {
@@ -472,6 +511,14 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         const { graphNodes, graphLinks } = buildGraphData(
           s.root, pulseDuration, s.showRootPath, s.topicFilter, s.ancestorPulse, s.nodeScale
         );
+
+        // Drain accumulated counter deltas and fold into this single set() call.
+        // This collapses N per-message set() calls into 1 per animation frame.
+        const pendingMsgs = _pendingMessages;
+        const pendingTopics = _pendingNewTopics;
+        _pendingMessages = 0;
+        _pendingNewTopics = 0;
+
         set({
           graphNodes,
           graphLinks,
@@ -479,6 +526,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           graphStructureVersion: wasStructural
             ? s.graphStructureVersion + 1
             : s.graphStructureVersion,
+          totalMessages: s.totalMessages + pendingMsgs,
+          totalTopics: s.totalTopics + pendingTopics,
         });
 
         perfMark("rebuild-end");
@@ -496,6 +545,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       _rebuildStructural = false;
     }
     _payloadLru.clear();
+    _pendingMessages = 0;
+    _pendingNewTopics = 0;
     set({
       root: createTopicNode("", ""),
       graphNodes: [],

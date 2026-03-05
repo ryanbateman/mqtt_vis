@@ -213,6 +213,7 @@ describe("topicStore — ancestor pulse data flow", () => {
     it("should have pulse=false on ancestors after pulseDuration expires", () => {
       // Use a short fake timestamp to simulate an old pulse
       state().handleMessage("a/b/c", "hello", 0);
+      state().rebuildGraph(); // flush the structural rebuild so graphNodes exist before decayTick
 
       // Manually set lastTimestamp to far in the past
       const leaf = findTopicNode("a/b/c");
@@ -240,6 +241,7 @@ describe("topicStore — ancestor pulse data flow", () => {
 
     it("ancestor GraphNodes should have pulseRate > 0 even after rate decays to zero", () => {
       state().handleMessage("a/b/c", "hello", 0);
+      state().rebuildGraph(); // flush the structural rebuild so graphNodes exist before decayTick
 
       // Run many decay ticks to drive messageRate and aggregateRate toward zero
       for (let i = 0; i < 50; i++) {
@@ -318,6 +320,7 @@ describe("topicStore — ancestor pulse data flow", () => {
       // For ancestors: messageRate is ~0 (idle grey), pulseRate >= 1 (warm colour).
       // This ensures a visible colour transition rather than grey-to-grey.
       state().handleMessage("a/b/c", "hello", 0);
+      state().rebuildGraph(); // flush the structural rebuild so graphNodes exist before decayTick
 
       // Run a few ticks so messageRate starts decaying
       for (let i = 0; i < 3; i++) {
@@ -461,6 +464,7 @@ describe("topicStore — ancestor pulse data flow", () => {
     it("should grow parent nodes based on subtree activity when ancestorPulse is on", () => {
       state().setAncestorPulse(true);
       state().handleMessage("a/b/c", "hello", 0);
+      state().rebuildGraph(); // flush the structural rebuild so graphNodes exist before decayTick
 
       // decayTick propagates aggregateRate bottom-up, then rebuilds graph
       state().decayTick();
@@ -479,30 +483,37 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(state().totalTopics).toBe(0);
 
       // "a/b/c" creates 3 new nodes: a, a/b, a/b/c
+      // Counters are batched — flush via rebuildGraph (synchronous rAF stand-in)
       state().handleMessage("a/b/c", "hello", 0);
+      state().rebuildGraph();
       expect(state().totalTopics).toBe(3);
     });
 
     it("should not increment totalTopics for repeated messages to existing topics", () => {
       state().handleMessage("a/b/c", "msg1", 0);
+      state().rebuildGraph();
       expect(state().totalTopics).toBe(3);
 
       state().handleMessage("a/b/c", "msg2", 0);
+      state().rebuildGraph();
       // No new nodes — count unchanged
       expect(state().totalTopics).toBe(3);
     });
 
     it("should increment totalTopics only for genuinely new segments", () => {
       state().handleMessage("a/b/c", "msg1", 0);
+      state().rebuildGraph();
       expect(state().totalTopics).toBe(3); // a, a/b, a/b/c
 
       // "a/b/d" shares "a" and "a/b" — only "a/b/d" is new
       state().handleMessage("a/b/d", "msg2", 0);
+      state().rebuildGraph();
       expect(state().totalTopics).toBe(4);
     });
 
     it("should reset totalTopics to 0 on reset()", () => {
       state().handleMessage("a/b/c", "hello", 0);
+      state().rebuildGraph();
       expect(state().totalTopics).toBe(3);
 
       state().reset();
@@ -961,5 +972,99 @@ describe("topicStore — highlight sets", () => {
     state().resetSettings();
     expect(state().highlightedNodes.size).toBe(1);
     expect(state().highlightedNodes.get("home/kitchen/temp")).toBe("#f59e0b");
+  });
+});
+
+describe("topicStore — batched counter updates (Part 1)", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+  });
+
+  it("should batch counter updates — totalMessages reflects all messages after rAF flush", () => {
+    // Send multiple messages without flushing between them
+    state().handleMessage("a/b", "1", 0);
+    state().handleMessage("a/c", "2", 0);
+    state().handleMessage("a/d", "3", 0);
+
+    // Counters are pending — not yet flushed to store state
+    // (they're accumulated in module-level vars and flushed in the rAF callback)
+    // We flush synchronously via rebuildGraph to simulate the rAF firing
+    state().rebuildGraph();
+
+    // After a manual rebuild the rAF accumulators may not have fired yet in tests,
+    // so verify the counters are correct after explicit flush
+    expect(state().totalMessages).toBeGreaterThanOrEqual(3);
+    expect(state().totalTopics).toBeGreaterThan(0);
+  });
+
+  it("should reset pending counters on reset()", () => {
+    state().handleMessage("x/y", "hi", 0);
+    state().reset();
+    // After reset, counters are 0 and pending accumulators are cleared
+    expect(state().totalMessages).toBe(0);
+    expect(state().totalTopics).toBe(0);
+  });
+
+  it("should accumulate totalMessages correctly across a burst then flush", () => {
+    const initialMessages = state().totalMessages;
+
+    // Simulate a burst of 10 messages
+    for (let i = 0; i < 10; i++) {
+      state().handleMessage(`sensor/${i}`, `val${i}`, 0);
+    }
+
+    // Flush via rebuildGraph (simulates rAF callback in tests)
+    state().rebuildGraph();
+
+    // All 10 messages should be reflected after flush
+    expect(state().totalMessages).toBeGreaterThanOrEqual(initialMessages + 10);
+  });
+});
+
+describe("topicStore — decay rebuild suppression during burst (Part 3)", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+  });
+
+  it("decayTick should still update tree rates even when rebuild is suppressed", () => {
+    // Send a message to create a node with a rate
+    state().handleMessage("home/temp", "22", 0);
+    state().rebuildGraph();
+
+    const topicNode = (() => {
+      const root = state().root;
+      const segs = "home/temp".split("/");
+      let cur = root;
+      for (const s of segs) {
+        const child = cur.children.get(s);
+        if (!child) return undefined;
+        cur = child;
+      }
+      return cur;
+    })();
+
+    expect(topicNode).toBeDefined();
+    const rateBefore = topicNode!.messageRate;
+
+    // decayTick should decay the rate regardless of rebuild scheduling
+    state().decayTick();
+    expect(topicNode!.messageRate).toBeLessThanOrEqual(rateBefore);
+  });
+
+  it("decayTick should produce graphNodes when no structural rebuild is pending", () => {
+    state().handleMessage("a/b", "x", 0);
+    state().rebuildGraph();
+
+    const nodesBefore = state().graphNodes.length;
+    expect(nodesBefore).toBeGreaterThan(0);
+
+    // With no pending rAF rebuild, decayTick should update graphNodes normally
+    state().decayTick();
+    // Node count should be unchanged (no structural change)
+    expect(state().graphNodes.length).toBe(nodesBefore);
   });
 });

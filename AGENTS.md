@@ -83,8 +83,8 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (165 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 63 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, and highlight sets.
+Current test coverage (170 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 68 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, and decay rebuild suppression.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 33 tests for rate/timestamp formatting, payload truncation, and depth scaling.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.
