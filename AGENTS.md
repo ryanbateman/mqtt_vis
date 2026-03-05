@@ -101,7 +101,7 @@ Utils in `src/utils/` are the highest-priority targets for additional unit tests
 
 ### Broker Icons
 
-SVG icons for known MQTT brokers are bundled in `src/utils/brokerIcons.ts` (sourced from Simple Icons, CC0 public domain). The `getBrokerIcon(url)` function matches a broker URL by domain substring and returns the appropriate icon path + brand colour. Unknown brokers (including the "Custom Broker" option) get the generic MQTT protocol icon. Native HTML `<select>` elements cannot render images inside `<option>` tags — the icon is rendered as a separate `<svg>` element beside the dropdown.
+SVG icons for known MQTT brokers are bundled in `src/utils/brokerIcons.ts` (sourced from Simple Icons, CC0 public domain). The `getBrokerIcon(url)` function matches a broker URL by domain substring and returns the appropriate icon path + brand colour. Unknown brokers get the generic MQTT protocol icon. The "Custom Broker" option uses `CUSTOM_BROKER_ICON` (a pencil icon, slate-400) — this is handled directly in `ConnectionPanel` rather than via `getBrokerIcon`. Native HTML `<select>` elements cannot render images inside `<option>` tags — the icon is rendered as a separate `<svg>` element beside the dropdown.
 
 ### Broker Config and Quick Connect Dropdown
 
