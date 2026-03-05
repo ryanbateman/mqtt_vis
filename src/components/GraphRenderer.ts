@@ -13,6 +13,17 @@ import {
   initPerfObserver,
 } from "../utils/perfDebug";
 
+/**
+ * True when the device has no fine hover capability (touch-only).
+ * Evaluated once at module load — `(hover: none)` matches phones and tablets
+ * but not hybrid laptop/touchscreen devices which retain mouse hover.
+ * On touch devices, hover tooltips are suppressed since tapping selects the
+ * node and opens the DetailPanel instead.
+ */
+const IS_TOUCH_ONLY =
+  typeof window !== "undefined" &&
+  window.matchMedia("(hover: none)").matches;
+
 /** Maximum number of particles alive at once. */
 const MAX_PARTICLES = 500;
 
@@ -280,7 +291,7 @@ export class GraphRenderer {
     // Attach hover events for tooltip (idempotent on merged selection)
     this.nodeElements
       .on("mouseenter", (_event: MouseEvent, d: GraphNode) => {
-        if (!this.onTooltip || !this.showTooltips) return;
+        if (!this.onTooltip || !this.showTooltips || IS_TOUCH_ONLY) return;
         // Clear any pending delay from a previous hover
         if (this.tooltipDelayTimer !== null) {
           clearTimeout(this.tooltipDelayTimer);

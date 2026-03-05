@@ -1,6 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { TopicNode, GraphNode } from "../types";
 import { formatRate, formatTimestamp, formatPayloadSize } from "../utils/formatters";
+
+/**
+ * Session-scoped pretty-print preference. Persists across node selections so
+ * the user's toggle choice isn't reset every time they click a different node.
+ * Defaults to true — JSON payloads are pretty-printed by default.
+ */
+let _prettyJsonPref = true;
 
 /**
  * Fixed sidebar panel showing detailed information about the selected/pinned node.
@@ -16,12 +23,7 @@ export function DetailPanel({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [prettyJson, setPrettyJson] = useState(false);
-
-  // Reset pretty-print toggle when switching to a different node
-  useEffect(() => {
-    setPrettyJson(false);
-  }, [graphNode.id]);
+  const [prettyJson, setPrettyJson] = useState(_prettyJsonPref);
 
   const topicPath = graphNode.id || "(root)";
 
@@ -154,7 +156,7 @@ export function DetailPanel({
             <span className="text-[10px] text-gray-500">Last Payload</span>
             {isJson && (
               <button
-                onClick={() => setPrettyJson(!prettyJson)}
+                onClick={() => { _prettyJsonPref = !prettyJson; setPrettyJson(!prettyJson); }}
                 className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
                   prettyJson
                     ? "bg-blue-600/30 text-blue-300"
