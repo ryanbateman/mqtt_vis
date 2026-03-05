@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import { mqttService } from "../services/mqttService";
 import { useTopicStore, startDecayTimer } from "../stores/topicStore";
+import { diagnoseConnectionError } from "../utils/connectionErrors";
 import type { ConnectionParams } from "../types";
 
 /**
@@ -22,7 +23,15 @@ export function useMqttClient() {
     });
 
     mqttService.setStatusHandler((status, error) => {
-      setConnectionStatus(status, error?.message);
+      const message = error
+        ? diagnoseConnectionError(
+            mqttService.lastBrokerUrl,
+            error.message,
+            error.code,
+            typeof window !== "undefined" ? window.location.protocol : "https:",
+          )
+        : undefined;
+      setConnectionStatus(status, message);
     });
   }, [handleMessage, setConnectionStatus]);
 
@@ -59,7 +68,10 @@ export function useMqttClient() {
   const disconnect = useCallback(
     (clear?: boolean) => {
       mqttService.disconnect();
-      setConnectionStatus("disconnected");
+      // Explicitly pass empty string to signal "clear error" — setConnectionStatus
+      // treats `error !== undefined` as "new error", so we pass "" to clear it
+      // without ambiguity from the preserve-on-reconnect logic.
+      setConnectionStatus("disconnected", "");
 
       if (decayCleanup.current) {
         decayCleanup.current();

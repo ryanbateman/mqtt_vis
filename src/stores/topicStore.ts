@@ -425,7 +425,17 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   setConnectionStatus: (status: ConnectionStatus, error?: string) => {
     set({
       connectionStatus: status,
-      errorMessage: error ?? null,
+      // Preserve the last error message across reconnect-loop status changes
+      // ("close" → "disconnected", "reconnect" → "connecting") so the user
+      // doesn't see it flicker off every 5 seconds.
+      // Only clear it on successful connection or when a new error arrives.
+      // Empty string is used as an explicit "clear error" signal (e.g. user disconnect).
+      // undefined means "no update" — preserve the last error across reconnect loops.
+      errorMessage: error !== undefined
+        ? (error || null)                // new error or explicit clear ("" → null)
+        : status === "connected"
+          ? null                         // success — clear
+          : get().errorMessage,          // all other transitions — preserve
       ...(status === "connected" ? { sessionStart: Date.now() } : {}),
     });
   },

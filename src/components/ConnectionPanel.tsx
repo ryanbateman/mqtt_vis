@@ -5,6 +5,8 @@ import { getConfig } from "../utils/config";
 import { getBrokerIcon, CUSTOM_BROKER_ICON } from "../utils/brokerIcons";
 import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
 import { useTopicStore } from "../stores/topicStore";
+import { mqttService } from "../services/mqttService";
+import { formatLogTimestamp } from "../utils/connectionErrors";
 
 /** Sentinel value used as the <select> value for the Custom Broker option. */
 const CUSTOM_BROKER = "__custom__";
@@ -110,6 +112,7 @@ export function ConnectionPanel({
   const [collapsed, setCollapsed] = useState(
     savedSettings.connectionCollapsed ?? cfg.connectionCollapsed ?? false
   );
+  const [activeTab, setActiveTab] = useState<"connect" | "log">("connect");
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
 
   // Auto-collapse when a node is selected (to make room for the DetailPanel).
@@ -119,6 +122,13 @@ export function ConnectionPanel({
       setCollapsed(true);
     }
   }, [selectedNodeId]);
+
+  // Auto-switch to Log tab when an error message arrives so the user sees it.
+  useEffect(() => {
+    if (errorMessage) {
+      setActiveTab("log");
+    }
+  }, [errorMessage]);
 
   const [brokerUrl, setBrokerUrl] = useState(initialBrokerState.brokerUrl);
   const [dropdownValue, setDropdownValue] = useState(initialBrokerState.dropdownValue);
@@ -228,14 +238,25 @@ export function ConnectionPanel({
           ? "bg-red-500"
           : "bg-gray-500";
 
-  const statusLabel =
+  // Reconnect attempt count — read live from the service on each render.
+  const reconnectAttempts = mqttService.reconnectAttempts;
+
+  // Button label and colour reflect the current connection state.
+  const buttonLabel =
     connectionStatus === "connected"
-      ? "Connected"
+      ? "Disconnect"
       : connectionStatus === "connecting"
-        ? "Connecting..."
-        : connectionStatus === "error"
-          ? "Error"
-          : "Disconnected";
+        ? reconnectAttempts > 0
+          ? `Reconnecting (${reconnectAttempts}/3)…`
+          : "Connecting…"
+        : "Connect";
+
+  const buttonClass =
+    connectionStatus === "connected"
+      ? "bg-red-600 hover:bg-red-700 text-white"
+      : connectionStatus === "connecting"
+        ? "bg-amber-600 hover:bg-amber-700 text-white animate-pulse"
+        : "bg-blue-600 hover:bg-blue-700 text-white";
 
   // Icon reflects the currently selected broker (custom = pencil icon, known = brand icon)
   const brokerIcon =
@@ -265,213 +286,270 @@ export function ConnectionPanel({
             clipRule="evenodd"
           />
         </svg>
-        <div className={`w-2.5 h-2.5 rounded-full ${statusColor}`} />
-        <span className="text-sm font-medium text-gray-300">{statusLabel}</span>
+        <span className="text-sm font-medium text-gray-300">Connect</span>
+        {/* Error hint visible even when panel is collapsed */}
+        {collapsed && errorMessage && connectionStatus === "error" && (
+          <span className="ml-2 text-[10px] text-red-400 truncate max-w-[120px]" title={errorMessage}>
+            {errorMessage}
+          </span>
+        )}
+        <div className={`w-2.5 h-2.5 rounded-full ml-auto flex-shrink-0 ${statusColor}`} />
       </button>
 
       {!collapsed && (
         <>
-          <form onSubmit={handleSubmit} className="space-y-3 mt-3">
-
-            {/* Quick Connect dropdown — always shown when brokers list is non-empty */}
-            {brokers.length > 0 && (
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">
-                  Quick Connect
-                </label>
-                <div className="flex items-center gap-2">
-                  <svg
-                    className="w-5 h-5 flex-shrink-0"
-                    viewBox="0 0 24 24"
-                    fill={brokerIcon.color}
-                    role="img"
-                    aria-label={brokerIcon.label}
-                  >
-                    <path d={brokerIcon.path} />
-                  </svg>
-                  <select
-                    value={dropdownValue}
-                    onChange={(e) => handleDropdownChange(e.target.value)}
-                    disabled={isConnected || isConnecting}
-                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
-                  >
-                    {brokers.map((broker) => (
-                      <option key={broker.url} value={broker.url}>
-                        {broker.name}
-                      </option>
-                    ))}
-                    <option value={CUSTOM_BROKER}>Custom Broker</option>
-                  </select>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">
-                Broker URL
-              </label>
-              <input
-                type="text"
-                value={brokerUrl}
-                onChange={(e) => handleBrokerUrlChange(e.target.value)}
-                disabled={isConnected || isConnecting}
-                placeholder="wss://broker.example.com:8884/mqtt"
-                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">
-                Topic Filter
-              </label>
-              <input
-                type="text"
-                value={topicFilter}
-                onChange={(e) => setTopicFilter(e.target.value)}
-                disabled={isConnected || isConnecting}
-                placeholder="#"
-                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Use # for all topics, + for single-level wildcard
-              </p>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-gray-400">
-                  Client ID
-                </label>
-                {!configForcesClientId && (
-                  <label
-                    className={`flex items-center gap-1.5 ${
-                      isConnected || isConnecting
-                        ? "opacity-50 cursor-not-allowed"
-                        : "cursor-pointer"
-                    }`}
-                  >
-                    <span className="text-[10px] text-gray-500">Custom</span>
-                    <input
-                      type="checkbox"
-                      checked={customClientId}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setCustomClientId(checked);
-                        if (!checked) {
-                          setClientId(generateClientId());
-                        }
-                        // Persist the toggle state to localStorage
-                        try {
-                          const raw = localStorage.getItem("mqtt_connection");
-                          const data = raw ? JSON.parse(raw) : {};
-                          data.customClientId = checked;
-                          localStorage.setItem("mqtt_connection", JSON.stringify(data));
-                        } catch { /* ignore */ }
-                      }}
-                      disabled={isConnected || isConnecting}
-                      className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-blue-500 accent-blue-500 cursor-pointer disabled:cursor-not-allowed"
-                    />
-                  </label>
-                )}
-              </div>
-              <input
-                type="text"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                disabled={configForcesClientId || !customClientId || isConnected || isConnecting}
-                placeholder="mqtt_visualiser_..."
-                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
-              />
-            </div>
-
+          {/* Tab bar */}
+          <div className="flex gap-4 border-b border-gray-700 mt-3 mb-3">
             <button
               type="button"
-              onClick={() => setShowAuth(!showAuth)}
-              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              {showAuth ? "Hide" : "Show"} authentication
-            </button>
-
-            {showAuth && (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  disabled={isConnected || isConnecting}
-                  placeholder="Username (optional)"
-                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isConnected || isConnecting}
-                  placeholder="Password (optional)"
-                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                />
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className={`w-full py-2 rounded text-sm font-medium transition-colors ${
-                isConnected || isConnecting
-                  ? "bg-red-600 hover:bg-red-700 text-white"
-                  : "bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => setActiveTab("connect")}
+              className={`pb-1.5 text-xs font-medium transition-colors ${
+                activeTab === "connect"
+                  ? "text-blue-400 border-b-2 border-blue-400 -mb-px"
+                  : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              {isConnected || isConnecting ? "Disconnect" : "Connect"}
+              Connect
             </button>
-
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoconnect}
-                onChange={(e) => {
-                  setAutoconnect(e.target.checked);
-                  persistAutoconnect(e.target.checked);
-                }}
-                className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
-              />
-              <span className="text-xs text-gray-400">Auto-connect on load</span>
-            </label>
-
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={clearOnDisconnect}
-                onChange={(e) => setClearOnDisconnect(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
-              />
-              <span className="text-xs text-gray-400">Clear graph on disconnect</span>
-            </label>
-
             <button
               type="button"
-              onClick={handleCopyShareLink}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              onClick={() => setActiveTab("log")}
+              className={`pb-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                activeTab === "log"
+                  ? "text-blue-400 border-b-2 border-blue-400 -mb-px"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
             >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              {copied ? "Copied!" : "Copy connection share link"}
+              Log
+              {/* Red dot badge when there's an error and the user is not on the Log tab */}
+              {errorMessage && activeTab !== "log" && (
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+              )}
             </button>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => useTopicStore.getState().requestExport()}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-              Export graph as PNG
-            </button>
-          </form>
+          {/* Connect tab */}
+          {activeTab === "connect" && (
+            <form onSubmit={handleSubmit} className="space-y-3">
 
-          {errorMessage && (
-            <p className="mt-2 text-xs text-red-400">{errorMessage}</p>
+              {/* Quick Connect dropdown — always shown when brokers list is non-empty */}
+              {brokers.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Quick Connect
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <svg
+                      className="w-5 h-5 flex-shrink-0"
+                      viewBox="0 0 24 24"
+                      fill={brokerIcon.color}
+                      role="img"
+                      aria-label={brokerIcon.label}
+                    >
+                      <path d={brokerIcon.path} />
+                    </svg>
+                    <select
+                      value={dropdownValue}
+                      onChange={(e) => handleDropdownChange(e.target.value)}
+                      disabled={isConnected || isConnecting}
+                      className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
+                    >
+                      {brokers.map((broker) => (
+                        <option key={broker.url} value={broker.url}>
+                          {broker.name}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_BROKER}>Custom Broker</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">
+                  Broker URL
+                </label>
+                <input
+                  type="text"
+                  value={brokerUrl}
+                  onChange={(e) => handleBrokerUrlChange(e.target.value)}
+                  disabled={isConnected || isConnecting}
+                  placeholder="wss://broker.example.com:8884/mqtt"
+                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">
+                  Topic Filter
+                </label>
+                <input
+                  type="text"
+                  value={topicFilter}
+                  onChange={(e) => setTopicFilter(e.target.value)}
+                  disabled={isConnected || isConnecting}
+                  placeholder="#"
+                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Use # for all topics, + for single-level wildcard
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-400">
+                    Client ID
+                  </label>
+                  {!configForcesClientId && (
+                    <label
+                      className={`flex items-center gap-1.5 ${
+                        isConnected || isConnecting
+                          ? "opacity-50 cursor-not-allowed"
+                          : "cursor-pointer"
+                      }`}
+                    >
+                      <span className="text-[10px] text-gray-500">Custom</span>
+                      <input
+                        type="checkbox"
+                        checked={customClientId}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setCustomClientId(checked);
+                          if (!checked) {
+                            setClientId(generateClientId());
+                          }
+                          // Persist the toggle state to localStorage
+                          try {
+                            const raw = localStorage.getItem("mqtt_connection");
+                            const data = raw ? JSON.parse(raw) : {};
+                            data.customClientId = checked;
+                            localStorage.setItem("mqtt_connection", JSON.stringify(data));
+                          } catch { /* ignore */ }
+                        }}
+                        disabled={isConnected || isConnecting}
+                        className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-blue-500 accent-blue-500 cursor-pointer disabled:cursor-not-allowed"
+                      />
+                    </label>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  disabled={configForcesClientId || !customClientId || isConnected || isConnecting}
+                  placeholder="mqtt_visualiser_..."
+                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAuth(!showAuth)}
+                className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                {showAuth ? "Hide" : "Show"} authentication
+              </button>
+
+              {showAuth && (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={isConnected || isConnecting}
+                    placeholder="Username (optional)"
+                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                  />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isConnected || isConnecting}
+                    placeholder="Password (optional)"
+                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className={`w-full py-2 rounded text-sm font-medium transition-colors ${buttonClass}`}
+              >
+                {buttonLabel}
+              </button>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoconnect}
+                  onChange={(e) => {
+                    setAutoconnect(e.target.checked);
+                    persistAutoconnect(e.target.checked);
+                  }}
+                  className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
+                />
+                <span className="text-xs text-gray-400">Auto-connect on load</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clearOnDisconnect}
+                  onChange={(e) => setClearOnDisconnect(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
+                />
+                <span className="text-xs text-gray-400">Clear graph on disconnect</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={handleCopyShareLink}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                {copied ? "Copied!" : "Copy connection share link"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => useTopicStore.getState().requestExport()}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Export graph as PNG
+              </button>
+            </form>
+          )}
+
+          {/* Log tab */}
+          {activeTab === "log" && (
+            <div className="space-y-3">
+              {/* Error message */}
+              {errorMessage && (
+                <p className="text-xs text-red-400 leading-snug">{errorMessage}</p>
+              )}
+
+              {/* Connection log entries */}
+              {mqttService.connectionLog.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto rounded bg-gray-800/60 p-2 space-y-0.5">
+                  {mqttService.connectionLog.map((entry, i) => (
+                    <div key={i} className="flex gap-2 text-[10px] font-mono leading-snug">
+                      <span className="text-gray-500 flex-shrink-0">{formatLogTimestamp(entry.timestamp)}</span>
+                      <span className="text-gray-300">{entry.message}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !errorMessage && (
+                  <p className="text-[10px] text-gray-600 italic">No connection events yet.</p>
+                )
+              )}
+            </div>
           )}
         </>
       )}

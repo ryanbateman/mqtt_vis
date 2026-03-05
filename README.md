@@ -19,7 +19,9 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Configuration file** — ship a `config.json` alongside the app to customise all defaults for your deployment (broker URL, topic filter, public brokers, simulation params, UI state, and more)
 - **Auto-connect** — optional auto-connect on page load, configurable via UI checkbox or `config.json`
 - **Reset to defaults** — reset all visual, label, and simulation settings back to `config.json` defaults with a two-click confirmation
-- **Collapsible panels** — both connection and settings panels collapse to save screen space; status indicator stays visible when the connection panel is collapsed
+- **Collapsible panels** — both connection and settings panels collapse to save screen space; a coloured status dot stays visible when the connection panel is collapsed
+- **Smarter connection errors** — failed connections show actionable hints (mixed content, auth rejection, DNS failure, TLS errors, wrong endpoint, etc.) rather than a raw error string
+- **Connection log** — timestamped log of connection events (connect attempts, errors, retries) in a dedicated Log tab inside the connection panel; auto-switches to the Log tab on error
 - **Settings panel** — sliders for visual and simulation parameters with collapsible sections and hover tooltips
 - **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID. Can be locked to a fixed value via `config.json`.
 - **Connection persistence** — broker URL, topic filter, username, client ID, and autoconnect preference are saved to localStorage
@@ -58,7 +60,11 @@ The output in `dist/` is a fully static SPA — deploy it to any static hosting 
 
 ### Connection Panel (top-left)
 
-The connection panel is collapsible — click the header to toggle. The status indicator (connection dot + label) remains visible when collapsed.
+The connection panel is collapsible — click the header to toggle. A coloured status dot in the top-right corner of the header shows the current connection state at a glance (green = connected, amber = connecting, red = error, grey = disconnected). When collapsed and an error is active, a truncated error hint is shown in the header.
+
+The panel has two tabs:
+
+**Connect tab**
 
 | Field | Description |
 |---|---|
@@ -67,10 +73,15 @@ The connection panel is collapsible — click the header to toggle. The status i
 | **Topic Filter** | MQTT subscription filter. `#` for all topics, `+` for single-level wildcard |
 | **Client ID** | Randomised by default. Toggle "Custom" to define your own (disabled while connected). Can be locked via config. |
 | **Authentication** | Optional username/password (click "Show authentication") |
+| **Connect / Disconnect button** | Colour and label reflect current state: blue "Connect" when idle, amber pulsing "Connecting…" or "Reconnecting (N/3)…" during attempts, red "Disconnect" when connected |
 | **Auto-connect on load** | When checked, the app connects automatically on page load using the current settings |
 | **Clear graph on disconnect** | Reset the graph when disconnecting |
 | **Copy connection share link** | Copies a URL with the current broker and topic filter as query params to the clipboard |
 | **Export graph as PNG** | Downloads the full graph as a PNG image (`mqtt-vis-{timestamp}.png`) |
+
+**Log tab**
+
+Shows timestamped connection events (attempts, errors, retries) in a scrollable log. When a connection error occurs the panel automatically switches to this tab and displays the error message with an actionable hint at the top. A red dot badge appears on the Log tab label when there is an unread error and the Connect tab is active.
 
 ### Settings Panel (top-right)
 
@@ -124,7 +135,7 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `username` | string | `""` | Default username |
 | `password` | string | `""` | Default password (**see security warning above**) |
 | `autoconnect` | boolean | `false` | Connect automatically on page load |
-| `publicBrokers` | array | *(see below)* | List of public brokers for the Quick Connect dropdown. Each entry has `name` (string) and `url` (string). Omit or set to `[]` to hide the dropdown. |
+| `brokers` | array | *(see below)* | List of brokers for the Quick Connect dropdown. Each entry has `name` (string) and `url` (string). Omit or set to `[]` to hide the dropdown. |
 | `emaTau` | number | `5` | EMA time constant in seconds |
 | `showLabels` | boolean | `true` | Show or hide node labels |
 | `labelDepthFactor` | number | `5` | Label depth visibility factor |
@@ -172,20 +183,20 @@ For any given setting, the resolution order is:
 
 This would configure the app to auto-connect to a custom broker on load with both panels collapsed and a wider graph layout. The user can still change settings in the UI — their changes persist in localStorage and take priority on subsequent visits.
 
-### Public Brokers
+### Brokers (Quick Connect)
 
-The `publicBrokers` array populates the "Quick Connect" dropdown in the connection panel. Selecting a broker fills the URL field and shows the broker's brand icon (bundled SVG icons for HiveMQ, Mosquitto, and a generic MQTT icon for others). The user still clicks Connect manually. The default `config.json` ships with three public brokers (HiveMQ, EMQX, Mosquitto). To customise for your deployment:
+The `brokers` array populates the "Quick Connect" dropdown in the connection panel. Selecting a broker fills the URL field and shows the broker's brand icon (bundled SVG icons for HiveMQ, Mosquitto, EMQX, and a generic MQTT icon for others). The user still clicks Connect manually. The default `config.json` ships with three public brokers (HiveMQ, EMQX, Mosquitto). To customise for your deployment:
 
 ```json
 {
-  "publicBrokers": [
+  "brokers": [
     { "name": "Internal Broker", "url": "wss://mqtt.internal.example.com/mqtt" },
     { "name": "HiveMQ", "url": "wss://broker.hivemq.com:8884/mqtt" }
   ]
 }
 ```
 
-To hide the dropdown entirely, set `"publicBrokers": []` or omit the field.
+To hide the dropdown entirely, set `"brokers": []` or omit the field.
 
 ### WebMCP Integration
 
@@ -247,7 +258,7 @@ src/
   hooks/
     useMqttClient.ts        # MQTT lifecycle hook, localStorage persistence
   services/
-    mqttService.ts          # mqtt.js WebSocket wrapper
+    mqttService.ts          # mqtt.js WebSocket wrapper; connection log ring buffer, retry cap (3 attempts), structured error type
     webMcpService.ts        # WebMCP tool registration (navigator.modelContext)
   components/
     ConnectionPanel.tsx     # Broker URL, topic filter, client ID, auth, connect/disconnect
@@ -264,6 +275,7 @@ src/
     colorScale.ts           # Custom multi-stop colour scale (slate > sky > orange > amber > yellow)
     formatters.ts           # Rate/timestamp/size formatting, payload truncation, depth scaling
     brokerIcons.ts          # Bundled SVG broker icons (Simple Icons, CC0) + domain matching
+    connectionErrors.ts     # Connection error diagnosis: maps raw errors to actionable hints + log timestamp formatter
     perfDebug.ts            # Performance debug module (?perf URL param activation)
 ```
 
