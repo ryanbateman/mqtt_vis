@@ -151,6 +151,8 @@ async function executeGetTopicDetails(
     aggregateRate: Math.round(node.aggregateRate * 1000) / 1000,
     messageCount: node.messageCount,
     lastPayload: node.lastPayload,
+    lastPayloadSize: node.lastPayloadSize,
+    largestPayloadSize: node.largestPayloadSize,
     lastTimestamp: node.lastTimestamp,
     qos: node.lastQoS,
     depth: graphNode?.depth ?? 0,
@@ -273,6 +275,51 @@ async function executeHighlightNodes(
 async function executeClearHighlights(): Promise<unknown> {
   useTopicStore.getState().clearHighlights();
   return { success: true, message: "All highlights cleared" };
+}
+
+async function executeGetLargestPayloads(
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  const limit =
+    typeof input.limit === "number" && input.limit > 0
+      ? Math.min(Math.floor(input.limit), 200)
+      : 20;
+  const minSize =
+    typeof input.minSize === "number" && input.minSize >= 0
+      ? input.minSize
+      : 0;
+
+  const root = useTopicStore.getState().root;
+
+  // Collect all TopicNodes that have ever received a message
+  const results: Array<{
+    id: string;
+    lastPayloadSize: number;
+    largestPayloadSize: number;
+    messageCount: number;
+    messageRate: number;
+  }> = [];
+
+  function walk(node: import("../types").TopicNode): void {
+    if (node.messageCount > 0 && node.largestPayloadSize >= minSize) {
+      results.push({
+        id: node.id || "(root)",
+        lastPayloadSize: node.lastPayloadSize,
+        largestPayloadSize: node.largestPayloadSize,
+        messageCount: node.messageCount,
+        messageRate: Math.round(node.messageRate * 1000) / 1000,
+      });
+    }
+    for (const child of node.children.values()) {
+      walk(child);
+    }
+  }
+
+  walk(root);
+
+  results.sort((a, b) => b.largestPayloadSize - a.largestPayloadSize);
+
+  return results.slice(0, limit);
 }
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
@@ -427,6 +474,35 @@ const TOOLS: ModelContextTool[] = [
       },
     },
     execute: executeGetNoisyTopics,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "getLargestPayloads",
+    description:
+      "List topics with the largest payloads ever observed, ranked by " +
+      "largestPayloadSize (high-water mark) descending. Useful for identifying " +
+      "topics that publish large data blobs and for debugging payload size issues. " +
+      "lastPayloadSize reflects the most recent message; largestPayloadSize is the " +
+      "all-time maximum. Both are character counts. Note: size tracking is " +
+      "unconditional — sizes are recorded even when tooltip storage is disabled " +
+      "and even after the payload itself has been evicted from the LRU cache.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "number",
+          description:
+            "Maximum number of topics to return. Defaults to 20, max 200.",
+        },
+        minSize: {
+          type: "number",
+          description:
+            "Only include topics whose largestPayloadSize is at least this " +
+            "many characters. Defaults to 0 (all topics with messages).",
+        },
+      },
+    },
+    execute: executeGetLargestPayloads,
     annotations: { readOnlyHint: true },
   },
   {

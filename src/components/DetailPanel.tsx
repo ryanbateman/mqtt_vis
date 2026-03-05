@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { TopicNode, GraphNode } from "../types";
-import { formatRate, formatTimestamp } from "../utils/formatters";
+import { formatRate, formatTimestamp, formatPayloadSize } from "../utils/formatters";
 
 /**
  * Fixed sidebar panel showing detailed information about the selected/pinned node.
@@ -121,6 +121,16 @@ export function DetailPanel({
           <span className="text-gray-500">Last seen</span>
           <span className="text-gray-300 font-mono">
             {formatTimestamp(topicNode.lastTimestamp)}
+          </span>
+
+          <span className="text-gray-500">Payload size</span>
+          <span className="text-gray-300 font-mono">
+            {topicNode.messageCount > 0 ? formatPayloadSize(topicNode.lastPayloadSize) : "-"}
+          </span>
+
+          <span className="text-gray-500">Largest payload</span>
+          <span className="text-gray-300 font-mono">
+            {topicNode.messageCount > 0 ? formatPayloadSize(topicNode.largestPayloadSize) : "-"}
           </span>
         </div>
       </div>

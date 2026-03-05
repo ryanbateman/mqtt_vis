@@ -1234,3 +1234,257 @@ describe("topicStore — settings localStorage persistence (Issue #21)", () => {
     expect(state().scaleNodeSizeByDepth).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Selected node LRU pinning and truncation bypass — Issue #35
+// ---------------------------------------------------------------------------
+
+describe("topicStore — selected node payload protection (Issue #35)", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowTooltips(true);
+  });
+
+  // ── Truncation bypass ────────────────────────────────────────────────────
+
+  it("truncates payloads for non-selected nodes", () => {
+    const longPayload = "x".repeat(2000);
+    state().handleMessage("a/b/c", longPayload, 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b/c");
+    expect(node!.lastPayload).toHaveLength(1024);
+  });
+
+  it("does NOT truncate payload for the selected node", () => {
+    state().setSelectedNodeId("a/b/c");
+    // Send first message to create the node
+    state().handleMessage("a/b/c", "init", 0);
+    state().rebuildGraph();
+
+    const longPayload = "x".repeat(2000);
+    state().handleMessage("a/b/c", longPayload, 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b/c");
+    expect(node!.lastPayload).toHaveLength(2000);
+    expect(node!.lastPayload).toBe(longPayload);
+  });
+
+  it("selected node bypasses truncation for large JSON (pretty-print fix)", () => {
+    // A large JSON object that would be truncated without the bypass
+    const bigJson = JSON.stringify({ data: "y".repeat(1200) }); // >1024 chars
+    state().setSelectedNodeId("sensor/temp");
+    state().handleMessage("sensor/temp", bigJson, 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("sensor/temp");
+    // Must be stored in full so JSON.parse succeeds
+    expect(() => JSON.parse(node!.lastPayload!)).not.toThrow();
+    expect(node!.lastPayload!.length).toBeGreaterThan(1024);
+  });
+
+  it("resumes normal truncation after the node is deselected", () => {
+    state().setSelectedNodeId("a/b/c");
+    state().handleMessage("a/b/c", "init", 0);
+    state().rebuildGraph();
+
+    // Deselect
+    state().setSelectedNodeId(null);
+
+    const longPayload = "z".repeat(2000);
+    state().handleMessage("a/b/c", longPayload, 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b/c");
+    expect(node!.lastPayload).toHaveLength(1024);
+  });
+
+  // ── LRU eviction pinning ─────────────────────────────────────────────────
+
+  it("selected node is not evicted when LRU cap is exceeded", () => {
+    // Fill to cap; topic0 is oldest
+    for (let i = 0; i < 200; i++) {
+      state().handleMessage(`topic${i}`, `payload${i}`, 0);
+    }
+    // Select topic0 (the oldest — would normally be next to evict)
+    state().setSelectedNodeId("topic0");
+
+    // Trigger eviction by adding one more topic
+    state().handleMessage("topicNew", "new", 0);
+    state().rebuildGraph();
+
+    // topic0 must survive because it is selected
+    const pinned = findTopicNode("topic0");
+    expect(pinned!.lastPayload).toBe("payload0");
+  });
+
+  it("evicts the next non-selected oldest entry instead of the selected one", () => {
+    // Fill to cap: topic0 is oldest, topic1 is second-oldest
+    for (let i = 0; i < 200; i++) {
+      state().handleMessage(`topic${i}`, `payload${i}`, 0);
+    }
+    // Pin topic0
+    state().setSelectedNodeId("topic0");
+
+    // Trigger one eviction
+    state().handleMessage("topicNew", "new", 0);
+    state().rebuildGraph();
+
+    // topic1 (second-oldest, not pinned) should be evicted
+    const evicted = findTopicNode("topic1");
+    expect(evicted!.lastPayload).toBeNull();
+
+    // topic0 (pinned) must survive
+    expect(findTopicNode("topic0")!.lastPayload).toBe("payload0");
+  });
+
+  it("evicts correctly across multiple overflow messages with pinned node", () => {
+    // Fill to cap
+    for (let i = 0; i < 200; i++) {
+      state().handleMessage(`topic${i}`, `payload${i}`, 0);
+    }
+    // Pin topic0
+    state().setSelectedNodeId("topic0");
+
+    // Send 3 more new topics — should evict topic1, topic2, topic3
+    for (let i = 0; i < 3; i++) {
+      state().handleMessage(`new${i}`, `nv${i}`, 0);
+    }
+    state().rebuildGraph();
+
+    // topic0 still pinned
+    expect(findTopicNode("topic0")!.lastPayload).toBe("payload0");
+
+    // topic1, topic2, topic3 evicted
+    for (let i = 1; i <= 3; i++) {
+      expect(findTopicNode(`topic${i}`)!.lastPayload).toBeNull();
+    }
+
+    // topic4 kept (not yet evicted)
+    expect(findTopicNode("topic4")!.lastPayload).toBe("payload4");
+  });
+
+  it("after deselect, previously pinned node is evictable normally", () => {
+    // Fill to cap with topic0 as oldest
+    for (let i = 0; i < 200; i++) {
+      state().handleMessage(`topic${i}`, `payload${i}`, 0);
+    }
+    // Pin and then immediately deselect
+    state().setSelectedNodeId("topic0");
+    state().setSelectedNodeId(null);
+
+    // Trigger eviction
+    state().handleMessage("topicNew", "new", 0);
+    state().rebuildGraph();
+
+    // topic0 is no longer pinned — it should be evicted as the oldest
+    expect(findTopicNode("topic0")!.lastPayload).toBeNull();
+  });
+
+  it("selecting a node not in the LRU does not crash or affect eviction", () => {
+    // Fill to cap
+    for (let i = 0; i < 200; i++) {
+      state().handleMessage(`topic${i}`, `payload${i}`, 0);
+    }
+    // Select a node that has never received a message (not in LRU)
+    state().setSelectedNodeId("ghost/node");
+
+    // Trigger eviction — should evict topic0 normally (ghost/node isn't in LRU)
+    expect(() => {
+      state().handleMessage("topicNew", "new", 0);
+      state().rebuildGraph();
+    }).not.toThrow();
+
+    // topic0 evicted normally (ghost/node wasn't pinnable — not in LRU)
+    expect(findTopicNode("topic0")!.lastPayload).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Payload size tracking — lastPayloadSize + largestPayloadSize (Issue #35)
+// ---------------------------------------------------------------------------
+
+describe("topicStore — payload size tracking (Issue #35)", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowTooltips(true);
+  });
+
+  it("lastPayloadSize is set to the payload character length on each message", () => {
+    state().handleMessage("a/b", "hello", 0);
+    expect(findTopicNode("a/b")!.lastPayloadSize).toBe(5);
+
+    state().handleMessage("a/b", "longer payload", 0);
+    expect(findTopicNode("a/b")!.lastPayloadSize).toBe(14);
+  });
+
+  it("lastPayloadSize updates to the most recent message length", () => {
+    state().handleMessage("a/b", "x".repeat(500), 0);
+    state().handleMessage("a/b", "short", 0);
+    expect(findTopicNode("a/b")!.lastPayloadSize).toBe(5);
+  });
+
+  it("largestPayloadSize tracks the high-water mark across messages", () => {
+    state().handleMessage("a/b", "x".repeat(100), 0);
+    expect(findTopicNode("a/b")!.largestPayloadSize).toBe(100);
+
+    state().handleMessage("a/b", "x".repeat(500), 0);
+    expect(findTopicNode("a/b")!.largestPayloadSize).toBe(500);
+
+    // Smaller message does not reduce the high-water mark
+    state().handleMessage("a/b", "tiny", 0);
+    expect(findTopicNode("a/b")!.largestPayloadSize).toBe(500);
+  });
+
+  it("size tracking works even when tooltips are disabled (payload not stored)", () => {
+    state().setShowTooltips(false);
+    state().handleMessage("a/b", "x".repeat(300), 0);
+
+    const node = findTopicNode("a/b")!;
+    // Payload itself should not be stored
+    expect(node.lastPayload).toBeNull();
+    // But sizes must still be recorded
+    expect(node.lastPayloadSize).toBe(300);
+    expect(node.largestPayloadSize).toBe(300);
+  });
+
+  it("size tracking records the original payload length, not the truncated length", () => {
+    // Without selection, payload >1024 chars is truncated in storage
+    const longPayload = "x".repeat(2000);
+    state().handleMessage("a/b", longPayload, 0);
+
+    const node = findTopicNode("a/b")!;
+    // lastPayload is truncated to 1024...
+    expect(node.lastPayload!.length).toBe(1024);
+    // ...but sizes reflect the raw payload
+    expect(node.lastPayloadSize).toBe(2000);
+    expect(node.largestPayloadSize).toBe(2000);
+  });
+
+  it("sizes are initialised to 0 on a new node", () => {
+    state().handleMessage("new/topic", "first", 0);
+    // Before this message the node didn't exist; after it should have correct values
+    const node = findTopicNode("new/topic")!;
+    expect(node.lastPayloadSize).toBe(5);
+    expect(node.largestPayloadSize).toBe(5);
+  });
+
+  it("different topics track their sizes independently", () => {
+    state().handleMessage("topic/a", "x".repeat(100), 0);
+    state().handleMessage("topic/b", "x".repeat(50), 0);
+
+    expect(findTopicNode("topic/a")!.largestPayloadSize).toBe(100);
+    expect(findTopicNode("topic/b")!.largestPayloadSize).toBe(50);
+  });
+
+  it("reset() clears sizes back to 0", () => {
+    state().handleMessage("a/b", "x".repeat(500), 0);
+    expect(findTopicNode("a/b")!.largestPayloadSize).toBe(500);
+
+    state().reset();
+
+    // After reset the topic tree is cleared — the node no longer exists
+    expect(findTopicNode("a/b")).toBeUndefined();
+  });
+});

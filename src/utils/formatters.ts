@@ -75,3 +75,18 @@ export function depthScale(value: number, depth: number, factor: number = 0.4): 
 
 /** @deprecated Use `depthScale` instead. Alias kept for backward compatibility. */
 export const depthFontSize = depthScale;
+
+/**
+ * Format a payload character count as a human-readable size string.
+ * Since payloads arrive as decoded strings, character count approximates bytes
+ * closely for typical ASCII/UTF-8 MQTT payloads.
+ *
+ * - < 1024: shown as "N B"
+ * - < 1 048 576: shown as "N.N kB"
+ * - ≥ 1 048 576: shown as "N.N MB"
+ */
+export function formatPayloadSize(chars: number): string {
+  if (chars < 1024) return `${chars} B`;
+  if (chars < 1024 * 1024) return `${(chars / 1024).toFixed(1)} kB`;
+  return `${(chars / (1024 * 1024)).toFixed(1)} MB`;
+}

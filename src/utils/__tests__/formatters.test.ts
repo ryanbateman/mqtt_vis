@@ -6,6 +6,7 @@ import {
   formatUptime,
   depthScale,
   depthFontSize,
+  formatPayloadSize,
 } from "../formatters";
 
 describe("formatRate", () => {
@@ -206,5 +207,47 @@ describe("depthFontSize (backward-compat alias)", () => {
 
   it("should produce identical results", () => {
     expect(depthFontSize(14, 3)).toBe(depthScale(14, 3));
+  });
+});
+
+describe("formatPayloadSize", () => {
+  it('formats 0 as "0 B"', () => {
+    expect(formatPayloadSize(0)).toBe("0 B");
+  });
+
+  it("formats values below 1024 in bytes", () => {
+    expect(formatPayloadSize(1)).toBe("1 B");
+    expect(formatPayloadSize(512)).toBe("512 B");
+    expect(formatPayloadSize(1023)).toBe("1023 B");
+  });
+
+  it('formats exactly 1024 as "1.0 kB"', () => {
+    expect(formatPayloadSize(1024)).toBe("1.0 kB");
+  });
+
+  it("formats values in the kB range", () => {
+    expect(formatPayloadSize(1536)).toBe("1.5 kB");   // 1.5 * 1024
+    expect(formatPayloadSize(10240)).toBe("10.0 kB"); // 10 * 1024
+    expect(formatPayloadSize(1024 * 1024 - 1)).toBe("1024.0 kB");
+  });
+
+  it('formats exactly 1 MB as "1.0 MB"', () => {
+    expect(formatPayloadSize(1024 * 1024)).toBe("1.0 MB");
+  });
+
+  it("formats values in the MB range", () => {
+    expect(formatPayloadSize(1024 * 1024 * 2)).toBe("2.0 MB");
+    expect(formatPayloadSize(1024 * 1024 * 1.5)).toBe("1.5 MB");
+  });
+
+  it("rounds kB to one decimal place", () => {
+    // 1500 / 1024 = 1.464... → "1.5 kB"
+    expect(formatPayloadSize(1500)).toBe("1.5 kB");
+  });
+
+  it("rounds MB to one decimal place", () => {
+    // 1.5 MB + a bit — rounds to 1.5 MB
+    expect(formatPayloadSize(Math.round(1024 * 1024 * 1.54))).toBe("1.5 MB");
+    expect(formatPayloadSize(Math.round(1024 * 1024 * 1.55))).toBe("1.6 MB");
   });
 });

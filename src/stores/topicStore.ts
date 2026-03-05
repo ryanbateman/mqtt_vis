@@ -342,10 +342,18 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     node.lastTimestamp = Date.now();
     node.lastQoS = qos;
 
+    // Track payload sizes unconditionally — independent of tooltip/LRU settings
+    // so size history is always available for debugging and WebMCP queries.
+    node.lastPayloadSize = payload.length;
+    node.largestPayloadSize = Math.max(node.largestPayloadSize, payload.length);
+
     // Only store payloads when tooltips are enabled (opt-in).
     // Use LRU eviction to cap the number of stored payloads.
     if (state.showTooltips) {
-      node.lastPayload = payload.length > PAYLOAD_MAX_STORE
+      // The selected node bypasses truncation so the DetailPanel can show
+      // the full payload and JSON pretty-print works for large objects.
+      const isSelected = node.id === state.selectedNodeId;
+      node.lastPayload = (!isSelected && payload.length > PAYLOAD_MAX_STORE)
         ? payload.slice(0, PAYLOAD_MAX_STORE)
         : payload;
 
@@ -353,14 +361,18 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       _payloadLru.delete(node.id);
       _payloadLru.add(node.id);
 
-      // Evict the oldest entry if over the cap
+      // Evict the oldest entry if over the cap.
+      // Skip the selected node — it is pinned for the duration of selection.
       if (_payloadLru.size > PAYLOAD_LRU_CAP) {
-        const oldest = _payloadLru.values().next().value as string;
-        _payloadLru.delete(oldest);
-        // Null out the evicted node's payload
-        const segments = oldest === "" ? [] : oldest.split("/");
-        const evicted = findNode(root, segments);
-        if (evicted) evicted.lastPayload = null;
+        const selectedId = state.selectedNodeId;
+        for (const candidateId of _payloadLru) {
+          if (candidateId === selectedId) continue;
+          _payloadLru.delete(candidateId);
+          const segments = candidateId === "" ? [] : candidateId.split("/");
+          const evicted = findNode(root, segments);
+          if (evicted) evicted.lastPayload = null;
+          break;
+        }
       }
     }
 

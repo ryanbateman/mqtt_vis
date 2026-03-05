@@ -20,6 +20,10 @@ export interface TopicNode {
   lastQoS: 0 | 1 | 2;
   /** Snapshot of the aggregate rate at the moment this node was last pulsed. */
   pulseRate: number;
+  /** Character length of the most recent payload (0 if no messages received). */
+  lastPayloadSize: number;
+  /** High-water mark: largest payload character length ever seen on this topic. */
+  largestPayloadSize: number;
 }
 
 /** A flat node for D3 force simulation. */
