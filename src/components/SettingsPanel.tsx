@@ -209,7 +209,12 @@ export function SettingsPanel() {
         Settings
       </button>
 
-      {!collapsed && <>
+      {/* Animated collapsible body */}
+      <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-in-out ${
+        collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+      }`}>
+        <div className="overflow-hidden">
+        <>
         {/* Tab bar */}
         <div className="flex rounded overflow-hidden border border-gray-600 mt-3">
           <TabButton label="Visual" active={activeTab === "visual"} onClick={() => setActiveTab("visual")} />
@@ -504,7 +509,9 @@ export function SettingsPanel() {
             </>
           )}
         </button>
-      </>}
+        </>
+        </div>
+      </div>
     </div>
   );
 }

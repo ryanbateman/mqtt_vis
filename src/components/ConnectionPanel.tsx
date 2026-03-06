@@ -305,15 +305,18 @@ export function ConnectionPanel({
         <div className={`w-2.5 h-2.5 rounded-full ml-auto flex-shrink-0 ${statusColor}`} />
       </button>
 
-      {/* Description — shown only when expanded */}
-      {!collapsed && panelDescription && (
-        <p className="text-[11px] text-gray-500 leading-snug mt-1.5 mb-0">
-          {panelDescription}
-        </p>
-      )}
-
-      {!collapsed && (
-        <>
+      {/* Animated collapsible body — always mounted, grid-row collapses to 0fr */}
+      <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-in-out ${
+        collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+      }`}>
+        <div className="overflow-hidden">
+          <>
+            {/* Description */}
+            {panelDescription && (
+              <p className="text-[11px] text-gray-500 leading-snug mt-1.5 mb-0">
+                {panelDescription}
+              </p>
+            )}
           {/* Tab bar */}
           <div className="flex gap-4 border-b border-gray-700 mt-3 mb-3">
             <button
@@ -567,8 +570,9 @@ export function ConnectionPanel({
               )}
             </div>
           )}
-        </>
-      )}
+          </>
+        </div>
+      </div>
 
       <div className="flex justify-between items-center mt-3">
         <span className="text-[10px] text-gray-600">v{__APP_VERSION__}</span>
