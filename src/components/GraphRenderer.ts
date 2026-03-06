@@ -62,6 +62,8 @@ export class GraphRenderer {
   private currentZoomScale = 1;
   private labelDepthFactor = DEFAULT_LABEL_DEPTH_FACTOR;
   private labelMode: LabelMode = "zoom";
+  private activityMaxRate = 1;       // smoothed ceiling for activity label opacity
+  private lastActivityFrameTime = 0; // timestamp of last activity opacity update
   private showLabels = true;
   private baseFontSize = DEFAULT_BASE_FONT_SIZE;
   private scaleTextByDepth = false;
@@ -497,14 +499,42 @@ export class GraphRenderer {
   }
 
   /**
-   * Activity label mode: set label opacity based on aggregateRate using the
-   * same logarithmic scale as node sizing. Called every animation frame when
-   * labelMode === "activity". Root node (depth 0) is always fully visible.
+   * Activity label mode: set label opacity based on aggregateRate relative to
+   * a smoothed maximum in the tree. The smoothed max ratchets up instantly when
+   * a higher rate appears, but decays slowly (~5 s time constant) so that label
+   * opacities don't flicker as rates fluctuate. Called every animation frame
+   * when labelMode === "activity". Root node (depth 0) is always fully visible.
    */
-  private updateActivityLabelOpacity(): void {
+  private updateActivityLabelOpacity(timestamp: DOMHighResTimeStamp): void {
     if (!this.showLabels) return;
-    const MAX_RATE = 100;
-    const log_max = Math.log1p(MAX_RATE);
+
+    // Find the true current max aggregateRate in the tree
+    const nodes = this.simulation.nodes();
+    let trueMax = 0;
+    for (const n of nodes) {
+      if (n.aggregateRate > trueMax) trueMax = n.aggregateRate;
+    }
+
+    // Smoothed max: ratchet up instantly, decay slowly toward trueMax
+    const dtMs = this.lastActivityFrameTime > 0
+      ? timestamp - this.lastActivityFrameTime
+      : 16; // assume ~60fps on first frame
+    this.lastActivityFrameTime = timestamp;
+
+    if (trueMax >= this.activityMaxRate) {
+      // Instant ratchet up
+      this.activityMaxRate = trueMax;
+    } else {
+      // Exponential decay toward trueMax with ~5 s time constant
+      const TAU_MS = 5000;
+      const alpha = 1 - Math.exp(-dtMs / TAU_MS);
+      this.activityMaxRate += (trueMax - this.activityMaxRate) * alpha;
+    }
+
+    // Floor at 1 to prevent log(0) / division by zero when idle
+    const effectiveMax = Math.max(this.activityMaxRate, 1);
+    const log_max = Math.log1p(effectiveMax);
+
     this.labelElements.attr("opacity", (d) => {
       if (d.depth === 0) return 1;
       if (d.aggregateRate <= 0) return 0;
@@ -521,6 +551,11 @@ export class GraphRenderer {
   /** Update the label visibility mode and reapply visibility. */
   setLabelMode(mode: LabelMode): void {
     this.labelMode = mode;
+    // Reset smoothed max so stale peaks from a previous session don't linger
+    if (mode === "activity") {
+      this.activityMaxRate = 1;
+      this.lastActivityFrameTime = 0;
+    }
     this.updateLabelVisibility();
   }
 
@@ -899,7 +934,7 @@ export class GraphRenderer {
       this.updateNodeColors();
       this.updateLinkColors();
       if (this.labelMode === "activity" && this.showLabels) {
-        this.updateActivityLabelOpacity();
+        this.updateActivityLabelOpacity(timestamp);
       }
       // Sync highlight ring radii with lerped displayRadius each frame
       if (this.highlightedNodes.size > 0) {
