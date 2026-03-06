@@ -129,7 +129,6 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `brokerUrl` | string | `"wss://broker.hivemq.com:8884/mqtt"` | Default broker WebSocket URL |
 | `topicFilter` | string | `"robot/#"` | Default MQTT subscription filter |
 | `clientId` | string \| null | `null` | Fixed MQTT client ID. When set to a string, the ID is locked and cannot be changed by the user. When `null`, a random ID is generated. |
 | `username` | string | `""` | Default username |
@@ -155,6 +154,7 @@ All fields are optional — omitted fields use hardcoded defaults. Values saved 
 | `settingsCollapsed` | boolean | `false` | Start with settings panel collapsed |
 | `connectionCollapsed` | boolean | `false` | Start with connection panel collapsed |
 | `webmcpEnabled` | boolean | `true` | Enable WebMCP tool registration for browser AI agents. Set to `false` to disable. |
+| `description` | string \| null | *(see below)* | Description shown in the connection panel below the title when expanded. Set to `""` to hide. Omit or set to `null` to use the built-in default. |
 
 ### Precedence
 

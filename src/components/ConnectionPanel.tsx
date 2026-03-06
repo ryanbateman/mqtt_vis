@@ -264,6 +264,15 @@ export function ConnectionPanel({
       ? CUSTOM_BROKER_ICON
       : getBrokerIcon(dropdownValue);
 
+  // Description: undefined/null → default; "" → hidden; string → use as-is
+  const DEFAULT_DESCRIPTION =
+    "Discover, monitor, and understand your MQTT traffic in real time. " +
+    "See which topics are active, how fast they publish, and how your topic tree is structured.";
+  const panelDescription =
+    cfg.description === ""
+      ? null
+      : (cfg.description ?? DEFAULT_DESCRIPTION);
+
   return (
     <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-80">
       <button
@@ -286,15 +295,22 @@ export function ConnectionPanel({
             clipRule="evenodd"
           />
         </svg>
-        <span className="text-sm font-medium text-gray-300">Connect</span>
+        <span className="text-sm font-semibold text-gray-200">MQTT Topic Visualiser</span>
         {/* Error hint visible even when panel is collapsed */}
         {collapsed && errorMessage && connectionStatus === "error" && (
-          <span className="ml-2 text-[10px] text-red-400 truncate max-w-[120px]" title={errorMessage}>
+          <span className="ml-2 text-[10px] text-red-400 truncate max-w-[100px]" title={errorMessage}>
             {errorMessage}
           </span>
         )}
         <div className={`w-2.5 h-2.5 rounded-full ml-auto flex-shrink-0 ${statusColor}`} />
       </button>
+
+      {/* Description — shown only when expanded */}
+      {!collapsed && panelDescription && (
+        <p className="text-[11px] text-gray-500 leading-snug mt-1.5 mb-0">
+          {panelDescription}
+        </p>
+      )}
 
       {!collapsed && (
         <>
@@ -556,16 +572,21 @@ export function ConnectionPanel({
 
       <div className="flex justify-between items-center mt-3">
         <span className="text-[10px] text-gray-600">v{__APP_VERSION__}</span>
-        <span className="text-[10px] text-gray-600">
-          Created by{" "}
+        <span className="flex items-center gap-1.5 text-[10px] text-gray-600">
+          by
           <a
             href="https://github.com/ryanbateman"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-500 hover:text-gray-300 transition-colors"
+            className="font-semibold hover:text-gray-400 transition-colors"
           >
             Ryan Bateman
           </a>
+          <img
+            src="https://github.com/ryanbateman.png"
+            alt="Ryan Bateman"
+            className="w-4 h-4 rounded-full"
+          />
         </span>
       </div>
     </div>

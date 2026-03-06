@@ -32,5 +32,7 @@
   "settingsCollapsed": false,
   "connectionCollapsed": false,
 
-  "webmcpEnabled": true
+  "webmcpEnabled": true,
+
+  "description": "Discover, monitor, and understand your MQTT traffic in real time. See which topics are active, how fast they publish, and how your topic tree is structured."
 }

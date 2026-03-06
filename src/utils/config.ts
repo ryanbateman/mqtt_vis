@@ -39,6 +39,11 @@ export interface AppConfig {
 
   // WebMCP integration
   webmcpEnabled?: boolean;
+
+  // Branding
+  /** Panel description shown below the title when expanded.
+   *  Empty string "" hides it. Omitted / null uses the default. */
+  description?: string | null;
 }
 
 let config: AppConfig = {};
