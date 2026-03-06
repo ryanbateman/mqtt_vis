@@ -313,7 +313,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   emaTau:               saved.emaTau             ?? cfg.emaTau             ?? DEFAULT_EMA_TAU,
   showLabels:           saved.showLabels          ?? cfg.showLabels          ?? true,
   labelDepthFactor:     saved.labelDepthFactor    ?? cfg.labelDepthFactor    ?? 2,
-  labelMode:            saved.labelMode           ?? ((cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode),
+  labelMode:            saved.labelMode           ?? ((cfg.labelMode === "depth" || cfg.labelMode === "activity" ? cfg.labelMode : "zoom") as LabelMode),
   labelFontSize:        saved.labelFontSize       ?? cfg.labelFontSize       ?? 15,
   scaleTextByDepth:     saved.scaleTextByDepth    ?? cfg.scaleTextByDepth    ?? true,
   showTooltips:         saved.showTooltips        ?? cfg.showTooltips        ?? true,

@@ -125,12 +125,15 @@ describe("loadSavedSettings", () => {
     expect(result.alphaDecay).toBe(0.001);
   });
 
-  it("accepts labelMode 'zoom' and 'depth'", () => {
+  it("accepts labelMode 'zoom', 'depth', and 'activity'", () => {
     writeRaw({ _version: 1, labelMode: "zoom" });
     expect(loadSavedSettings().labelMode).toBe("zoom");
 
     writeRaw({ _version: 1, labelMode: "depth" });
     expect(loadSavedSettings().labelMode).toBe("depth");
+
+    writeRaw({ _version: 1, labelMode: "activity" });
+    expect(loadSavedSettings().labelMode).toBe("activity");
   });
 
   it("drops invalid labelMode values", () => {
@@ -307,11 +310,14 @@ describe("round-trip persist → load", () => {
     expect(result.connectionCollapsed).toBe(false);
   });
 
-  it("recovers labelMode 'zoom' and 'depth'", () => {
+  it("recovers labelMode 'zoom', 'depth', and 'activity'", () => {
     persistSettings({ labelMode: "depth" });
     expect(loadSavedSettings().labelMode).toBe("depth");
 
     persistSettings({ labelMode: "zoom" });
     expect(loadSavedSettings().labelMode).toBe("zoom");
+
+    persistSettings({ labelMode: "activity" });
+    expect(loadSavedSettings().labelMode).toBe("activity");
   });
 });

@@ -477,6 +477,10 @@ export class GraphRenderer {
       // Hard cutoff by tree depth — not affected by zoom level
       const maxDepth = this.labelDepthFactor;
       this.labelElements.attr("opacity", (d) => (d.depth <= maxDepth ? 1 : 0));
+    } else if (this.labelMode === "activity") {
+      // Activity mode: opacity driven per-frame by updateActivityLabelOpacity().
+      // Start all labels at 0 — the animation loop will set correct opacities.
+      this.labelElements.attr("opacity", 0);
     } else {
       // Zoom mode: deeper labels fade out when zoomed out.
       // The +2 offset ensures shallow labels (depth 1-2) resist fading
@@ -490,6 +494,22 @@ export class GraphRenderer {
         return (maxDepth - d.depth) / FADE_BAND;
       });
     }
+  }
+
+  /**
+   * Activity label mode: set label opacity based on aggregateRate using the
+   * same logarithmic scale as node sizing. Called every animation frame when
+   * labelMode === "activity". Root node (depth 0) is always fully visible.
+   */
+  private updateActivityLabelOpacity(): void {
+    if (!this.showLabels) return;
+    const MAX_RATE = 100;
+    const log_max = Math.log1p(MAX_RATE);
+    this.labelElements.attr("opacity", (d) => {
+      if (d.depth === 0) return 1;
+      if (d.aggregateRate <= 0) return 0;
+      return Math.min(Math.log1p(d.aggregateRate) / log_max, 1);
+    });
   }
 
   /** Update the label depth factor and reapply visibility. */
@@ -878,6 +898,9 @@ export class GraphRenderer {
       this.updateNodeSizes();
       this.updateNodeColors();
       this.updateLinkColors();
+      if (this.labelMode === "activity" && this.showLabels) {
+        this.updateActivityLabelOpacity();
+      }
       // Sync highlight ring radii with lerped displayRadius each frame
       if (this.highlightedNodes.size > 0) {
         this.syncHighlightRingPositions();

@@ -71,7 +71,7 @@ export interface TooltipData {
 }
 
 /** How label visibility is determined. */
-export type LabelMode = "zoom" | "depth";
+export type LabelMode = "zoom" | "depth" | "activity";
 
 /** Connection status of the MQTT client. */
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";

@@ -329,9 +329,10 @@ export function SettingsPanel() {
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-1.5">
                         <label className="text-xs font-medium text-gray-400">Label Mode</label>
-                        <InfoTooltip text={labelMode === "zoom"
-                          ? "Labels fade in/out based on zoom level and depth"
-                          : "Labels shown/hidden by a fixed tree depth cutoff"
+                        <InfoTooltip text={
+                          labelMode === "zoom"     ? "Labels fade in/out based on zoom level and depth" :
+                          labelMode === "depth"    ? "Labels shown/hidden by a fixed tree depth cutoff" :
+                                                    "Labels fade in on active nodes; opacity tracks message rate"
                         } />
                       </div>
                       <div className="flex rounded overflow-hidden border border-gray-600">
@@ -357,24 +358,37 @@ export function SettingsPanel() {
                         >
                           Depth
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setLabelMode("activity")}
+                          className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                            labelMode === "activity"
+                              ? "bg-blue-600 text-white"
+                              : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                          }`}
+                        >
+                          Activity
+                        </button>
                       </div>
                     </div>
                   </div>
-                  <SliderRow
-                    label={labelMode === "zoom" ? "Label Depth" : "Max Label Depth"}
-                    tooltip={labelMode === "zoom"
-                      ? "How many levels of labels stay visible when zoomed out"
-                      : "Labels are hidden below this tree depth"
-                    }
-                    value={labelDepthFactor}
-                    displayValue={`${labelDepthFactor}`}
-                    min={labelMode === "zoom" ? 2 : 1}
-                    max={20}
-                    step={1}
-                    minLabel="Fewer"
-                    maxLabel="More"
-                    onChange={setLabelDepthFactor}
-                  />
+                  {labelMode !== "activity" && (
+                    <SliderRow
+                      label={labelMode === "zoom" ? "Label Depth" : "Max Label Depth"}
+                      tooltip={labelMode === "zoom"
+                        ? "How many levels of labels stay visible when zoomed out"
+                        : "Labels are hidden below this tree depth"
+                      }
+                      value={labelDepthFactor}
+                      displayValue={`${labelDepthFactor}`}
+                      min={labelMode === "zoom" ? 2 : 1}
+                      max={20}
+                      step={1}
+                      minLabel="Fewer"
+                      maxLabel="More"
+                      onChange={setLabelDepthFactor}
+                    />
+                  )}
                   <SliderRow
                     label="Font Size"
                     tooltip={scaleTextByDepth

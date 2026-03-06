@@ -17,7 +17,7 @@ export interface AppConfig {
   emaTau?: number;
   showLabels?: boolean;
   labelDepthFactor?: number;
-  labelMode?: "zoom" | "depth";
+  labelMode?: "zoom" | "depth" | "activity";
   labelFontSize?: number;
   scaleTextByDepth?: boolean;
   showTooltips?: boolean;

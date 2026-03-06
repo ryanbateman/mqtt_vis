@@ -68,7 +68,7 @@ function validBoolean(v: unknown): boolean | undefined {
 }
 
 function validLabelMode(v: unknown): LabelMode | undefined {
-  return v === "zoom" || v === "depth" ? v : undefined;
+  return v === "zoom" || v === "depth" || v === "activity" ? v : undefined;
 }
 
 /**
