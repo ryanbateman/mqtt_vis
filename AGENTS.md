@@ -72,7 +72,7 @@ Three layered effects on message publish:
 
 ## Agent Workflow Rules
 
-- **Never commit or push without user testing first.** Always stop at "ready for you to test" and wait for explicit sign-off before running `git commit` or `git push`.
+- **Never commit or push without user testing first.** Always stop at "ready for you to test" and wait for explicit sign-off before running `git commit` or `git push`. This applies even if the user says "ship it" — if they have not yet confirmed they have tested the current changes, ask them to test first. "Ship it" without a preceding test confirmation is not sign-off.
 - **Run `npm run build` and `npm test` before declaring work complete.** Both must pass clean (no type errors, no test failures) before handing off to the user.
 - **Bump version on every commit**: patch (x.x.N) for bug fixes and QoL improvements, minor (x.N.0) for new user-facing features.
 

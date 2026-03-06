@@ -306,7 +306,7 @@ export function ConnectionPanel({
       </button>
 
       {/* Animated collapsible body — always mounted, grid-row collapses to 0fr */}
-      <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-in-out ${
+      <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)] ${
         collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
       }`}>
         <div className="overflow-hidden">
