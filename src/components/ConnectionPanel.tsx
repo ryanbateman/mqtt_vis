@@ -295,7 +295,7 @@ export function ConnectionPanel({
             clipRule="evenodd"
           />
         </svg>
-        <span className="text-sm font-semibold text-gray-200">MQTT Topic Visualiser</span>
+        <span className="text-sm font-semibold text-gray-200">MQTT Visualiser</span>
         {/* Error hint visible even when panel is collapsed */}
         {collapsed && errorMessage && connectionStatus === "error" && (
           <span className="ml-2 text-[10px] text-red-400 truncate max-w-[100px]" title={errorMessage}>
