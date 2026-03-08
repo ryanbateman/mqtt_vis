@@ -1,6 +1,6 @@
 import * as d3 from "d3";
-import type { GraphNode, GraphLink, Particle, LabelMode, TooltipData } from "../types";
-import { rateToColor, pulseColor, IDLE_STROKE } from "../utils/colorScale";
+import type { GraphNode, GraphLink, LabelMode, TooltipData } from "../types";
+import { rateToColor, pulseColor, IDLE_COLOR, IDLE_STROKE } from "../utils/colorScale";
 import { depthScale } from "../utils/formatters";
 import {
   PERF_ENABLED,
@@ -24,11 +24,8 @@ const IS_TOUCH_ONLY =
   typeof window !== "undefined" &&
   window.matchMedia("(hover: none)").matches;
 
-/** Maximum number of particles alive at once. */
-const MAX_PARTICLES = 500;
-
-/** Number of particles spawned per message pulse. */
-const PARTICLES_PER_PULSE = 6;
+/** Base blur stdDeviation for the glow SVG filter (at zoom scale 1.0). */
+const BASE_GLOW_STD_DEV = 4;
 
 /** Default base font size for labels in pixels (at zoom scale 1.0). */
 const DEFAULT_BASE_FONT_SIZE = 14;
@@ -38,7 +35,7 @@ const DEFAULT_LABEL_DEPTH_FACTOR = 5;
 
 /**
  * GraphRenderer manages a D3 force simulation and renders it into an SVG element.
- * It handles nodes, links, labels, glow effects, particle bursts, and heat-map colouring.
+ * It handles nodes, links, labels, glow effects, and heat-map colouring.
  */
 export class GraphRenderer {
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
@@ -53,9 +50,8 @@ export class GraphRenderer {
   private highlightRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private nodeGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private labelGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
-  private particleGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
 
-  private particles: Particle[] = [];
+  private glowBlur!: d3.Selection<SVGFEGaussianBlurElement, unknown, null, undefined>;
   private animationFrame: number | null = null;
   private width = 0;
   private height = 0;
@@ -131,9 +127,9 @@ export class GraphRenderer {
       .attr("width", "200%")
       .attr("height", "200%");
 
-    glowFilter
+    this.glowBlur = glowFilter
       .append("feGaussianBlur")
-      .attr("stdDeviation", "4")
+      .attr("stdDeviation", String(BASE_GLOW_STD_DEV))
       .attr("result", "blur");
 
     glowFilter
@@ -151,6 +147,7 @@ export class GraphRenderer {
       .on("zoom", (event) => {
         this.currentZoomScale = event.transform.k;
         this.container.attr("transform", event.transform);
+        this.glowBlur.attr("stdDeviation", String(BASE_GLOW_STD_DEV / this.currentZoomScale));
         this.updateLabelVisibility();
       });
 
@@ -166,13 +163,12 @@ export class GraphRenderer {
       }
     });
 
-    // Layer ordering: links → highlight rings → nodes → particles → labels
+    // Layer ordering: links → highlight rings → nodes → labels
     // Highlight rings sit below node circles so the selection ring (on the node itself)
     // is always visually on top.
     this.linkGroup = this.container.append("g").attr("class", "links");
     this.highlightRingGroup = this.container.append("g").attr("class", "highlight-rings");
     this.nodeGroup = this.container.append("g").attr("class", "nodes");
-    this.particleGroup = this.container.append("g").attr("class", "particles");
     this.labelGroup = this.container.append("g").attr("class", "labels");
 
     // Initialize empty selections
@@ -247,7 +243,7 @@ export class GraphRenderer {
       (d) => d.displayRadius + this.collisionPadding
     );
 
-    // Check for new pulses and spawn particles
+    // Check for new pulses and mark nodes/links as active for per-frame colour updates
     this.checkPulses(nodes);
     this.checkLinkPulses(links);
 
@@ -276,7 +272,10 @@ export class GraphRenderer {
     const enterSelection = this.nodeElements
       .enter()
       .append("circle")
+      .attr("fill", (d) => (d.depth === 0 ? "#ffffff" : IDLE_COLOR))
+      .attr("stroke", (d) => (d.depth === 0 ? "#ffffff" : IDLE_STROKE))
       .attr("stroke-width", 2)
+      .attr("stroke-opacity", (d) => (d.depth === 0 ? 1 : 0.6))
       .call(this.setupDrag());
 
     // Capture enter count before merge — used for burst-aware reheat below.
@@ -398,19 +397,18 @@ export class GraphRenderer {
       }
     });
 
-    // Check for new pulses and spawn particles
+    // Check for new pulses and mark nodes/links as active for per-frame colour updates
     this.checkPulses(nodes);
     this.checkLinkPulses(links);
   }
 
-  /** Check nodes for new pulse timestamps, spawn particles, and mark as active. */
+  /** Check nodes for new pulse timestamps and mark as active for per-frame colour updates. */
   private checkPulses(nodes: GraphNode[]): void {
     for (const node of nodes) {
       if (node.pulse) {
         const lastPulse = this.lastPulseTimestamps.get(node.id) ?? 0;
         if (node.pulseTimestamp > lastPulse) {
           this.lastPulseTimestamps.set(node.id, node.pulseTimestamp);
-          this.spawnParticles(node);
         }
         // Mark any pulsing node for per-frame colour updates
         this.activeNodeIds.add(node.id);
@@ -845,30 +843,6 @@ export class GraphRenderer {
       });
   }
 
-  /** Spawn a particle burst at the given node's position. */
-  private spawnParticles(node: GraphNode): void {
-    if (node.x === undefined || node.y === undefined) return;
-
-    const color = pulseColor(node.messageRate);
-    for (let i = 0; i < PARTICLES_PER_PULSE; i++) {
-      if (this.particles.length >= MAX_PARTICLES) break;
-
-      const angle = (Math.PI * 2 * i) / PARTICLES_PER_PULSE + (Math.random() - 0.5) * 0.5;
-      const speed = 1 + Math.random() * 2;
-
-      this.particles.push({
-        x: node.x,
-        y: node.y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 1,
-        maxLife: 1,
-        radius: 2 + Math.random() * 2,
-        color,
-      });
-    }
-  }
-
   /**
    * Smoothly interpolate displayRadius toward target radius for all nodes.
    * Uses an exponential lerp — each frame moves ~12% of the remaining distance.
@@ -905,7 +879,7 @@ export class GraphRenderer {
     }
   }
 
-  /** Animation loop for particles, node colours, link colours, and smooth sizing. */
+  /** Animation loop for node colours, link colours, and smooth sizing. */
   private startAnimationLoop(): void {
     // Initialise perf observer once (long-animation-frame / longtask detection)
     if (PERF_ENABLED) {
@@ -928,8 +902,6 @@ export class GraphRenderer {
         }
       }
 
-      this.updateParticles();
-      this.renderParticles();
       this.updateNodeSizes();
       this.updateNodeColors();
       this.updateLinkColors();
@@ -961,7 +933,6 @@ export class GraphRenderer {
             nodeCount: nodes.length,
             linkCount: (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>)?.links().length ?? 0,
             activeNodes: this.activeNodeIds.size,
-            particles: this.particles.length,
             heapMB: getHeapMB(),
           });
         }
@@ -972,57 +943,6 @@ export class GraphRenderer {
     this.animationFrame = requestAnimationFrame(animate);
   }
 
-
-  /** Update particle positions and lifetimes. Uses swap-and-pop to avoid O(n) splice. */
-  private updateParticles(): void {
-    let i = 0;
-    while (i < this.particles.length) {
-      const p = this.particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vx *= 0.98; // friction
-      p.vy *= 0.98;
-      p.life -= 0.02;
-
-      if (p.life <= 0) {
-        // Swap with last element and pop — O(1) removal
-        this.particles[i] = this.particles[this.particles.length - 1];
-        this.particles.pop();
-        // Don't increment i — we need to process the swapped element
-      } else {
-        i++;
-      }
-    }
-  }
-
-  /** Render particles as SVG circles using direct DOM manipulation. */
-  private renderParticles(): void {
-    const group = this.particleGroup.node();
-    if (!group) return;
-
-    // Remove excess SVG elements
-    while (group.childNodes.length > this.particles.length) {
-      group.removeChild(group.lastChild!);
-    }
-
-    // Add missing SVG elements
-    while (group.childNodes.length < this.particles.length) {
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      group.appendChild(circle);
-    }
-
-    // Update all particle attributes directly (no D3 data join overhead)
-    const children = group.childNodes;
-    for (let i = 0; i < this.particles.length; i++) {
-      const p = this.particles[i];
-      const el = children[i] as SVGCircleElement;
-      el.setAttribute("cx", String(p.x));
-      el.setAttribute("cy", String(p.y));
-      el.setAttribute("r", String(p.radius * p.life));
-      el.setAttribute("fill", p.color);
-      el.setAttribute("opacity", String(p.life * 0.8));
-    }
-  }
 
   /** Update link colours based on pulse state — fades from white to grey. */
   private updateLinkColors(): void {

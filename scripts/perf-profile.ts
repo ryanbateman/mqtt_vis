@@ -94,7 +94,6 @@ interface PerfSummary {
   nodeCount: number;
   linkCount: number;
   activeNodes: number;
-  particles: number;
   heapMB: number | null;
 }
 
@@ -219,7 +218,7 @@ async function main(): Promise<void> {
   // Expand the ConnectionPanel if it is collapsed (it auto-collapses on node select,
   // and may be collapsed by default via config). The toggle button shows the current
   // connection status text — click it only if the form fields are not visible.
-  const brokerInput = page.locator('input[placeholder="ws://localhost:9001"]');
+  const brokerInput = page.locator('input[placeholder="wss://broker.example.com:8884/mqtt"]');
   const isVisible = await brokerInput.isVisible();
   if (!isVisible) {
     // Click the status/collapse toggle button to expand the panel
@@ -234,9 +233,9 @@ async function main(): Promise<void> {
   // Fill topic filter using its placeholder
   await page.locator('input[placeholder="#"]').fill(topic);
 
-  // Click the Connect submit button — exact match avoids ambiguity with the
-  // "Disconnected" status button and "Copy connection share link" button.
-  const connectBtn = page.getByRole("button", { name: "Connect", exact: true });
+  // Click the Connect submit button inside the form — scoped to avoid ambiguity
+  // with tab buttons or status indicators that also contain the text "Connect".
+  const connectBtn = page.locator('form button[type="submit"]');
   await connectBtn.click();
   console.error("[perf] Clicked Connect — waiting for data...");
 

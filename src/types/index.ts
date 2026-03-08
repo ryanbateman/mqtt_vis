@@ -95,15 +95,3 @@ export interface Broker {
 
 /** @deprecated Use Broker instead. */
 export type PublicBroker = Broker;
-
-/** A particle in a burst effect. */
-export interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  maxLife: number;
-  radius: number;
-  color: string;
-}
