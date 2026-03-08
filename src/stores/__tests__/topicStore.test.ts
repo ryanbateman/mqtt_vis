@@ -880,7 +880,7 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(state().ancestorPulse).toBe(true);
       expect(state().showRootPath).toBe(false);
       expect(state().dropRetainedBurst).toBe(true);
-      expect(state().burstWindowDuration).toBe(15_000);
+      expect(state().burstWindowDuration).toBe(5_000);
     });
 
     it("should NOT reset topic tree data", () => {
@@ -1722,7 +1722,7 @@ describe("topicStore — drop retained burst", () => {
 
     state().resetSettings();
     expect(state().dropRetainedBurst).toBe(true);
-    expect(state().burstWindowDuration).toBe(15_000);
+    expect(state().burstWindowDuration).toBe(5_000);
   });
 });
 
@@ -1804,5 +1804,58 @@ describe("topicStore — burst window UI state", () => {
     state().reset();
     expect(state().burstWindowActive).toBe(false);
     expect(state().burstSettingsLocked).toBe(false);
+  });
+});
+
+describe("topicStore — MQTT v5 user properties", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+  });
+
+  it("stores user properties on a topic node", () => {
+    const props = { source: "sensor-1", region: "eu-west" };
+    state().handleMessage("a/b", "payload", 0, false, props);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node).toBeDefined();
+    expect(node!.lastUserProperties).toEqual(props);
+  });
+
+  it("stores null when no user properties are provided", () => {
+    state().handleMessage("a/b", "payload", 0, false);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.lastUserProperties).toBeNull();
+  });
+
+  it("overwrites user properties with the latest message", () => {
+    state().handleMessage("a/b", "msg1", 0, false, { key: "old" });
+    state().handleMessage("a/b", "msg2", 0, false, { key: "new" });
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.lastUserProperties).toEqual({ key: "new" });
+  });
+
+  it("clears user properties when a message arrives without them", () => {
+    state().handleMessage("a/b", "msg1", 0, false, { key: "value" });
+    state().handleMessage("a/b", "msg2", 0, false);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.lastUserProperties).toBeNull();
+  });
+
+  it("handles array values in user properties", () => {
+    const props = { tags: ["urgent", "alarm"] };
+    state().handleMessage("a/b", "payload", 0, false, props);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.lastUserProperties).toEqual({ tags: ["urgent", "alarm"] });
   });
 });

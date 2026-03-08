@@ -20,6 +20,7 @@ export function createTopicNode(id: string, segment: string): TopicNode {
     pulseRate: 0,
     lastPayloadSize: 0,
     largestPayloadSize: 0,
+    lastUserProperties: null,
   };
 }
 

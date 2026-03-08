@@ -32,7 +32,7 @@
   "alphaDecay": 0.01,
   "pruneTimeout": 0,
   "dropRetainedBurst": true,
-  "burstWindowDuration": 15000,
+  "burstWindowDuration": 5000,
 
   "settingsCollapsed": false,
   "connectionCollapsed": false,

@@ -1,3 +1,6 @@
+/** MQTT v5 user properties — key-value pairs where values may repeat. */
+export type MqttUserProperties = Record<string, string | string[]>;
+
 /** A node in the MQTT topic tree. */
 export interface TopicNode {
   /** Full topic path, e.g. "home/kitchen/temp". Root node uses "". */
@@ -24,6 +27,8 @@ export interface TopicNode {
   lastPayloadSize: number;
   /** High-water mark: largest payload character length ever seen on this topic. */
   largestPayloadSize: number;
+  /** MQTT v5 user properties from the last message (null if none or v4 connection). */
+  lastUserProperties: MqttUserProperties | null;
 }
 
 /** A flat node for D3 force simulation. */

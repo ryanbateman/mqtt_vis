@@ -5,6 +5,7 @@ import type {
   GraphNode,
   GraphLink,
   LabelMode,
+  MqttUserProperties,
 } from "../types";
 import {
   createTopicNode,
@@ -126,7 +127,7 @@ interface TopicStoreState {
   setTopicFilter: (filter: string) => void;
 
   /** Process an incoming MQTT message. retain defaults to false for backward compatibility. */
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean) => void;
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, userProperties?: MqttUserProperties) => void;
   /** Update connection status. */
   setConnectionStatus: (status: ConnectionStatus, error?: string) => void;
   /** Run one decay tick — called periodically. */
@@ -363,7 +364,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   alphaDecay:           saved.alphaDecay          ?? cfg.alphaDecay          ?? 0.01,
   pruneTimeout:         saved.pruneTimeout        ?? cfg.pruneTimeout        ?? 0,
   dropRetainedBurst: saved.dropRetainedBurst ?? cfg.dropRetainedBurst ?? true,
-  burstWindowDuration:  saved.burstWindowDuration  ?? cfg.burstWindowDuration  ?? 15_000,
+  burstWindowDuration:  saved.burstWindowDuration  ?? cfg.burstWindowDuration  ?? 5_000,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -374,7 +375,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   burstWindowActive: false,
   burstSettingsLocked: false,
 
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false) => {
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false, userProperties?: MqttUserProperties) => {
     perfMark("handle-msg-start");
     const state = get();
 
@@ -393,6 +394,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     node.messageCount += 1;
     node.lastTimestamp = Date.now();
     node.lastQoS = qos;
+    node.lastUserProperties = userProperties ?? null;
 
     // Track payload sizes unconditionally — independent of tooltip/LRU settings
     // so size history is always available for debugging and WebMCP queries.
@@ -788,7 +790,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       alphaDecay: cfg.alphaDecay ?? 0.01,
       pruneTimeout: cfg.pruneTimeout ?? 0,
       dropRetainedBurst: cfg.dropRetainedBurst ?? true,
-      burstWindowDuration: cfg.burstWindowDuration ?? 15_000,
+      burstWindowDuration: cfg.burstWindowDuration ?? 5_000,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });

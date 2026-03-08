@@ -1,7 +1,10 @@
 import mqtt, { type MqttClient, type IClientOptions } from "mqtt";
 import type { ConnectionParams } from "../types";
 
-export type MessageHandler = (topic: string, payload: Buffer, qos: 0 | 1 | 2, retain: boolean) => void;
+export type MessageHandler = (
+  topic: string, payload: Buffer, qos: 0 | 1 | 2, retain: boolean,
+  userProperties?: Record<string, string | string[]>,
+) => void;
 
 /** Error info passed to the status handler — richer than a bare string. */
 export interface MqttStatusError {
@@ -88,6 +91,7 @@ export class MqttService {
     this.onStatus?.("connecting");
 
     const options: IClientOptions = {
+      protocolVersion: 5,
       clean: true,
       connectTimeout: 10_000,
       reconnectPeriod: 5_000,
@@ -113,7 +117,10 @@ export class MqttService {
     });
 
     this.client.on("message", (topic, payload, packet) => {
-      this.onMessage?.(topic, payload, packet.qos as 0 | 1 | 2, !!packet.retain);
+      this.onMessage?.(
+        topic, payload, packet.qos as 0 | 1 | 2, !!packet.retain,
+        packet.properties?.userProperties,
+      );
     });
 
     this.client.on("error", (err) => {

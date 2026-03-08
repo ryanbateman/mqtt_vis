@@ -45,7 +45,7 @@ export function NodeTooltip({
         <span className="text-gray-300 font-mono">{formatRate(graphNode.messageRate)} msg/s</span>
 
         <span className="text-gray-500">Agg. Rate</span>
-        <span className="text-gray-300 font-mono">{formatRate(graphNode.aggregateRate)} msg/s</span>
+        <span className="text-gray-300 font-mono">{topicNode.children.size === 0 ? "—" : `${formatRate(graphNode.aggregateRate)} msg/s`}</span>
 
         <span className="text-gray-500">Messages</span>
         <span className="text-gray-300 font-mono">{topicNode.messageCount.toLocaleString()}</span>

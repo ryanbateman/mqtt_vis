@@ -119,8 +119,8 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (300 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 133 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset), and burst window UI state (burstWindowActive/burstSettingsLocked lifecycle, timer expiry, disconnect/reset cleanup).
+Current test coverage (305 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 138 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset), burst window UI state (burstWindowActive/burstSettingsLocked lifecycle, timer expiry, disconnect/reset cleanup), and MQTT v5 user properties (storage, overwrite, clear, array values).
 - `src/utils/__tests__/settingsStorage.test.ts` — 30 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all 22 persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `dropRetainedBurst` validation, `burstWindowDuration` validation, and `labelMode` values including `"activity"`.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 41 tests for rate/timestamp formatting, payload truncation, depth scaling, and payload size formatting.
@@ -158,9 +158,19 @@ Key patterns:
 - **Registration lifecycle** — `registerWebMcpTools()` on App mount, `unregisterWebMcpTools()` on unmount.
 - **Phase 2 (implemented in v1.7.2)** — interactive tools `highlightNodes` and `clearHighlights` are registered. They write to `highlightedNodes: Map<string, string>` in the store; `TopicGraph` syncs this to `GraphRenderer.setHighlightedNodes()`. A dedicated `highlight-rings` SVG layer (below `nodes`) renders one `<circle>` per highlighted node at `displayRadius + 4` with the caller-specified colour. Cap: 200 nodes. `focusNode` remains future work.
 
+## MQTT v5 and User Properties
+
+The client connects using **MQTT v5** (`protocolVersion: 5` in `mqttService.ts`). This enables MQTT v5 features including user properties on published messages.
+
+- **User properties** are key-value pairs (`Record<string, string | string[]>`) attached to individual messages by the publisher. They are extracted from `packet.properties?.userProperties` in the message handler and stored on `TopicNode.lastUserProperties`.
+- **Data flow**: `mqttService.ts` (extract from `IPublishPacket`) → `useMqttClient.ts` (forward) → `topicStore.handleMessage` (store on node) → `DetailPanel.tsx` (render as key-value grid).
+- **Display**: The Detail Panel (node click) shows a "User Properties" section below the payload when properties are present. The hover tooltip does not show them (too verbose).
+- **Backward compatibility**: `handleMessage` accepts `userProperties` as an optional 5th parameter (default `undefined` → stored as `null`). Existing 3-arg and 4-arg test calls remain valid.
+- **v4 brokers**: If a broker only supports MQTT v4, the v5 CONNECT may be rejected. The connection error should be diagnosable from the error message.
+
 ## Common Pitfalls
 
-- **MQTT.js in the browser**: The `mqtt` package must be used with its browser bundle. Vite handles this automatically via the `browser` field in `package.json`, but be aware that Node.js-only features (like `fs`-based certificate loading) are not available.
+- **MQTT.js in the browser**: The `mqtt` package must be used with its browser bundle. Vite handles this automatically via the `browser` field in `package.json`, but be aware that Node.js-only features (like `fs`-based certificate loading) are not available. The client uses MQTT v5 (`protocolVersion: 5`) — some very old brokers may only support v4.
 - **D3 and React fighting over the DOM**: Never let React re-render the SVG graph nodes. React should only own the container. D3 handles everything inside it.
 - **WebSocket connection failures**: Browsers enforce CORS and mixed-content rules. An `https://` page cannot connect to `ws://` brokers (mixed content). For self-hosted deployments behind HTTPS (e.g. Tailscale), use an nginx reverse proxy to terminate `wss://` and forward to the broker's `ws://` endpoint. See the `/mqtt_ws/` location block in the pi-infra repo's `boat.horse.conf`.
 - **Performance with many topics**: SVG can handle hundreds of nodes but may struggle above ~1000. If performance becomes an issue, the first optimisation is to switch to Canvas rendering (planned as a future enhancement).

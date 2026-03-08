@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import type { TopicNode, GraphNode } from "../types";
 import { formatRate, formatTimestamp, formatPayloadSize } from "../utils/formatters";
 
@@ -126,7 +126,7 @@ export function DetailPanel({
 
           <span className="text-gray-500">Agg. Rate</span>
           <span className="text-gray-300 font-mono">
-            {formatRate(graphNode.aggregateRate)} msg/s
+            {childCount === 0 ? "—" : `${formatRate(graphNode.aggregateRate)} msg/s`}
           </span>
 
           <span className="text-gray-500">Messages</span>
@@ -164,7 +164,7 @@ export function DetailPanel({
 
       {/* Payload — full content, scrollable */}
       {topicNode.lastPayload !== null && (
-        <div className="p-3 overflow-y-auto min-h-0 flex-1">
+        <div className="p-3 overflow-y-auto min-h-0 flex-1 border-t border-gray-700/50">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-gray-500">Last Payload</span>
             <div className="flex items-center gap-1">
@@ -201,6 +201,25 @@ export function DetailPanel({
           <pre className="text-[11px] font-mono text-gray-300 whitespace-pre-wrap break-all leading-snug max-h-60 overflow-y-auto">
             {prettyJson && formattedPayload ? formattedPayload : topicNode.lastPayload}
           </pre>
+        </div>
+      )}
+
+      {/* User Properties — MQTT v5 key-value pairs */}
+      {topicNode.lastUserProperties !== null && Object.keys(topicNode.lastUserProperties).length > 0 && (
+        <div className="p-3 overflow-y-auto min-h-0 border-t border-gray-700/50">
+          <div className="mb-1">
+            <span className="text-[10px] text-gray-500">User Properties</span>
+          </div>
+          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+            {Object.entries(topicNode.lastUserProperties).map(([key, value]) => (
+              <Fragment key={key}>
+                <span className="text-gray-500 font-mono">{key}</span>
+                <span className="text-gray-300 font-mono break-all">
+                  {Array.isArray(value) ? value.join(", ") : value}
+                </span>
+              </Fragment>
+            ))}
+          </div>
         </div>
       )}
     </div>

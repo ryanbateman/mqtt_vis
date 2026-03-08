@@ -32,7 +32,8 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Labels toggle** — turn labels on or off entirely; label settings (mode, depth, font size, depth scaling) are grouped in a collapsible sub-section
 - **Depth-scaled text** — optional: label font size decreases with tree depth (inverse falloff), so root labels are largest and leaf labels are smallest. Font size slider sets the maximum.
 - **Hover tooltips** — hover over any node to see full topic path, message rate, aggregate rate, message count, QoS, last seen time, and last payload. Appears after a 0.5s delay. Toggleable in settings.
-- **Node selection & detail panel** — click any node to select it (highlighted with a zoom-scaled blue ring). A persistent detail panel appears showing full topic path (click to copy), message stats, children count, QoS, last seen time, payload size, all-time largest payload size, and the full scrollable payload. JSON payloads can be pretty-printed via a `{ }` toggle button. The selected node is pinned in the payload LRU cache (never evicted while selected) and bypasses the truncation limit so large JSON payloads display and pretty-print correctly. Click background or press Escape to deselect.
+- **MQTT v5 user properties** — the client connects using MQTT v5. When messages include user properties (key-value metadata attached by the publisher), they are displayed in the Detail Panel below the payload as a key-value grid. Array values are comma-joined.
+- **Node selection & detail panel** — click any node to select it (highlighted with a zoom-scaled blue ring). A persistent detail panel appears showing full topic path (click to copy), message stats, children count, QoS, last seen time, payload size, all-time largest payload size, MQTT v5 user properties (when present), and the full scrollable payload. JSON payloads can be pretty-printed via a `{ }` toggle button. The selected node is pinned in the payload LRU cache (never evicted while selected) and bypasses the truncation limit so large JSON payloads display and pretty-print correctly. Click background or press Escape to deselect.
 - **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
 - **Dark theme** — designed for dark backgrounds with glow and particle effects
 - **Drop retained burst** — on subscribe, brokers deliver all stored retained messages at once. An optional filter (enabled by default) drops retained messages during a configurable burst window after connecting, preventing the graph from exploding with stale data. Non-retained messages always pass through normally.
@@ -242,7 +243,7 @@ See **[docs/performance-profiling.md](docs/performance-profiling.md)** for full 
 | Build | Vite 5 |
 | Styling | Tailwind CSS v3 |
 | Visualisation | D3.js v7 (force simulation, SVG) |
-| MQTT | mqtt.js v5 (browser WebSocket bundle) |
+| MQTT | mqtt.js v5 (browser WebSocket bundle, MQTT v5 protocol) |
 | State | Zustand v5 |
 | Deploy | Static SPA |
 
@@ -253,14 +254,14 @@ public/
   config.json              # Deployment configuration (copied to dist/ on build)
 src/
   types/
-    index.ts               # TopicNode, GraphNode, GraphLink, ConnectionParams, Particle
+    index.ts               # TopicNode, GraphNode, GraphLink, ConnectionParams, Particle, MqttUserProperties
     webmcp.d.ts            # Ambient type declarations for W3C WebMCP API
   stores/
     topicStore.ts           # Zustand store: topic tree, EMA rates, decay, settings
   hooks/
     useMqttClient.ts        # MQTT lifecycle hook, localStorage persistence
   services/
-    mqttService.ts          # mqtt.js WebSocket wrapper; connection log ring buffer, retry cap (3 attempts), structured error type
+    mqttService.ts          # mqtt.js WebSocket wrapper (MQTT v5); connection log ring buffer, retry cap (3 attempts), structured error type
     webMcpService.ts        # WebMCP tool registration (navigator.modelContext)
   components/
     ConnectionPanel.tsx     # Broker URL, topic filter, client ID, auth, connect/disconnect
