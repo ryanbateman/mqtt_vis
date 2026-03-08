@@ -77,12 +77,12 @@ export class GraphRenderer {
   private height = 0;
   private currentZoomScale = 1;
   private labelDepthFactor = DEFAULT_LABEL_DEPTH_FACTOR;
-  private labelMode: LabelMode = "zoom";
+  private labelMode: LabelMode = "activity";
   private activityMaxRate = 1;       // smoothed ceiling for activity label opacity
   private lastActivityFrameTime = 0; // timestamp of last activity opacity update
   private showLabels = true;
   private baseFontSize = DEFAULT_BASE_FONT_SIZE;
-  private labelStrokeWidth = 4.5;
+  private labelStrokeWidth = 9.0;
   private scaleTextByDepth = false;
   private scaleNodeSizeByDepth = false;
   private collisionPadding = 4;

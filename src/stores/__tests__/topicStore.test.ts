@@ -865,9 +865,9 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(state().emaTau).toBe(5);
       expect(state().showLabels).toBe(true);
       expect(state().labelDepthFactor).toBe(2);
-      expect(state().labelMode).toBe("zoom");
+      expect(state().labelMode).toBe("activity");
       expect(state().labelFontSize).toBe(15);
-      expect(state().labelStrokeWidth).toBe(4.5);
+      expect(state().labelStrokeWidth).toBe(9.0);
       expect(state().scaleTextByDepth).toBe(true);
       expect(state().showTooltips).toBe(true);
       expect(state().nodeScale).toBe(2.5);
