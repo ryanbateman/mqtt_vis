@@ -168,6 +168,8 @@ export function SettingsPanel() {
   const setShowRootPath = useTopicStore((s) => s.setShowRootPath);
   const labelFontSize = useTopicStore((s) => s.labelFontSize);
   const setLabelFontSize = useTopicStore((s) => s.setLabelFontSize);
+  const labelStrokeWidth = useTopicStore((s) => s.labelStrokeWidth);
+  const setLabelStrokeWidth = useTopicStore((s) => s.setLabelStrokeWidth);
   const scaleTextByDepth = useTopicStore((s) => s.scaleTextByDepth);
   const setScaleTextByDepth = useTopicStore((s) => s.setScaleTextByDepth);
   const showTooltips = useTopicStore((s) => s.showTooltips);
@@ -405,6 +407,18 @@ export function SettingsPanel() {
                     minLabel="Small"
                     maxLabel="Large"
                     onChange={setLabelFontSize}
+                  />
+                  <SliderRow
+                    label="Label Outline"
+                    tooltip="Thickness of the dark halo behind label text. Thicker outlines improve readability over bright nodes."
+                    value={labelStrokeWidth}
+                    displayValue={labelStrokeWidth.toFixed(1)}
+                    min={4.5}
+                    max={13.5}
+                    step={0.5}
+                    minLabel="Thin"
+                    maxLabel="Thick"
+                    onChange={setLabelStrokeWidth}
                   />
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">

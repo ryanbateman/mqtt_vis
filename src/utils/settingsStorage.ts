@@ -34,6 +34,7 @@ export interface SavedSettings {
   labelDepthFactor?: number;
   labelMode?: LabelMode;
   labelFontSize?: number;
+  labelStrokeWidth?: number;
   scaleTextByDepth?: boolean;
   // Simulation
   repulsionStrength?: number;
@@ -89,6 +90,7 @@ function validate(raw: StoredSettings): SavedSettings {
     labelDepthFactor:   validNumber(raw.labelDepthFactor,    1,   20),
     labelMode:          validLabelMode(raw.labelMode),
     labelFontSize:      validNumber(raw.labelFontSize,        6,   32),
+    labelStrokeWidth:   validNumber(raw.labelStrokeWidth,    4.5, 13.5),
     scaleTextByDepth:   validBoolean(raw.scaleTextByDepth),
     repulsionStrength:  validNumber(raw.repulsionStrength,  -500, -20),
     linkDistance:       validNumber(raw.linkDistance,         20, 300),

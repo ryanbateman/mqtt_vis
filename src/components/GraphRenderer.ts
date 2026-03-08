@@ -82,6 +82,7 @@ export class GraphRenderer {
   private lastActivityFrameTime = 0; // timestamp of last activity opacity update
   private showLabels = true;
   private baseFontSize = DEFAULT_BASE_FONT_SIZE;
+  private labelStrokeWidth = 4.5;
   private scaleTextByDepth = false;
   private scaleNodeSizeByDepth = false;
   private collisionPadding = 4;
@@ -387,7 +388,7 @@ export class GraphRenderer {
       .attr("font-family", "monospace")
       .attr("pointer-events", "none")
       .attr("stroke", "#111827")
-      .attr("stroke-width", 4.5)
+      .attr("stroke-width", this.labelStrokeWidth)
       .attr("paint-order", "stroke fill")
       .merge(this.labelElements)
       .text((d) => d.label);
@@ -626,6 +627,12 @@ export class GraphRenderer {
   setLabelFontSize(size: number): void {
     this.baseFontSize = size;
     this.updateLabelFontSizes();
+  }
+
+  /** Update the label text halo stroke width and reapply to all labels. */
+  setLabelStrokeWidth(width: number): void {
+    this.labelStrokeWidth = width;
+    this.labelElements.attr("stroke-width", this.labelStrokeWidth);
   }
 
   /** Toggle depth-based text scaling. */

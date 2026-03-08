@@ -109,9 +109,9 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (278 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 114 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, and node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset).
-- `src/utils/__tests__/settingsStorage.test.ts` — 27 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all 19 persisted fields, `pruneTimeout` validation, and `labelMode` values including `"activity"`.
+Current test coverage (280 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 115 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, and node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset).
+- `src/utils/__tests__/settingsStorage.test.ts` — 28 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all 20 persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, and `labelMode` values including `"activity"`.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 41 tests for rate/timestamp formatting, payload truncation, depth scaling, and payload size formatting.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.

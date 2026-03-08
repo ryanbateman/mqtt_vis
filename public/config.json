@@ -16,6 +16,7 @@
   "emaTau": 5,
   "labelDepthFactor": 2,
   "labelFontSize": 15,
+  "labelStrokeWidth": 4.5,
   "scaleTextByDepth": true,
   "showTooltips": true,
   "nodeScale": 2.5,

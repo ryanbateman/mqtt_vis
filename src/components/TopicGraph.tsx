@@ -21,6 +21,7 @@ export function TopicGraph() {
   const labelDepthFactor = useTopicStore((s) => s.labelDepthFactor);
   const labelMode = useTopicStore((s) => s.labelMode);
   const labelFontSize = useTopicStore((s) => s.labelFontSize);
+  const labelStrokeWidth = useTopicStore((s) => s.labelStrokeWidth);
   const scaleTextByDepth = useTopicStore((s) => s.scaleTextByDepth);
   const scaleNodeSizeByDepth = useTopicStore((s) => s.scaleNodeSizeByDepth);
   const emaTau = useTopicStore((s) => s.emaTau);
@@ -124,6 +125,12 @@ export function TopicGraph() {
       rendererRef.current.setLabelFontSize(labelFontSize);
     }
   }, [labelFontSize]);
+
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setLabelStrokeWidth(labelStrokeWidth);
+    }
+  }, [labelStrokeWidth]);
 
   useEffect(() => {
     if (rendererRef.current) {

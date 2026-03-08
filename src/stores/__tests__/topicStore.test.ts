@@ -835,6 +835,7 @@ describe("topicStore — ancestor pulse data flow", () => {
       state().setLabelDepthFactor(10);
       state().setLabelMode("depth");
       state().setLabelFontSize(32);
+      state().setLabelStrokeWidth(13.5);
       state().setScaleTextByDepth(false);
       state().setShowTooltips(false);
       state().setNodeScale(3.5);
@@ -862,6 +863,7 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(state().labelDepthFactor).toBe(2);
       expect(state().labelMode).toBe("zoom");
       expect(state().labelFontSize).toBe(15);
+      expect(state().labelStrokeWidth).toBe(4.5);
       expect(state().scaleTextByDepth).toBe(true);
       expect(state().showTooltips).toBe(true);
       expect(state().nodeScale).toBe(2.5);
@@ -1134,6 +1136,11 @@ describe("topicStore — settings localStorage persistence (Issue #21)", () => {
   it("setLabelFontSize persists labelFontSize", () => {
     state().setLabelFontSize(20);
     expect(loadSavedSettings().labelFontSize).toBe(20);
+  });
+
+  it("setLabelStrokeWidth persists labelStrokeWidth", () => {
+    state().setLabelStrokeWidth(9);
+    expect(loadSavedSettings().labelStrokeWidth).toBe(9);
   });
 
   it("setScaleTextByDepth persists scaleTextByDepth", () => {

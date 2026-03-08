@@ -177,6 +177,23 @@ describe("loadSavedSettings", () => {
     expect(loadSavedSettings().pruneTimeout).toBe(300_000);
   });
 
+  it("drops labelStrokeWidth outside valid range (4.5 to 13.5)", () => {
+    writeRaw({ _version: 1, labelStrokeWidth: 2 }); // too low
+    expect(loadSavedSettings().labelStrokeWidth).toBeUndefined();
+
+    writeRaw({ _version: 1, labelStrokeWidth: 20 }); // too high
+    expect(loadSavedSettings().labelStrokeWidth).toBeUndefined();
+
+    writeRaw({ _version: 1, labelStrokeWidth: 4.5 }); // min boundary
+    expect(loadSavedSettings().labelStrokeWidth).toBe(4.5);
+
+    writeRaw({ _version: 1, labelStrokeWidth: 13.5 }); // max boundary
+    expect(loadSavedSettings().labelStrokeWidth).toBe(13.5);
+
+    writeRaw({ _version: 1, labelStrokeWidth: 9 }); // mid-range
+    expect(loadSavedSettings().labelStrokeWidth).toBe(9);
+  });
+
   it("drops repulsionStrength outside valid range (-500 to -20)", () => {
     writeRaw({ _version: 1, repulsionStrength: -10 }); // too high (less negative)
     expect(loadSavedSettings().repulsionStrength).toBeUndefined();
@@ -216,7 +233,7 @@ describe("persistSettings", () => {
     expect(loadSavedSettings().emaTau).toBe(8);
   });
 
-  it("can persist all 19 fields", () => {
+  it("can persist all 20 fields", () => {
     const full: SavedSettings = {
       emaTau: 5,
       nodeScale: 1.5,
@@ -228,6 +245,7 @@ describe("persistSettings", () => {
       labelDepthFactor: 8,
       labelMode: "depth",
       labelFontSize: 16,
+      labelStrokeWidth: 7.5,
       scaleTextByDepth: false,
       repulsionStrength: -200,
       linkDistance: 100,
@@ -290,6 +308,7 @@ describe("round-trip persist → load", () => {
       nodeScale: 2.3,
       labelDepthFactor: 12,
       labelFontSize: 20,
+      labelStrokeWidth: 9,
       repulsionStrength: -275,
       linkDistance: 180,
       linkStrength: 0.65,

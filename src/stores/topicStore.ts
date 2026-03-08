@@ -62,6 +62,8 @@ interface TopicStoreState {
   labelMode: LabelMode;
   /** Base font size for labels in pixels. Used as maximum when depth scaling is on. */
   labelFontSize: number;
+  /** Stroke width for the label text halo outline (4.5–13.5). */
+  labelStrokeWidth: number;
   /** Whether to scale label text size inversely with tree depth. */
   scaleTextByDepth: boolean;
   /** Whether to show tooltips on node hover. */
@@ -142,6 +144,8 @@ interface TopicStoreState {
   setLabelMode: (mode: LabelMode) => void;
   /** Update the base label font size. */
   setLabelFontSize: (size: number) => void;
+  /** Update the label text halo stroke width. */
+  setLabelStrokeWidth: (width: number) => void;
   /** Toggle depth-based text scaling. */
   setScaleTextByDepth: (enabled: boolean) => void;
   /** Toggle hover tooltips on nodes. */
@@ -299,6 +303,20 @@ let _rebuildRafId: number | null = null;
 let _pendingMessages = 0;
 let _pendingNewTopics = 0;
 
+/**
+ * Burst throttle — reduces the frequency of structural (D3 data-join) rebuilds
+ * during the initial retained-message flood after connecting.
+ *
+ * For the first BURST_WINDOW_MS after connection, structural rebuilds are
+ * throttled to fire at most once every BURST_STRUCTURAL_INTERVAL_MS.
+ * Rate-only updates continue per-frame as normal.
+ */
+const BURST_WINDOW_MS = 10_000;
+const BURST_STRUCTURAL_INTERVAL_MS = 250;
+let _burstWindowStart = 0;
+let _lastStructuralFlush = 0;
+let _burstThrottleId: ReturnType<typeof setTimeout> | null = null;
+
 export const useTopicStore = create<TopicStoreState>((set, get) => {
   const cfg = getConfig();
   // Merge saved settings (localStorage) → config.json → hardcoded fallback.
@@ -319,6 +337,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   labelDepthFactor:     saved.labelDepthFactor    ?? cfg.labelDepthFactor    ?? 2,
   labelMode:            saved.labelMode           ?? ((cfg.labelMode === "depth" || cfg.labelMode === "activity" ? cfg.labelMode : "zoom") as LabelMode),
   labelFontSize:        saved.labelFontSize       ?? cfg.labelFontSize       ?? 15,
+  labelStrokeWidth:     saved.labelStrokeWidth    ?? cfg.labelStrokeWidth    ?? 4.5,
   scaleTextByDepth:     saved.scaleTextByDepth    ?? cfg.scaleTextByDepth    ?? true,
   showTooltips:         saved.showTooltips        ?? cfg.showTooltips        ?? true,
   nodeScale:            saved.nodeScale           ?? cfg.nodeScale           ?? 2.5,
@@ -428,6 +447,13 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
 
   setConnectionStatus: (status: ConnectionStatus, error?: string) => {
+    // Start burst throttle window on successful connection.
+    // The first ~10 s of retained messages will have structural rebuilds
+    // throttled to reduce CPU/visual chaos.
+    if (status === "connected") {
+      _burstWindowStart = Date.now();
+      _lastStructuralFlush = 0;
+    }
     set({
       connectionStatus: status,
       // Preserve the last error message across reconnect-loop status changes
@@ -533,6 +559,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       cancelAnimationFrame(_rebuildRafId);
       _rebuildRafId = null;
     }
+    if (_burstThrottleId !== null) {
+      clearTimeout(_burstThrottleId);
+      _burstThrottleId = null;
+    }
     const wasStructural = _rebuildStructural;
     _rebuildScheduled = false;
     _rebuildStructural = false;
@@ -563,6 +593,29 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   scheduleRebuild: (structural: boolean) => {
     // Accumulate: if any call in the batch is structural, the flush is structural
     if (structural) _rebuildStructural = true;
+
+    // Burst throttle: during the first BURST_WINDOW_MS after connection,
+    // defer structural rebuilds so they fire at most once every
+    // BURST_STRUCTURAL_INTERVAL_MS.  This reduces the number of expensive
+    // D3 data joins from ~600 to ~40 during a retained-message flood.
+    const now = Date.now();
+    const inBurstWindow = _burstWindowStart > 0
+      && now - _burstWindowStart < BURST_WINDOW_MS;
+
+    if (inBurstWindow && _rebuildStructural) {
+      const elapsed = now - _lastStructuralFlush;
+      if (elapsed < BURST_STRUCTURAL_INTERVAL_MS) {
+        // Too soon since last structural flush — schedule a deferred retry
+        if (_burstThrottleId === null) {
+          _burstThrottleId = setTimeout(() => {
+            _burstThrottleId = null;
+            // Re-enter to trigger the normal rAF path
+            get().scheduleRebuild(false);
+          }, BURST_STRUCTURAL_INTERVAL_MS - elapsed);
+        }
+        return;
+      }
+    }
 
     if (!_rebuildScheduled) {
       _rebuildScheduled = true;
@@ -597,6 +650,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           totalTopics: s.totalTopics + pendingTopics,
         });
 
+        if (wasStructural) {
+          _lastStructuralFlush = Date.now();
+        }
+
         perfMark("rebuild-end");
         perfMeasure("rebuild", "rebuild-start", "rebuild-end");
       });
@@ -611,6 +668,13 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       _rebuildScheduled = false;
       _rebuildStructural = false;
     }
+    // Cancel any pending burst throttle timer
+    if (_burstThrottleId !== null) {
+      clearTimeout(_burstThrottleId);
+      _burstThrottleId = null;
+    }
+    _burstWindowStart = 0;
+    _lastStructuralFlush = 0;
     _payloadLru.clear();
     _pendingMessages = 0;
     _pendingNewTopics = 0;
@@ -651,6 +715,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       labelDepthFactor: cfg.labelDepthFactor ?? 2,
       labelMode: (cfg.labelMode === "depth" ? "depth" : "zoom") as LabelMode,
       labelFontSize: cfg.labelFontSize ?? 15,
+      labelStrokeWidth: cfg.labelStrokeWidth ?? 4.5,
       scaleTextByDepth: cfg.scaleTextByDepth ?? true,
       showTooltips: cfg.showTooltips ?? true,
       nodeScale: cfg.nodeScale ?? 2.5,
@@ -690,6 +755,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   setLabelFontSize: (size: number) => {
     set({ labelFontSize: size });
     persistSettings({ labelFontSize: size });
+  },
+  setLabelStrokeWidth: (width: number) => {
+    set({ labelStrokeWidth: width });
+    persistSettings({ labelStrokeWidth: width });
   },
   setScaleTextByDepth: (enabled: boolean) => {
     set({ scaleTextByDepth: enabled });

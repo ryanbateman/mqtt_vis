@@ -19,6 +19,7 @@ export interface AppConfig {
   labelDepthFactor?: number;
   labelMode?: "zoom" | "depth" | "activity";
   labelFontSize?: number;
+  labelStrokeWidth?: number;
   scaleTextByDepth?: boolean;
   showTooltips?: boolean;
   nodeScale?: number;
