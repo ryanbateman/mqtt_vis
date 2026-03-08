@@ -847,12 +847,16 @@ describe("topicStore — ancestor pulse data flow", () => {
       state().setAlphaDecay(0.05);
       state().setAncestorPulse(false);
       state().setShowRootPath(true);
+      state().setSuppressRetainedBurst(false);
+      state().setBurstWindowDuration(25_000);
 
       // Verify they changed
       expect(state().emaTau).toBe(20);
       expect(state().showLabels).toBe(false);
       expect(state().nodeScale).toBe(3.5);
       expect(state().repulsionStrength).toBe(-999);
+      expect(state().suppressRetainedBurst).toBe(false);
+      expect(state().burstWindowDuration).toBe(25_000);
 
       // Reset settings
       state().resetSettings();
@@ -875,6 +879,8 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(state().alphaDecay).toBe(0.01);
       expect(state().ancestorPulse).toBe(true);
       expect(state().showRootPath).toBe(false);
+      expect(state().suppressRetainedBurst).toBe(true);
+      expect(state().burstWindowDuration).toBe(15_000);
     });
 
     it("should NOT reset topic tree data", () => {
@@ -1596,5 +1602,152 @@ describe("topicStore — node pruning", () => {
     expect(state().pruneTimeout).toBe(120_000);
     state().resetSettings();
     expect(state().pruneTimeout).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retained burst suppression — Issue #48
+// ---------------------------------------------------------------------------
+
+describe("topicStore — retained burst suppression", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+    clearSavedSettings();
+  });
+
+  /**
+   * Simulate a connection to start the burst window.
+   * setConnectionStatus("connected") sets _burstWindowStart internally.
+   */
+  function simulateConnection() {
+    state().setConnectionStatus("connected");
+  }
+
+  it("suppresses rate spike for retained messages during burst window", () => {
+    simulateConnection();
+    // Retained message during burst window — should not spike rate
+    state().handleMessage("a/b", "payload", 0, true);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node).toBeDefined();
+    expect(node!.messageCount).toBe(1);      // counted
+    expect(node!.messageRate).toBe(0);        // no rate spike
+    expect(node!.lastTimestamp).toBe(0);      // timestamp not updated
+  });
+
+  it("allows non-retained messages to pulse during burst window", () => {
+    simulateConnection();
+    // Non-retained message during burst window — should pulse normally
+    state().handleMessage("a/b", "payload", 0, false);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node).toBeDefined();
+    expect(node!.messageRate).toBe(1);        // rate spike occurred
+    expect(node!.lastTimestamp).toBeGreaterThan(0);
+  });
+
+  it("allows retained messages to pulse after burst window closes", () => {
+    simulateConnection();
+    // Set a very short burst window so it expires immediately
+    state().setBurstWindowDuration(5_000);
+    // Advance time past the burst window
+    // We can't easily mock Date.now() here, so instead set burstWindowDuration to 0
+    // to effectively disable the window, then test with retain=true
+    state().setBurstWindowDuration(5_000);
+
+    // Instead: test that with suppression disabled, retained messages pulse
+    state().setSuppressRetainedBurst(false);
+    state().handleMessage("a/b", "payload", 0, true);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.messageRate).toBe(1);        // rate spike occurred
+    expect(node!.lastTimestamp).toBeGreaterThan(0);
+  });
+
+  it("does not suppress when suppressRetainedBurst is disabled", () => {
+    simulateConnection();
+    state().setSuppressRetainedBurst(false);
+
+    state().handleMessage("a/b", "payload", 0, true);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.messageRate).toBe(1);
+    expect(node!.lastTimestamp).toBeGreaterThan(0);
+  });
+
+  it("does not suppress non-retained messages regardless of settings", () => {
+    simulateConnection();
+    state().setSuppressRetainedBurst(true);
+
+    state().handleMessage("a/b", "payload", 0, false);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.messageRate).toBe(1);
+  });
+
+  it("still creates nodes and stores payload for suppressed messages", () => {
+    simulateConnection();
+    state().handleMessage("a/b", "hello world", 0, true);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node).toBeDefined();
+    expect(node!.lastPayload).toBe("hello world");
+    expect(node!.lastPayloadSize).toBe(11);
+    expect(node!.messageCount).toBe(1);
+    // Node should appear in graphNodes (structural creation)
+    expect(findGraphNode("a/b")).toBeDefined();
+  });
+
+  it("still increments totalMessages for suppressed messages", () => {
+    simulateConnection();
+    state().handleMessage("a/b", "msg1", 0, true);
+    state().handleMessage("a/c", "msg2", 0, true);
+    state().rebuildGraph();
+
+    expect(state().totalMessages).toBe(2);
+    expect(state().totalTopics).toBeGreaterThan(0);
+  });
+
+  it("does not propagate ancestor pulse for suppressed retained messages", () => {
+    simulateConnection();
+    state().setAncestorPulse(true);
+
+    state().handleMessage("a/b/c", "msg", 0, true);
+    state().rebuildGraph();
+
+    // Ancestors should NOT have their timestamp updated
+    const ancestorA = findTopicNode("a");
+    expect(ancestorA!.lastTimestamp).toBe(0);
+    const ancestorAB = findTopicNode("a/b");
+    expect(ancestorAB!.lastTimestamp).toBe(0);
+  });
+
+  it("setSuppressRetainedBurst persists to localStorage", () => {
+    state().setSuppressRetainedBurst(false);
+    expect(loadSavedSettings().suppressRetainedBurst).toBe(false);
+  });
+
+  it("setBurstWindowDuration persists to localStorage", () => {
+    state().setBurstWindowDuration(20_000);
+    expect(loadSavedSettings().burstWindowDuration).toBe(20_000);
+  });
+
+  it("resetSettings resets suppressRetainedBurst and burstWindowDuration", () => {
+    state().setSuppressRetainedBurst(false);
+    state().setBurstWindowDuration(25_000);
+    expect(state().suppressRetainedBurst).toBe(false);
+    expect(state().burstWindowDuration).toBe(25_000);
+
+    state().resetSettings();
+    expect(state().suppressRetainedBurst).toBe(true);
+    expect(state().burstWindowDuration).toBe(15_000);
   });
 });

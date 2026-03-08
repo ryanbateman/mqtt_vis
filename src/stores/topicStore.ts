@@ -86,6 +86,10 @@ interface TopicStoreState {
   alphaDecay: number;
   /** Inactivity timeout (ms) after which stale nodes are pruned. 0 = disabled. */
   pruneTimeout: number;
+  /** Whether to suppress pulse/rate effects for retained messages during the post-subscribe burst. */
+  suppressRetainedBurst: boolean;
+  /** Duration (ms) of the burst window after connection during which retained pulses are suppressed. */
+  burstWindowDuration: number;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -117,8 +121,8 @@ interface TopicStoreState {
   /** Store the current topic filter (called on connect). */
   setTopicFilter: (filter: string) => void;
 
-  /** Process an incoming MQTT message. */
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => void;
+  /** Process an incoming MQTT message. retain defaults to false for backward compatibility. */
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean) => void;
   /** Update connection status. */
   setConnectionStatus: (status: ConnectionStatus, error?: string) => void;
   /** Run one decay tick — called periodically. */
@@ -162,6 +166,10 @@ interface TopicStoreState {
   setAlphaDecay: (value: number) => void;
   /** Update the prune timeout (ms). 0 = disabled. */
   setPruneTimeout: (value: number) => void;
+  /** Toggle retained burst suppression. */
+  setSuppressRetainedBurst: (enabled: boolean) => void;
+  /** Update the burst window duration (ms). */
+  setBurstWindowDuration: (value: number) => void;
   /** Request a PNG export of the current graph. */
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
@@ -348,6 +356,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   collisionPadding:     saved.collisionPadding    ?? cfg.collisionPadding    ?? 13,
   alphaDecay:           saved.alphaDecay          ?? cfg.alphaDecay          ?? 0.01,
   pruneTimeout:         saved.pruneTimeout        ?? cfg.pruneTimeout        ?? 0,
+  suppressRetainedBurst: saved.suppressRetainedBurst ?? cfg.suppressRetainedBurst ?? true,
+  burstWindowDuration:  saved.burstWindowDuration  ?? cfg.burstWindowDuration  ?? 15_000,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -356,14 +366,23 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   selectedNodeId: null,
   highlightedNodes: new Map<string, string>(),
 
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2) => {
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false) => {
     perfMark("handle-msg-start");
     const state = get();
     const root = state.root;
     const { node, newNodes } = ensureTopicPathTracked(root, topic);
 
+    // Determine whether to suppress visual effects (rate spike, pulse, ancestor
+    // propagation) for this message. Retained messages received during the burst
+    // window after connection are ingested structurally but don't pulse.
+    const inBurstWindow = _burstWindowStart > 0
+      && (Date.now() - _burstWindowStart < state.burstWindowDuration);
+    const suppressPulse = state.suppressRetainedBurst && retain && inBurstWindow;
+
     node.messageCount += 1;
-    node.lastTimestamp = Date.now();
+    if (!suppressPulse) {
+      node.lastTimestamp = Date.now();
+    }
     node.lastQoS = qos;
 
     // Track payload sizes unconditionally — independent of tooltip/LRU settings
@@ -400,34 +419,39 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
     }
 
-    // Instant rate spike: add 1 message worth of rate contribution
-    // The EMA decay will smooth this out over subsequent ticks
-    node.messageRate += 1;
+    // Visual effects: rate spike, pulse snapshot, and ancestor propagation.
+    // Suppressed for retained messages during the post-subscribe burst window
+    // so the graph builds topology silently without misleading pulse animations.
+    if (!suppressPulse) {
+      // Instant rate spike: add 1 message worth of rate contribution
+      // The EMA decay will smooth this out over subsequent ticks
+      node.messageRate += 1;
 
-    // Snapshot the peak rate at pulse time for fade colour interpolation.
-    // This value persists so the renderer can fade from a meaningful warm
-    // colour even after EMA decay has pulled messageRate back toward zero.
-    node.pulseRate = node.messageRate;
+      // Snapshot the peak rate at pulse time for fade colour interpolation.
+      // This value persists so the renderer can fade from a meaningful warm
+      // colour even after EMA decay has pulled messageRate back toward zero.
+      node.pulseRate = node.messageRate;
 
-    // Propagate pulse timestamp up the ancestor chain if enabled
-    if (state.ancestorPulse) {
-      const now = node.lastTimestamp;
-      const ancestorPaths = getAncestorPaths(topic);
-      for (const path of ancestorPaths) {
-        // Look up existing ancestor node by walking the tree (don't create new nodes)
-        const segments = path === "" ? [] : path.split("/");
-        let ancestor: TopicNode | undefined = root;
-        for (const seg of segments) {
-          ancestor = ancestor.children.get(seg);
-          if (!ancestor) break;
-        }
-        if (ancestor) {
-          ancestor.lastTimestamp = now;
-          // Snapshot aggregate rate for ancestor fade colour.
-          // Use max(..., 1) because bottom-up aggregation hasn't run yet
-          // for this tick, so aggregateRate may be stale. The 1 guarantees
-          // at least a visible warm colour ("something happened in my subtree").
-          ancestor.pulseRate = Math.max(ancestor.aggregateRate, 1);
+      // Propagate pulse timestamp up the ancestor chain if enabled
+      if (state.ancestorPulse) {
+        const now = node.lastTimestamp;
+        const ancestorPaths = getAncestorPaths(topic);
+        for (const path of ancestorPaths) {
+          // Look up existing ancestor node by walking the tree (don't create new nodes)
+          const segments = path === "" ? [] : path.split("/");
+          let ancestor: TopicNode | undefined = root;
+          for (const seg of segments) {
+            ancestor = ancestor.children.get(seg);
+            if (!ancestor) break;
+          }
+          if (ancestor) {
+            ancestor.lastTimestamp = now;
+            // Snapshot aggregate rate for ancestor fade colour.
+            // Use max(..., 1) because bottom-up aggregation hasn't run yet
+            // for this tick, so aggregateRate may be stale. The 1 guarantees
+            // at least a visible warm colour ("something happened in my subtree").
+            ancestor.pulseRate = Math.max(ancestor.aggregateRate, 1);
+          }
         }
       }
     }
@@ -726,6 +750,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       collisionPadding: cfg.collisionPadding ?? 13,
       alphaDecay: cfg.alphaDecay ?? 0.01,
       pruneTimeout: cfg.pruneTimeout ?? 0,
+      suppressRetainedBurst: cfg.suppressRetainedBurst ?? true,
+      burstWindowDuration: cfg.burstWindowDuration ?? 15_000,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
@@ -813,6 +839,14 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   setPruneTimeout: (value: number) => {
     set({ pruneTimeout: value });
     persistSettings({ pruneTimeout: value });
+  },
+  setSuppressRetainedBurst: (enabled: boolean) => {
+    set({ suppressRetainedBurst: enabled });
+    persistSettings({ suppressRetainedBurst: enabled });
+  },
+  setBurstWindowDuration: (value: number) => {
+    set({ burstWindowDuration: value });
+    persistSettings({ burstWindowDuration: value });
   },
   setAncestorPulse: (enabled: boolean) => {
     set({ ancestorPulse: enabled });

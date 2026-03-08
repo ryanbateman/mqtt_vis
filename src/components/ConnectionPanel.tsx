@@ -7,6 +7,7 @@ import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
 import { useTopicStore } from "../stores/topicStore";
 import { mqttService } from "../services/mqttService";
 import { formatLogTimestamp } from "../utils/connectionErrors";
+import { SliderRow, InfoTooltip } from "./SettingsPanel";
 
 /** Sentinel value used as the <select> value for the Custom Broker option. */
 const CUSTOM_BROKER = "__custom__";
@@ -112,8 +113,14 @@ export function ConnectionPanel({
   const [collapsed, setCollapsed] = useState(
     savedSettings.connectionCollapsed ?? cfg.connectionCollapsed ?? false
   );
-  const [activeTab, setActiveTab] = useState<"connect" | "log">("connect");
+  const [activeTab, setActiveTab] = useState<"connect" | "filter" | "log">("connect");
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
+  const suppressRetainedBurst = useTopicStore((s) => s.suppressRetainedBurst);
+  const setSuppressRetainedBurst = useTopicStore((s) => s.setSuppressRetainedBurst);
+  const burstWindowDuration = useTopicStore((s) => s.burstWindowDuration);
+  const setBurstWindowDuration = useTopicStore((s) => s.setBurstWindowDuration);
+  const pruneTimeout = useTopicStore((s) => s.pruneTimeout);
+  const setPruneTimeout = useTopicStore((s) => s.setPruneTimeout);
 
   // Auto-collapse when a node is selected (to make room for the DetailPanel).
   // Deselecting does NOT re-expand — the user can manually expand if they want.
@@ -337,6 +344,17 @@ export function ConnectionPanel({
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab("filter")}
+              className={`pb-1.5 text-xs font-medium transition-colors ${
+                activeTab === "filter"
+                  ? "text-blue-400 border-b-2 border-blue-400 -mb-px"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              Filter
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab("log")}
               className={`pb-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
                 activeTab === "log"
@@ -555,6 +573,52 @@ export function ConnectionPanel({
                 Export graph as PNG
               </button>
             </form>
+          )}
+
+          {/* Filter tab */}
+          {activeTab === "filter" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-medium text-gray-400">
+                    Suppress Retained Burst
+                  </label>
+                  <InfoTooltip text="When enabled, retained messages received during the burst window after connecting won't trigger pulse animations. Nodes are still created — only the visual effects are suppressed." />
+                </div>
+                <input
+                  type="checkbox"
+                  checked={suppressRetainedBurst}
+                  onChange={(e) => setSuppressRetainedBurst(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                />
+              </div>
+              {suppressRetainedBurst && (
+                <SliderRow
+                  label="Burst Window"
+                  tooltip="How long after connecting to suppress retained message pulses. Longer windows catch slower brokers with large retained sets."
+                  value={burstWindowDuration / 1000}
+                  displayValue={`${burstWindowDuration / 1000}s`}
+                  min={5}
+                  max={30}
+                  step={1}
+                  minLabel="5s"
+                  maxLabel="30s"
+                  onChange={(v) => setBurstWindowDuration(v * 1000)}
+                />
+              )}
+              <SliderRow
+                label="Prune Idle Nodes"
+                tooltip="Remove nodes that stop receiving messages after this time. Helps clear retained message clutter after initial connect."
+                value={pruneTimeout === 0 ? 6 : pruneTimeout / 60_000}
+                displayValue={pruneTimeout === 0 ? "Never" : `${pruneTimeout / 60_000} min`}
+                min={1}
+                max={6}
+                step={1}
+                minLabel="1 min"
+                maxLabel="Never"
+                onChange={(v) => setPruneTimeout(v >= 6 ? 0 : v * 60_000)}
+              />
+            </div>
           )}
 
           {/* Log tab */}

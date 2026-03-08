@@ -17,9 +17,9 @@ export function useMqttClient() {
 
   // Set up message and status handlers
   useEffect(() => {
-    mqttService.setMessageHandler((topic, payload, qos) => {
+    mqttService.setMessageHandler((topic, payload, qos, retain) => {
       const payloadStr = payload.toString();
-      handleMessage(topic, payloadStr, qos);
+      handleMessage(topic, payloadStr, qos, retain);
     });
 
     mqttService.setStatusHandler((status, error) => {

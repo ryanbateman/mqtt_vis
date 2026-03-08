@@ -43,6 +43,8 @@ export interface SavedSettings {
   collisionPadding?: number;
   alphaDecay?: number;
   pruneTimeout?: number;
+  suppressRetainedBurst?: boolean;
+  burstWindowDuration?: number;
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
@@ -98,6 +100,8 @@ function validate(raw: StoredSettings): SavedSettings {
     collisionPadding:   validNumber(raw.collisionPadding,     0,   20),
     alphaDecay:         validNumber(raw.alphaDecay,         0.001, 0.05),
     pruneTimeout:       validNumber(raw.pruneTimeout,       0, 300_000),
+    suppressRetainedBurst: validBoolean(raw.suppressRetainedBurst),
+    burstWindowDuration: validNumber(raw.burstWindowDuration, 5_000, 30_000),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),
   };

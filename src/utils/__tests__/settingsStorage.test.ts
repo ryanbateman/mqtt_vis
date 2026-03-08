@@ -194,6 +194,34 @@ describe("loadSavedSettings", () => {
     expect(loadSavedSettings().labelStrokeWidth).toBe(9);
   });
 
+  it("validates suppressRetainedBurst as boolean", () => {
+    writeRaw({ _version: 1, suppressRetainedBurst: true });
+    expect(loadSavedSettings().suppressRetainedBurst).toBe(true);
+
+    writeRaw({ _version: 1, suppressRetainedBurst: false });
+    expect(loadSavedSettings().suppressRetainedBurst).toBe(false);
+
+    writeRaw({ _version: 1, suppressRetainedBurst: "yes" });
+    expect(loadSavedSettings().suppressRetainedBurst).toBeUndefined();
+  });
+
+  it("drops burstWindowDuration outside valid range (5000 to 30000)", () => {
+    writeRaw({ _version: 1, burstWindowDuration: 3000 }); // too low
+    expect(loadSavedSettings().burstWindowDuration).toBeUndefined();
+
+    writeRaw({ _version: 1, burstWindowDuration: 50_000 }); // too high
+    expect(loadSavedSettings().burstWindowDuration).toBeUndefined();
+
+    writeRaw({ _version: 1, burstWindowDuration: 5000 }); // min boundary
+    expect(loadSavedSettings().burstWindowDuration).toBe(5000);
+
+    writeRaw({ _version: 1, burstWindowDuration: 30_000 }); // max boundary
+    expect(loadSavedSettings().burstWindowDuration).toBe(30_000);
+
+    writeRaw({ _version: 1, burstWindowDuration: 15_000 }); // mid-range
+    expect(loadSavedSettings().burstWindowDuration).toBe(15_000);
+  });
+
   it("drops repulsionStrength outside valid range (-500 to -20)", () => {
     writeRaw({ _version: 1, repulsionStrength: -10 }); // too high (less negative)
     expect(loadSavedSettings().repulsionStrength).toBeUndefined();
@@ -233,7 +261,7 @@ describe("persistSettings", () => {
     expect(loadSavedSettings().emaTau).toBe(8);
   });
 
-  it("can persist all 20 fields", () => {
+  it("can persist all 22 fields", () => {
     const full: SavedSettings = {
       emaTau: 5,
       nodeScale: 1.5,
@@ -253,6 +281,8 @@ describe("persistSettings", () => {
       collisionPadding: 5,
       alphaDecay: 0.02,
       pruneTimeout: 180_000,
+      suppressRetainedBurst: false,
+      burstWindowDuration: 20_000,
       settingsCollapsed: true,
       connectionCollapsed: false,
     };
@@ -315,6 +345,7 @@ describe("round-trip persist → load", () => {
       collisionPadding: 8,
       alphaDecay: 0.015,
       pruneTimeout: 120_000,
+      burstWindowDuration: 20_000,
     };
     persistSettings(settings);
     const result = loadSavedSettings();
@@ -331,6 +362,7 @@ describe("round-trip persist → load", () => {
       showTooltips: false,
       showLabels: true,
       scaleTextByDepth: false,
+      suppressRetainedBurst: false,
       settingsCollapsed: true,
       connectionCollapsed: false,
     });
@@ -341,6 +373,7 @@ describe("round-trip persist → load", () => {
     expect(result.showTooltips).toBe(false);
     expect(result.showLabels).toBe(true);
     expect(result.scaleTextByDepth).toBe(false);
+    expect(result.suppressRetainedBurst).toBe(false);
     expect(result.settingsCollapsed).toBe(true);
     expect(result.connectionCollapsed).toBe(false);
   });
