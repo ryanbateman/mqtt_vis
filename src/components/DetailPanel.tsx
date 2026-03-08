@@ -23,6 +23,7 @@ export function DetailPanel({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [copiedPayload, setCopiedPayload] = useState(false);
   const [prettyJson, setPrettyJson] = useState(_prettyJsonPref);
 
   const topicPath = graphNode.id || "(root)";
@@ -49,6 +50,18 @@ export function DetailPanel({
       setTimeout(() => setCopied(false), 1500);
     } catch {
       // Fallback: select the text (clipboard API may be unavailable)
+    }
+  };
+
+  const handleCopyPayload = async () => {
+    const text = prettyJson && formattedPayload ? formattedPayload : topicNode.lastPayload;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedPayload(true);
+      setTimeout(() => setCopiedPayload(false), 1500);
+    } catch {
+      // Clipboard API may be unavailable in insecure contexts
     }
   };
 
@@ -154,19 +167,36 @@ export function DetailPanel({
         <div className="p-3 overflow-y-auto min-h-0 flex-1">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-gray-500">Last Payload</span>
-            {isJson && (
+            <div className="flex items-center gap-1">
               <button
-                onClick={() => { _prettyJsonPref = !prettyJson; setPrettyJson(!prettyJson); }}
-                className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
-                  prettyJson
-                    ? "bg-blue-600/30 text-blue-300"
-                    : "text-gray-500 hover:text-gray-300"
-                }`}
-                title="Toggle JSON pretty-print"
+                onClick={handleCopyPayload}
+                className="text-gray-500 hover:text-gray-300 transition-colors p-0.5"
+                title="Copy payload"
               >
-                {"{ }"}
+                {copiedPayload ? (
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                  </svg>
+                )}
               </button>
-            )}
+              {isJson && (
+                <button
+                  onClick={() => { _prettyJsonPref = !prettyJson; setPrettyJson(!prettyJson); }}
+                  className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                    prettyJson
+                      ? "bg-blue-600/30 text-blue-300"
+                      : "text-gray-500 hover:text-gray-300"
+                  }`}
+                  title="Toggle JSON pretty-print"
+                >
+                  {"{ }"}
+                </button>
+              )}
+            </div>
           </div>
           <pre className="text-[11px] font-mono text-gray-300 whitespace-pre-wrap break-all leading-snug max-h-60 overflow-y-auto">
             {prettyJson && formattedPayload ? formattedPayload : topicNode.lastPayload}

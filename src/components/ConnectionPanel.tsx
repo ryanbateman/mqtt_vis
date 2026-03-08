@@ -160,6 +160,11 @@ export function ConnectionPanel({
   const isConnected = connectionStatus === "connected";
   const isConnecting = connectionStatus === "connecting";
 
+  /** Cancel any in-progress reconnect loop when the user focuses a connection field. */
+  const cancelReconnect = useCallback(() => {
+    if (isConnecting) onDisconnect();
+  }, [isConnecting, onDisconnect]);
+
   const knownBrokerUrls = useMemo(() => new Set(brokers.map((b) => b.url)), [brokers]);
 
   /** Handle dropdown selection changes. */
@@ -370,7 +375,8 @@ export function ConnectionPanel({
                     <select
                       value={dropdownValue}
                       onChange={(e) => handleDropdownChange(e.target.value)}
-                      disabled={isConnected || isConnecting}
+                      onFocus={cancelReconnect}
+                      disabled={isConnected}
                       className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
                     >
                       {brokers.map((broker) => (
@@ -392,7 +398,8 @@ export function ConnectionPanel({
                   type="text"
                   value={brokerUrl}
                   onChange={(e) => handleBrokerUrlChange(e.target.value)}
-                  disabled={isConnected || isConnecting}
+                  onFocus={cancelReconnect}
+                  disabled={isConnected}
                   placeholder="wss://broker.example.com:8884/mqtt"
                   className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
                 />
@@ -406,7 +413,8 @@ export function ConnectionPanel({
                   type="text"
                   value={topicFilter}
                   onChange={(e) => setTopicFilter(e.target.value)}
-                  disabled={isConnected || isConnecting}
+                  onFocus={cancelReconnect}
+                  disabled={isConnected}
                   placeholder="#"
                   className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
                 />
@@ -423,7 +431,7 @@ export function ConnectionPanel({
                   {!configForcesClientId && (
                     <label
                       className={`flex items-center gap-1.5 ${
-                        isConnected || isConnecting
+                        isConnected
                           ? "opacity-50 cursor-not-allowed"
                           : "cursor-pointer"
                       }`}
@@ -446,7 +454,8 @@ export function ConnectionPanel({
                             localStorage.setItem("mqtt_connection", JSON.stringify(data));
                           } catch { /* ignore */ }
                         }}
-                        disabled={isConnected || isConnecting}
+                        onFocus={cancelReconnect}
+                        disabled={isConnected}
                         className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-blue-500 accent-blue-500 cursor-pointer disabled:cursor-not-allowed"
                       />
                     </label>
@@ -456,7 +465,8 @@ export function ConnectionPanel({
                   type="text"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  disabled={configForcesClientId || !customClientId || isConnected || isConnecting}
+                  onFocus={cancelReconnect}
+                  disabled={configForcesClientId || !customClientId || isConnected}
                   placeholder="mqtt_visualiser_..."
                   className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
                 />
@@ -476,7 +486,8 @@ export function ConnectionPanel({
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    disabled={isConnected || isConnecting}
+                    onFocus={cancelReconnect}
+                    disabled={isConnected}
                     placeholder="Username (optional)"
                     className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
                   />
@@ -484,7 +495,8 @@ export function ConnectionPanel({
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    disabled={isConnected || isConnecting}
+                    onFocus={cancelReconnect}
+                    disabled={isConnected}
                     placeholder="Password (optional)"
                     className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
                   />
