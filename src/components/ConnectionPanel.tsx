@@ -117,6 +117,8 @@ export function ConnectionPanel({
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
   const dropRetainedBurst = useTopicStore((s) => s.dropRetainedBurst);
   const setDropRetainedBurst = useTopicStore((s) => s.setDropRetainedBurst);
+  const burstWindowActive = useTopicStore((s) => s.burstWindowActive);
+  const burstSettingsLocked = useTopicStore((s) => s.burstSettingsLocked);
   const burstWindowDuration = useTopicStore((s) => s.burstWindowDuration);
   const setBurstWindowDuration = useTopicStore((s) => s.setBurstWindowDuration);
   const pruneTimeout = useTopicStore((s) => s.pruneTimeout);
@@ -314,7 +316,23 @@ export function ConnectionPanel({
             {errorMessage}
           </span>
         )}
-        <div className={`w-2.5 h-2.5 rounded-full ml-auto flex-shrink-0 ${statusColor}`} />
+        <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+          {burstWindowActive && (
+            <svg
+              className="w-3 h-3 text-amber-400 animate-pulse"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <title>Dropping retained messages — burst window active</title>
+              <path
+                fillRule="evenodd"
+                d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                clipRule="evenodd"
+              />
+            </svg>
+          )}
+          <div className={`w-2.5 h-2.5 rounded-full ${statusColor}`} />
+        </div>
       </button>
 
       {/* Animated collapsible body — always mounted, grid-row collapses to 0fr */}
@@ -579,7 +597,7 @@ export function ConnectionPanel({
           {activeTab === "filter" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
+                <div className={`flex items-center gap-1.5 ${burstSettingsLocked ? "opacity-50" : ""}`}>
                   <label className="text-xs font-medium text-gray-400">
                     Drop Retained Messages
                   </label>
@@ -589,7 +607,8 @@ export function ConnectionPanel({
                   type="checkbox"
                   checked={dropRetainedBurst}
                   onChange={(e) => setDropRetainedBurst(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                  disabled={burstSettingsLocked}
+                  className={`h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 ${burstSettingsLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 />
               </div>
               {dropRetainedBurst && (
@@ -604,6 +623,7 @@ export function ConnectionPanel({
                   minLabel="5s"
                   maxLabel="30s"
                   onChange={(v) => setBurstWindowDuration(v * 1000)}
+                  disabled={burstSettingsLocked}
                 />
               )}
               <SliderRow

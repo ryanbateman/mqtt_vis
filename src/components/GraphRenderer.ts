@@ -270,8 +270,8 @@ export class GraphRenderer {
           : undefined;
 
         if (parentPos) {
-          node.x = parentPos.x + (Math.random() - 0.5) * 30;
-          node.y = parentPos.y + (Math.random() - 0.5) * 30;
+          node.x = parentPos.x + (Math.random() - 0.5) * 100;
+          node.y = parentPos.y + (Math.random() - 0.5) * 100;
         } else {
           // Root node or no locatable parent — fall back to center
           node.x = this.width / 2 + (Math.random() - 0.5) * 100;

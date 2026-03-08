@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useTopicStore } from "../topicStore";
 import { MIN_RADIUS } from "../../utils/sizeCalculator";
 import {
@@ -1723,5 +1723,86 @@ describe("topicStore — drop retained burst", () => {
     state().resetSettings();
     expect(state().dropRetainedBurst).toBe(true);
     expect(state().burstWindowDuration).toBe(15_000);
+  });
+});
+
+describe("topicStore — burst window UI state", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    state().reset();
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+    clearSavedSettings();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("burstWindowActive is true after connect when dropRetainedBurst is enabled", () => {
+    state().setDropRetainedBurst(true);
+    state().setConnectionStatus("connected");
+    expect(state().burstWindowActive).toBe(true);
+  });
+
+  it("burstWindowActive is false after connect when dropRetainedBurst is disabled", () => {
+    state().setDropRetainedBurst(false);
+    state().setConnectionStatus("connected");
+    expect(state().burstWindowActive).toBe(false);
+  });
+
+  it("burstSettingsLocked is true after connect when dropRetainedBurst is enabled", () => {
+    state().setDropRetainedBurst(true);
+    state().setConnectionStatus("connected");
+    expect(state().burstSettingsLocked).toBe(true);
+  });
+
+  it("burstSettingsLocked is false after connect when dropRetainedBurst is disabled", () => {
+    state().setDropRetainedBurst(false);
+    state().setConnectionStatus("connected");
+    expect(state().burstSettingsLocked).toBe(false);
+  });
+
+  it("burstWindowActive becomes false after burstWindowDuration expires", () => {
+    state().setDropRetainedBurst(true);
+    state().setBurstWindowDuration(10_000);
+    state().setConnectionStatus("connected");
+    expect(state().burstWindowActive).toBe(true);
+
+    vi.advanceTimersByTime(10_000);
+    expect(state().burstWindowActive).toBe(false);
+  });
+
+  it("burstSettingsLocked stays true after burst window expires", () => {
+    state().setDropRetainedBurst(true);
+    state().setBurstWindowDuration(10_000);
+    state().setConnectionStatus("connected");
+
+    vi.advanceTimersByTime(10_000);
+    // Window expired — indicator gone, but settings still locked
+    expect(state().burstWindowActive).toBe(false);
+    expect(state().burstSettingsLocked).toBe(true);
+  });
+
+  it("both flags reset on disconnect", () => {
+    state().setDropRetainedBurst(true);
+    state().setConnectionStatus("connected");
+    expect(state().burstWindowActive).toBe(true);
+    expect(state().burstSettingsLocked).toBe(true);
+
+    state().setConnectionStatus("disconnected", "");
+    expect(state().burstWindowActive).toBe(false);
+    expect(state().burstSettingsLocked).toBe(false);
+  });
+
+  it("both flags reset on reset()", () => {
+    state().setDropRetainedBurst(true);
+    state().setConnectionStatus("connected");
+    expect(state().burstWindowActive).toBe(true);
+    expect(state().burstSettingsLocked).toBe(true);
+
+    state().reset();
+    expect(state().burstWindowActive).toBe(false);
+    expect(state().burstSettingsLocked).toBe(false);
   });
 });

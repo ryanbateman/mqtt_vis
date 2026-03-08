@@ -113,6 +113,10 @@ interface TopicStoreState {
    * Capped at MAX_HIGHLIGHTED_NODES entries (silently truncated).
    */
   highlightedNodes: Map<string, string>;
+  /** Whether the burst drop window is currently active (dropping retained messages). UI-only — drives the header indicator. */
+  burstWindowActive: boolean;
+  /** Whether burst settings (checkbox + slider) are locked. True from connect (when dropRetainedBurst is on) until disconnect. */
+  burstSettingsLocked: boolean;
 
   /** Toggle ancestor pulse behaviour. */
   setAncestorPulse: (enabled: boolean) => void;
@@ -324,6 +328,8 @@ const BURST_STRUCTURAL_INTERVAL_MS = 250;
 let _burstWindowStart = 0;
 let _lastStructuralFlush = 0;
 let _burstThrottleId: ReturnType<typeof setTimeout> | null = null;
+/** Timer that clears `burstWindowActive` after the burst window expires. */
+let _burstActiveTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 export const useTopicStore = create<TopicStoreState>((set, get) => {
   const cfg = getConfig();
@@ -365,6 +371,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   exportRequested: 0,
   selectedNodeId: null,
   highlightedNodes: new Map<string, string>(),
+  burstWindowActive: false,
+  burstSettingsLocked: false,
 
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false) => {
     perfMark("handle-msg-start");
@@ -474,6 +482,31 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       _burstWindowStart = Date.now();
       _lastStructuralFlush = 0;
     }
+
+    // Burst UI state — lock settings and show indicator when drop is enabled.
+    const burstUpdates: Partial<TopicStoreState> = {};
+    if (status === "connected") {
+      const state = get();
+      if (state.dropRetainedBurst) {
+        burstUpdates.burstWindowActive = true;
+        burstUpdates.burstSettingsLocked = true;
+        // Clear any stale timer from a previous connection
+        if (_burstActiveTimeoutId !== null) clearTimeout(_burstActiveTimeoutId);
+        _burstActiveTimeoutId = setTimeout(() => {
+          _burstActiveTimeoutId = null;
+          set({ burstWindowActive: false });
+        }, state.burstWindowDuration);
+      }
+    } else if (status === "disconnected") {
+      // Unlock settings and clear indicator on disconnect
+      burstUpdates.burstWindowActive = false;
+      burstUpdates.burstSettingsLocked = false;
+      if (_burstActiveTimeoutId !== null) {
+        clearTimeout(_burstActiveTimeoutId);
+        _burstActiveTimeoutId = null;
+      }
+    }
+
     set({
       connectionStatus: status,
       // Preserve the last error message across reconnect-loop status changes
@@ -488,6 +521,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           ? null                         // success — clear
           : get().errorMessage,          // all other transitions — preserve
       ...(status === "connected" ? { sessionStart: Date.now() } : {}),
+      ...burstUpdates,
     });
   },
 
@@ -693,6 +727,11 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       clearTimeout(_burstThrottleId);
       _burstThrottleId = null;
     }
+    // Cancel burst active indicator timer
+    if (_burstActiveTimeoutId !== null) {
+      clearTimeout(_burstActiveTimeoutId);
+      _burstActiveTimeoutId = null;
+    }
     _burstWindowStart = 0;
     _lastStructuralFlush = 0;
     _payloadLru.clear();
@@ -714,6 +753,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       scaleNodeSizeByDepth: savedForReset.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
       selectedNodeId: null,
       highlightedNodes: new Map<string, string>(),
+      burstWindowActive: false,
+      burstSettingsLocked: false,
     });
   },
 

@@ -87,7 +87,9 @@ When new nodes appear in `GraphRenderer.update()`, they are placed near their pa
 When subscribing (especially with `#`), the broker delivers all stored retained messages as a burst. The `packet.retain` flag is threaded through `mqttService → useMqttClient → topicStore.handleMessage`. During a configurable burst window after connection (default 15 s, range 5–30 s), messages with `retain=true` are **fully dropped** — `handleMessage` returns immediately before `ensureTopicPathTracked`, so no nodes are created, no counters incremented, no visual effects triggered. Non-retained messages always pass normally. After the burst window closes, all messages are processed regardless of retain flag.
 
 - **Settings**: `dropRetainedBurst` (boolean, default `true`) and `burstWindowDuration` (ms, default `15000`). Both persisted to `mqtt_settings` localStorage and included in `resetSettings`.
-- **UI**: Connection Panel → Filter tab. Toggle + conditional burst window slider.
+- **UI**: Connection Panel → Filter tab. Toggle + conditional burst window slider. Both controls are disabled (locked) from connect until disconnect when `dropRetainedBurst` is enabled.
+- **Visual indicator**: A pulsing amber `!` appears to the left of the connection status dot in the panel header while the burst window is active. On hover it explains that retained messages are being dropped. The indicator disappears when the burst window expires; the settings remain locked until disconnect.
+- **Store fields**: `burstWindowActive` (boolean, ephemeral — true while dropping, false after window expires or disconnect) and `burstSettingsLocked` (boolean, ephemeral — true from connect to disconnect when drop is enabled). Neither is persisted.
 - **Prune Idle Nodes** also lives in the Filter tab (moved from Settings → Simulation in v1.13.0).
 
 ## Code Quality
@@ -117,8 +119,8 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (292 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 125 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), and drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset).
+Current test coverage (300 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 133 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset), and burst window UI state (burstWindowActive/burstSettingsLocked lifecycle, timer expiry, disconnect/reset cleanup).
 - `src/utils/__tests__/settingsStorage.test.ts` — 30 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all 22 persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `dropRetainedBurst` validation, `burstWindowDuration` validation, and `labelMode` values including `"activity"`.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 41 tests for rate/timestamp formatting, payload truncation, depth scaling, and payload size formatting.

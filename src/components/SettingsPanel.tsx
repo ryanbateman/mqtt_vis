@@ -67,6 +67,7 @@ export function SliderRow({
   minLabel,
   maxLabel,
   onChange,
+  disabled,
 }: {
   label: string;
   tooltip: string;
@@ -78,9 +79,10 @@ export function SliderRow({
   minLabel: string;
   maxLabel: string;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div>
+    <div className={disabled ? "opacity-50 pointer-events-none" : ""}>
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5">
           <label className="text-xs font-medium text-gray-400">{label}</label>
@@ -95,6 +97,7 @@ export function SliderRow({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        disabled={disabled}
         className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
       />
       <div className="flex justify-between mt-0.5">
