@@ -27,6 +27,26 @@ const IS_TOUCH_ONLY =
 /** Base blur stdDeviation for the glow SVG filter (at zoom scale 1.0). */
 const BASE_GLOW_STD_DEV = 4;
 
+/**
+ * Compute the idle stroke-opacity for a link based on the child (target) node's
+ * depth.  Shallow links (depth 1) are faint to reduce visual clutter near the
+ * root; deeper links are more prominent.
+ *
+ * Range: depth 1 → 0.15,  depth ≥ 5 → 0.8   (linear clamp)
+ */
+const MIN_LINK_OPACITY = 0.35;
+const MAX_LINK_OPACITY = 0.6;
+const LINK_OPACITY_DEPTH_MIN = 1;
+const LINK_OPACITY_DEPTH_MAX = 5;
+
+function linkBaseOpacity(targetDepth: number): number {
+  const t = Math.min(
+    Math.max((targetDepth - LINK_OPACITY_DEPTH_MIN) / (LINK_OPACITY_DEPTH_MAX - LINK_OPACITY_DEPTH_MIN), 0),
+    1,
+  );
+  return MIN_LINK_OPACITY + (MAX_LINK_OPACITY - MIN_LINK_OPACITY) * t;
+}
+
 /** Default base font size for labels in pixels (at zoom scale 1.0). */
 const DEFAULT_BASE_FONT_SIZE = 14;
 
@@ -285,8 +305,18 @@ export class GraphRenderer {
       .append("line")
       .attr("stroke", "#6b7280")
       .attr("stroke-width", 1.5)
-      .attr("stroke-opacity", 0.8)
       .merge(this.linkElements);
+
+    // Set depth-based idle opacity on all links (enter + update).
+    // At this point target may still be a string ID (pre-resolution), so look
+    // up depth from the nodes array via a map built above.
+    const nodeDepthMap = new Map<string, number>();
+    for (const n of nodes) nodeDepthMap.set(n.id, n.depth);
+
+    this.linkElements.attr("stroke-opacity", (d) => {
+      const targetId = typeof d.target === "string" ? d.target : (d.target as GraphNode).id;
+      return linkBaseOpacity(nodeDepthMap.get(targetId) ?? 1);
+    });
 
     // --- Update nodes ---
     this.nodeElements = this.nodeGroup
@@ -356,6 +386,9 @@ export class GraphRenderer {
       .attr("font-size", `${this.baseFontSize}px`)
       .attr("font-family", "monospace")
       .attr("pointer-events", "none")
+      .attr("stroke", "#111827")
+      .attr("stroke-width", 4.5)
+      .attr("paint-order", "stroke fill")
       .merge(this.labelElements)
       .text((d) => d.label);
 
@@ -995,13 +1028,15 @@ export class GraphRenderer {
           toRemove.push(this.linkKey(d));
           return IDLE_LINK_COLOR;
         }
-        return d3.interpolateRgb("#ffffff", IDLE_LINK_COLOR)(t);
+        return d3.interpolateRgb("#d1d5db", IDLE_LINK_COLOR)(t);
       })
       .attr("stroke-opacity", (d) => {
-        if (!d.pulse) return 0.8;
+        const targetDepth = (d.target as GraphNode).depth ?? 1;
+        const base = linkBaseOpacity(targetDepth);
+        if (!d.pulse) return base;
         const age = now - (d.pulseTimestamp ?? 0);
         const t = Math.min(age / duration, 1);
-        return 1 - 0.2 * t; // 1.0 → 0.8
+        return 1 - (1 - base) * t; // 1.0 → base
       });
 
     for (const key of toRemove) {

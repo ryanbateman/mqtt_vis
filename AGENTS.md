@@ -60,6 +60,18 @@ Radius follows a logarithmic scale: `MIN_R + (MAX_R - MIN_R) * (log(1 + aggregat
 Two layered effects on message publish:
 1. **Glow/Pulse** — SVG filter (`feGaussianBlur` + `feComposite`) on the node, animated via attribute interpolation. The glow blur scales inversely with zoom level so it appears consistent at any zoom.
 2. **Heat map** — Node fill colour mapped from `messageRate` using `d3-scale-chromatic`. Updated on each render tick. Idle nodes display `IDLE_COLOR`/`IDLE_STROKE` (set on enter to avoid the SVG default black fill).
+3. **Link pulse** — Links flash `#d1d5db` (grey-300) when both endpoints are pulsing, fading back to the idle colour over `fadeDuration`. Idle link opacity is depth-based (shallow links are fainter) via `linkBaseOpacity()`.
+
+### Link Rendering
+
+Links use depth-based idle opacity to reduce visual clutter near the root:
+- Opacity scales linearly from `MIN_LINK_OPACITY` (0.35 at depth 1) to `MAX_LINK_OPACITY` (0.6 at depth 5+).
+- Pulse animation overrides to full opacity, then fades back to the depth-based base.
+- Pulse flash colour is `#d1d5db` (grey-300), not pure white — avoids blown-out appearance.
+
+### Label Rendering
+
+Labels use a `paint-order: stroke fill` halo for readability: a dark stroke (`#111827`, grey-900) renders behind the light text fill, creating a contrast backdrop without extra DOM elements. The halo opacity scales with the label opacity (zoom/depth/activity mode).
 
 ### New Node Placement
 
