@@ -115,8 +115,8 @@ export function ConnectionPanel({
   );
   const [activeTab, setActiveTab] = useState<"connect" | "filter" | "log">("connect");
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
-  const suppressRetainedBurst = useTopicStore((s) => s.suppressRetainedBurst);
-  const setSuppressRetainedBurst = useTopicStore((s) => s.setSuppressRetainedBurst);
+  const dropRetainedBurst = useTopicStore((s) => s.dropRetainedBurst);
+  const setDropRetainedBurst = useTopicStore((s) => s.setDropRetainedBurst);
   const burstWindowDuration = useTopicStore((s) => s.burstWindowDuration);
   const setBurstWindowDuration = useTopicStore((s) => s.setBurstWindowDuration);
   const pruneTimeout = useTopicStore((s) => s.pruneTimeout);
@@ -581,21 +581,21 @@ export function ConnectionPanel({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <label className="text-xs font-medium text-gray-400">
-                    Suppress Retained Burst
+                    Drop Retained Messages
                   </label>
-                  <InfoTooltip text="When enabled, retained messages received during the burst window after connecting won't trigger pulse animations. Nodes are still created — only the visual effects are suppressed." />
+                  <InfoTooltip text="Completely ignore retained messages during the burst window after connecting. No nodes are created, no counters incremented. Prevents the graph from exploding with stale retained data on subscribe." />
                 </div>
                 <input
                   type="checkbox"
-                  checked={suppressRetainedBurst}
-                  onChange={(e) => setSuppressRetainedBurst(e.target.checked)}
+                  checked={dropRetainedBurst}
+                  onChange={(e) => setDropRetainedBurst(e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
                 />
               </div>
-              {suppressRetainedBurst && (
+              {dropRetainedBurst && (
                 <SliderRow
                   label="Burst Window"
-                  tooltip="How long after connecting to suppress retained message pulses. Longer windows catch slower brokers with large retained sets."
+                  tooltip="How long after connecting to drop retained messages. Longer windows catch slower brokers with large retained sets."
                   value={burstWindowDuration / 1000}
                   displayValue={`${burstWindowDuration / 1000}s`}
                   min={5}

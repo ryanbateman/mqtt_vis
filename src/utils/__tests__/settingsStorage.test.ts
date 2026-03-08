@@ -194,15 +194,15 @@ describe("loadSavedSettings", () => {
     expect(loadSavedSettings().labelStrokeWidth).toBe(9);
   });
 
-  it("validates suppressRetainedBurst as boolean", () => {
-    writeRaw({ _version: 1, suppressRetainedBurst: true });
-    expect(loadSavedSettings().suppressRetainedBurst).toBe(true);
+  it("validates dropRetainedBurst as boolean", () => {
+    writeRaw({ _version: 1, dropRetainedBurst: true });
+    expect(loadSavedSettings().dropRetainedBurst).toBe(true);
 
-    writeRaw({ _version: 1, suppressRetainedBurst: false });
-    expect(loadSavedSettings().suppressRetainedBurst).toBe(false);
+    writeRaw({ _version: 1, dropRetainedBurst: false });
+    expect(loadSavedSettings().dropRetainedBurst).toBe(false);
 
-    writeRaw({ _version: 1, suppressRetainedBurst: "yes" });
-    expect(loadSavedSettings().suppressRetainedBurst).toBeUndefined();
+    writeRaw({ _version: 1, dropRetainedBurst: "yes" });
+    expect(loadSavedSettings().dropRetainedBurst).toBeUndefined();
   });
 
   it("drops burstWindowDuration outside valid range (5000 to 30000)", () => {
@@ -281,7 +281,7 @@ describe("persistSettings", () => {
       collisionPadding: 5,
       alphaDecay: 0.02,
       pruneTimeout: 180_000,
-      suppressRetainedBurst: false,
+      dropRetainedBurst: false,
       burstWindowDuration: 20_000,
       settingsCollapsed: true,
       connectionCollapsed: false,
@@ -362,7 +362,7 @@ describe("round-trip persist → load", () => {
       showTooltips: false,
       showLabels: true,
       scaleTextByDepth: false,
-      suppressRetainedBurst: false,
+      dropRetainedBurst: false,
       settingsCollapsed: true,
       connectionCollapsed: false,
     });
@@ -373,7 +373,7 @@ describe("round-trip persist → load", () => {
     expect(result.showTooltips).toBe(false);
     expect(result.showLabels).toBe(true);
     expect(result.scaleTextByDepth).toBe(false);
-    expect(result.suppressRetainedBurst).toBe(false);
+    expect(result.dropRetainedBurst).toBe(false);
     expect(result.settingsCollapsed).toBe(true);
     expect(result.connectionCollapsed).toBe(false);
   });

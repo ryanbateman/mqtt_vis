@@ -82,11 +82,11 @@ When new nodes appear in `GraphRenderer.update()`, they are placed near their pa
 - A `justPlaced` map chains positions for burst scenarios where an entire subtree appears in a single frame.
 - Root nodes and orphans fall back to viewport centre with jitter.
 
-### Retained Burst Suppression
+### Drop Retained Burst
 
-When subscribing (especially with `#`), the broker delivers all stored retained messages as a burst. The `packet.retain` flag is threaded through `mqttService → useMqttClient → topicStore.handleMessage`. During a configurable burst window after connection (default 15 s, range 5–30 s), messages with `retain=true` are ingested structurally (node creation, payload storage, counters) but their visual effects (rate spike, pulse timestamp, ancestor pulse propagation) are suppressed. Non-retained messages always pulse normally. After the burst window closes, all messages pulse regardless of retain flag.
+When subscribing (especially with `#`), the broker delivers all stored retained messages as a burst. The `packet.retain` flag is threaded through `mqttService → useMqttClient → topicStore.handleMessage`. During a configurable burst window after connection (default 15 s, range 5–30 s), messages with `retain=true` are **fully dropped** — `handleMessage` returns immediately before `ensureTopicPathTracked`, so no nodes are created, no counters incremented, no visual effects triggered. Non-retained messages always pass normally. After the burst window closes, all messages are processed regardless of retain flag.
 
-- **Settings**: `suppressRetainedBurst` (boolean, default `true`) and `burstWindowDuration` (ms, default `15000`). Both persisted to `mqtt_settings` localStorage and included in `resetSettings`.
+- **Settings**: `dropRetainedBurst` (boolean, default `true`) and `burstWindowDuration` (ms, default `15000`). Both persisted to `mqtt_settings` localStorage and included in `resetSettings`.
 - **UI**: Connection Panel → Filter tab. Toggle + conditional burst window slider.
 - **Prune Idle Nodes** also lives in the Filter tab (moved from Settings → Simulation in v1.13.0).
 
@@ -117,9 +117,9 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (293 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 126 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), and retained burst suppression (pulse suppression, non-retained passthrough, ancestor propagation, counter behaviour, persistence, reset).
-- `src/utils/__tests__/settingsStorage.test.ts` — 30 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all 22 persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `suppressRetainedBurst` validation, `burstWindowDuration` validation, and `labelMode` values including `"activity"`.
+Current test coverage (292 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 125 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), and drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset).
+- `src/utils/__tests__/settingsStorage.test.ts` — 30 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all 22 persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `dropRetainedBurst` validation, `burstWindowDuration` validation, and `labelMode` values including `"activity"`.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
 - `src/utils/__tests__/formatters.test.ts` — 41 tests for rate/timestamp formatting, payload truncation, depth scaling, and payload size formatting.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.

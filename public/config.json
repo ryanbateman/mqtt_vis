@@ -30,7 +30,7 @@
   "collisionPadding": 13,
   "alphaDecay": 0.01,
   "pruneTimeout": 0,
-  "suppressRetainedBurst": true,
+  "dropRetainedBurst": true,
   "burstWindowDuration": 15000,
 
   "settingsCollapsed": false,

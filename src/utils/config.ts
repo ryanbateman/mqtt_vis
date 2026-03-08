@@ -34,7 +34,7 @@ export interface AppConfig {
   collisionPadding?: number;
   alphaDecay?: number;
   pruneTimeout?: number;
-  suppressRetainedBurst?: boolean;
+  dropRetainedBurst?: boolean;
   burstWindowDuration?: number;
 
   // UI state
