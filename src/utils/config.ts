@@ -32,6 +32,7 @@ export interface AppConfig {
   linkStrength?: number;
   collisionPadding?: number;
   alphaDecay?: number;
+  pruneTimeout?: number;
 
   // UI state
   settingsCollapsed?: boolean;

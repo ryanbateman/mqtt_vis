@@ -82,6 +82,8 @@ interface TopicStoreState {
   collisionPadding: number;
   /** How quickly the simulation settles after changes. */
   alphaDecay: number;
+  /** Inactivity timeout (ms) after which stale nodes are pruned. 0 = disabled. */
+  pruneTimeout: number;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -154,6 +156,8 @@ interface TopicStoreState {
   setLinkStrength: (value: number) => void;
   setCollisionPadding: (value: number) => void;
   setAlphaDecay: (value: number) => void;
+  /** Update the prune timeout (ms). 0 = disabled. */
+  setPruneTimeout: (value: number) => void;
   /** Request a PNG export of the current graph. */
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
@@ -324,6 +328,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   linkStrength:         saved.linkStrength        ?? cfg.linkStrength        ?? 0.3,
   collisionPadding:     saved.collisionPadding    ?? cfg.collisionPadding    ?? 13,
   alphaDecay:           saved.alphaDecay          ?? cfg.alphaDecay          ?? 0.01,
+  pruneTimeout:         saved.pruneTimeout        ?? cfg.pruneTimeout        ?? 0,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -469,6 +474,37 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     }
 
     decayNode(root);
+
+    // Prune stale nodes (if enabled).
+    // After the retained-message burst on initial subscribe, many topics may
+    // never publish again. Pruning removes them after pruneTimeout ms so the
+    // graph converges on the live topic tree.
+    const pruneTimeout = state.pruneTimeout;
+    if (pruneTimeout > 0) {
+      const now = Date.now();
+      const selectedId = state.selectedNodeId;
+
+      /** Bottom-up walk: returns true if the caller should delete this child. */
+      function pruneNode(node: TopicNode): boolean {
+        // Recurse children first — deepest nodes pruned before parents
+        for (const [segment, child] of node.children) {
+          if (pruneNode(child)) {
+            node.children.delete(segment);
+          }
+        }
+        // Never prune the root or the currently selected node
+        if (node.id === "" || node.id === selectedId) return false;
+        // Only prune leaf nodes (children already cleaned up above)
+        if (node.children.size > 0) return false;
+        // Prune if: received messages but now stale, OR never received
+        // any message directly (implicit ancestor, now childless)
+        const isStale = node.lastTimestamp > 0 && now - node.lastTimestamp > pruneTimeout;
+        const isImplicitLeaf = node.messageCount === 0;
+        return isStale || isImplicitLeaf;
+      }
+
+      pruneNode(root);
+    }
 
     // Pulse duration equals tau in milliseconds — "Fade Time = 5s" means 5s fade
     const pulseDuration = state.emaTau * 1000;
@@ -624,6 +660,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       linkStrength: cfg.linkStrength ?? 0.3,
       collisionPadding: cfg.collisionPadding ?? 13,
       alphaDecay: cfg.alphaDecay ?? 0.01,
+      pruneTimeout: cfg.pruneTimeout ?? 0,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
@@ -703,6 +740,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   setAlphaDecay: (value: number) => {
     set({ alphaDecay: value });
     persistSettings({ alphaDecay: value });
+  },
+  setPruneTimeout: (value: number) => {
+    set({ pruneTimeout: value });
+    persistSettings({ pruneTimeout: value });
   },
   setAncestorPulse: (enabled: boolean) => {
     set({ ancestorPulse: enabled });

@@ -163,6 +163,20 @@ describe("loadSavedSettings", () => {
     expect(result.ancestorPulse).toBeUndefined();
   });
 
+  it("drops pruneTimeout outside valid range (0 to 300000)", () => {
+    writeRaw({ _version: 1, pruneTimeout: -1 });
+    expect(loadSavedSettings().pruneTimeout).toBeUndefined();
+
+    writeRaw({ _version: 1, pruneTimeout: 400_000 });
+    expect(loadSavedSettings().pruneTimeout).toBeUndefined();
+
+    writeRaw({ _version: 1, pruneTimeout: 0 });
+    expect(loadSavedSettings().pruneTimeout).toBe(0);
+
+    writeRaw({ _version: 1, pruneTimeout: 300_000 });
+    expect(loadSavedSettings().pruneTimeout).toBe(300_000);
+  });
+
   it("drops repulsionStrength outside valid range (-500 to -20)", () => {
     writeRaw({ _version: 1, repulsionStrength: -10 }); // too high (less negative)
     expect(loadSavedSettings().repulsionStrength).toBeUndefined();
@@ -202,7 +216,7 @@ describe("persistSettings", () => {
     expect(loadSavedSettings().emaTau).toBe(8);
   });
 
-  it("can persist all 18 fields", () => {
+  it("can persist all 19 fields", () => {
     const full: SavedSettings = {
       emaTau: 5,
       nodeScale: 1.5,
@@ -220,6 +234,7 @@ describe("persistSettings", () => {
       linkStrength: 0.3,
       collisionPadding: 5,
       alphaDecay: 0.02,
+      pruneTimeout: 180_000,
       settingsCollapsed: true,
       connectionCollapsed: false,
     };
@@ -280,6 +295,7 @@ describe("round-trip persist → load", () => {
       linkStrength: 0.65,
       collisionPadding: 8,
       alphaDecay: 0.015,
+      pruneTimeout: 120_000,
     };
     persistSettings(settings);
     const result = loadSavedSettings();

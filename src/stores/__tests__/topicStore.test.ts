@@ -1488,3 +1488,106 @@ describe("topicStore — payload size tracking (Issue #35)", () => {
     expect(findTopicNode("a/b")).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Node pruning
+// ---------------------------------------------------------------------------
+
+describe("topicStore — node pruning", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setAncestorPulse(true);
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+    state().setPruneTimeout(0); // disabled by default
+  });
+
+  it("does not prune any nodes when pruneTimeout is 0 (disabled)", () => {
+    handleMessageAndFlush("a/b", "msg");
+    // Backdate the timestamp well into the past
+    findTopicNode("a/b")!.lastTimestamp = Date.now() - 999_999;
+    state().decayTick();
+    state().rebuildGraph();
+    expect(findTopicNode("a/b")).toBeDefined();
+  });
+
+  it("prunes a stale leaf node after timeout", () => {
+    handleMessageAndFlush("a/b", "msg");
+    state().setPruneTimeout(60_000); // 1 minute
+    // Backdate the leaf past the timeout
+    findTopicNode("a/b")!.lastTimestamp = Date.now() - 120_000;
+    state().decayTick();
+    state().rebuildGraph();
+    expect(findTopicNode("a/b")).toBeUndefined();
+  });
+
+  it("does not prune an active leaf node within timeout", () => {
+    handleMessageAndFlush("a/b", "msg");
+    state().setPruneTimeout(60_000);
+    // Leave timestamp as-is (just now) — within timeout
+    state().decayTick();
+    state().rebuildGraph();
+    expect(findTopicNode("a/b")).toBeDefined();
+  });
+
+  it("prunes implicit ancestor nodes when all children are removed", () => {
+    handleMessageAndFlush("a/b/c", "msg");
+    state().setPruneTimeout(60_000);
+    // Only the leaf got a message; "a" and "a/b" are implicit ancestors
+    findTopicNode("a/b/c")!.lastTimestamp = Date.now() - 120_000;
+    state().decayTick();
+    state().rebuildGraph();
+    // The leaf and all its implicit ancestors should be gone
+    expect(findTopicNode("a/b/c")).toBeUndefined();
+    expect(findTopicNode("a/b")).toBeUndefined();
+    expect(findTopicNode("a")).toBeUndefined();
+  });
+
+  it("never prunes the root node", () => {
+    handleMessageAndFlush("a/b", "msg");
+    state().setPruneTimeout(60_000);
+    findTopicNode("a/b")!.lastTimestamp = Date.now() - 120_000;
+    state().decayTick();
+    state().rebuildGraph();
+    // Root should always exist
+    expect(state().root).toBeDefined();
+    expect(state().root.id).toBe("");
+  });
+
+  it("does not prune the currently selected node", () => {
+    handleMessageAndFlush("a/b", "msg");
+    state().setPruneTimeout(60_000);
+    state().setSelectedNodeId("a/b");
+    findTopicNode("a/b")!.lastTimestamp = Date.now() - 120_000;
+    state().decayTick();
+    state().rebuildGraph();
+    expect(findTopicNode("a/b")).toBeDefined();
+  });
+
+  it("prunes stale siblings but keeps active ones", () => {
+    handleMessageAndFlush("a/stale", "msg");
+    handleMessageAndFlush("a/active", "msg");
+    state().setPruneTimeout(60_000);
+    findTopicNode("a/stale")!.lastTimestamp = Date.now() - 120_000;
+    // "a/active" keeps its recent timestamp
+    state().decayTick();
+    state().rebuildGraph();
+    expect(findTopicNode("a/stale")).toBeUndefined();
+    expect(findTopicNode("a/active")).toBeDefined();
+    // Parent "a" still has a child so it should remain
+    expect(findTopicNode("a")).toBeDefined();
+  });
+
+  it("setPruneTimeout persists to localStorage", () => {
+    state().setPruneTimeout(180_000);
+    const saved = loadSavedSettings();
+    expect(saved.pruneTimeout).toBe(180_000);
+  });
+
+  it("resetSettings resets pruneTimeout to config default (0)", () => {
+    state().setPruneTimeout(120_000);
+    expect(state().pruneTimeout).toBe(120_000);
+    state().resetSettings();
+    expect(state().pruneTimeout).toBe(0);
+  });
+});

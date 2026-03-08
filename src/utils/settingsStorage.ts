@@ -41,6 +41,7 @@ export interface SavedSettings {
   linkStrength?: number;
   collisionPadding?: number;
   alphaDecay?: number;
+  pruneTimeout?: number;
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
@@ -94,6 +95,7 @@ function validate(raw: StoredSettings): SavedSettings {
     linkStrength:       validNumber(raw.linkStrength,        0.05,  1),
     collisionPadding:   validNumber(raw.collisionPadding,     0,   20),
     alphaDecay:         validNumber(raw.alphaDecay,         0.001, 0.05),
+    pruneTimeout:       validNumber(raw.pruneTimeout,       0, 300_000),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),
   };

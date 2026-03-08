@@ -160,6 +160,8 @@ export function SettingsPanel() {
   const setCollisionPadding = useTopicStore((s) => s.setCollisionPadding);
   const alphaDecay = useTopicStore((s) => s.alphaDecay);
   const setAlphaDecay = useTopicStore((s) => s.setAlphaDecay);
+  const pruneTimeout = useTopicStore((s) => s.pruneTimeout);
+  const setPruneTimeout = useTopicStore((s) => s.setPruneTimeout);
   const ancestorPulse = useTopicStore((s) => s.ancestorPulse);
   const setAncestorPulse = useTopicStore((s) => s.setAncestorPulse);
   const showRootPath = useTopicStore((s) => s.showRootPath);
@@ -484,6 +486,18 @@ export function SettingsPanel() {
                 minLabel="Slow"
                 maxLabel="Fast"
                 onChange={setAlphaDecay}
+              />
+              <SliderRow
+                label="Prune Idle Nodes"
+                tooltip="Remove nodes that stop receiving messages after this time. Helps clear retained message clutter after initial connect."
+                value={pruneTimeout === 0 ? 6 : pruneTimeout / 60_000}
+                displayValue={pruneTimeout === 0 ? "Never" : `${pruneTimeout / 60_000} min`}
+                min={1}
+                max={6}
+                step={1}
+                minLabel="1 min"
+                maxLabel="Never"
+                onChange={(v) => setPruneTimeout(v >= 6 ? 0 : v * 60_000)}
               />
             </>
           )}

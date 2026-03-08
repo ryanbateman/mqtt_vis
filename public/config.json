@@ -28,6 +28,7 @@
   "linkStrength": 0.3,
   "collisionPadding": 13,
   "alphaDecay": 0.01,
+  "pruneTimeout": 0,
 
   "settingsCollapsed": false,
   "connectionCollapsed": false,
