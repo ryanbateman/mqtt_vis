@@ -16,7 +16,7 @@ This is a browser-based real-time MQTT topic tree visualiser. It connects to an 
 - **Visualisation**: D3.js rendering to SVG. D3 manages the force simulation and DOM updates inside a React ref — do not fight React's virtual DOM with D3's DOM manipulation. Use the "D3 in React" pattern: React owns the container `<svg>` element, D3 operates on a ref to it.
 - **MQTT Client**: `mqtt` npm package (mqtt.js). The browser build connects via WebSocket (`ws://` or `wss://`). Wrapped in `src/services/mqttService.ts`.
 - **Package Manager**: npm.
-- **Default Theme**: Dark. The app is designed for dark backgrounds — glow and particle effects depend on this.
+- **Default Theme**: Dark. The app is designed for dark backgrounds — glow effects depend on this.
 
 ## File Organisation
 
@@ -57,10 +57,18 @@ Radius follows a logarithmic scale: `MIN_R + (MAX_R - MIN_R) * (log(1 + aggregat
 
 ### Visual Effects
 
-Three layered effects on message publish:
-1. **Glow/Pulse** — SVG filter (`feGaussianBlur` + `feComposite`) on the node, animated via attribute interpolation.
-2. **Particle burst** — Ephemeral `<circle>` elements that expand outward and fade. Remove from DOM after animation completes.
-3. **Heat map** — Node fill colour mapped from `messageRate` using `d3-scale-chromatic`. Updated on each render tick.
+Two layered effects on message publish:
+1. **Glow/Pulse** — SVG filter (`feGaussianBlur` + `feComposite`) on the node, animated via attribute interpolation. The glow blur scales inversely with zoom level so it appears consistent at any zoom.
+2. **Heat map** — Node fill colour mapped from `messageRate` using `d3-scale-chromatic`. Updated on each render tick. Idle nodes display `IDLE_COLOR`/`IDLE_STROKE` (set on enter to avoid the SVG default black fill).
+
+### New Node Placement
+
+When new nodes appear in `GraphRenderer.update()`, they are placed near their parent rather than at the viewport centre. This produces organic tree growth instead of chaotic centre-spawning.
+
+- A `childToParent` map is built from the `links` array (string IDs, before D3 resolves them).
+- Nodes are processed in depth-ascending order so parents are always positioned before their children.
+- A `justPlaced` map chains positions for burst scenarios where an entire subtree appears in a single frame.
+- Root nodes and orphans fall back to viewport centre with jitter.
 
 ## Code Quality
 

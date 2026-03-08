@@ -218,8 +218,22 @@ export class GraphRenderer {
       }
     });
 
-    // Apply preserved positions and displayRadius to existing nodes
-    for (const node of nodes) {
+    // Build child → parent map from links (source/target are still string IDs
+    // at this point — D3 hasn't resolved them to object references yet).
+    const childToParent = new Map<string, string>();
+    for (const link of links) {
+      const parentId = typeof link.source === "string" ? link.source : link.source.id;
+      const childId = typeof link.target === "string" ? link.target : link.target.id;
+      childToParent.set(childId, parentId);
+    }
+
+    // Apply preserved positions to existing nodes, and place new nodes near
+    // their parent.  Process shallowest-first so parents are positioned before
+    // children — critical when an entire subtree appears in a single frame.
+    const justPlaced = new Map<string, { x: number; y: number }>();
+    const depthSorted = [...nodes].sort((a, b) => a.depth - b.depth);
+
+    for (const node of depthSorted) {
       const old = oldState.get(node.id);
       if (old) {
         node.x = old.x;
@@ -228,9 +242,21 @@ export class GraphRenderer {
         node.vy = old.vy;
         node.displayRadius = old.displayRadius;
       } else {
-        // New nodes: place near center with some jitter
-        node.x = this.width / 2 + (Math.random() - 0.5) * 100;
-        node.y = this.height / 2 + (Math.random() - 0.5) * 100;
+        // New node — try to place near its parent
+        const parentId = childToParent.get(node.id);
+        const parentPos = parentId
+          ? oldState.get(parentId) ?? justPlaced.get(parentId)
+          : undefined;
+
+        if (parentPos) {
+          node.x = parentPos.x + (Math.random() - 0.5) * 30;
+          node.y = parentPos.y + (Math.random() - 0.5) * 30;
+        } else {
+          // Root node or no locatable parent — fall back to center
+          node.x = this.width / 2 + (Math.random() - 0.5) * 100;
+          node.y = this.height / 2 + (Math.random() - 0.5) * 100;
+        }
+        justPlaced.set(node.id, { x: node.x!, y: node.y! });
       }
     }
 

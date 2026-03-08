@@ -28,3 +28,6 @@ research/
 
 # Performance profiler output reports
 report*.json
+
+# Tool-specific config (personal)
+opencode.json
