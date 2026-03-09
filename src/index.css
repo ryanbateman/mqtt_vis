@@ -25,3 +25,19 @@ body,
 .animate-slide-up {
   animation: slide-up 0.25s ease-out;
 }
+
+/* Dark-themed Leaflet tooltip for trail points */
+.trail-tooltip {
+  background: rgba(17, 24, 39, 0.9);
+  border: 1px solid rgba(75, 85, 99, 0.6);
+  color: #d1d5db;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.trail-tooltip::before {
+  border-top-color: rgba(17, 24, 39, 0.9) !important;
+}

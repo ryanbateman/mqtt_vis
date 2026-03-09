@@ -440,11 +440,17 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
     }
 
-    // Submit first payload per node for off-thread analysis (geo detection, etc.).
-    // Subsequent payloads are only re-analyzed on demand (when the user selects the node).
-    if (!node.tagsAnalyzed && payload.length > 0) {
-      node.tagsAnalyzed = true;
-      payloadAnalyzer.analyze(node.id, payload);
+    // Submit payload for off-thread analysis (geo detection, etc.).
+    // First payload is always analyzed.  Subsequent payloads are re-analyzed
+    // only when the node already carries a geo tag — the coordinates are
+    // expected to change with each new message (e.g. GPS tracker).  Non-geo
+    // nodes are analyzed once only to avoid unnecessary worker churn.
+    if (payload.length > 0) {
+      const hasGeoTag = node.payloadTags?.some((t) => t.tag === "geo") ?? false;
+      if (!node.tagsAnalyzed || hasGeoTag) {
+        node.tagsAnalyzed = true;
+        payloadAnalyzer.analyze(node.id, payload);
+      }
     }
 
     // Instant rate spike: add 1 message worth of rate contribution

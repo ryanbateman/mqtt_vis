@@ -30,6 +30,18 @@ export interface DetectorResult<T extends PayloadTagType = PayloadTagType> {
   fieldPath: string;
 }
 
+// --- Trail types ------------------------------------------------------------
+
+/** A single historical position in a geo trail. */
+export interface TrailPoint {
+  /** Latitude value. */
+  lat: number;
+  /** Longitude value. */
+  lon: number;
+  /** Timestamp (ms since epoch) when this position was recorded. */
+  timestamp: number;
+}
+
 // --- Worker message protocol ------------------------------------------------
 
 /** Message sent from main thread to the payload analyzer worker. */

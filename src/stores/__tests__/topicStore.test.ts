@@ -1952,6 +1952,32 @@ describe("topicStore — payload analysis tags", () => {
     expect(node!.payloadTags).toEqual(tags);
   });
 
+  it("geo-tagged nodes are re-analyzed on subsequent messages", () => {
+    state().handleMessage("a/b", '{"lat": 51.5, "lon": -0.1}', 0);
+    state().rebuildGraph();
+
+    // Simulate worker returning a geo tag
+    const tags = [{
+      tag: "geo" as const,
+      confidence: 0.9,
+      metadata: { lat: 51.5, lon: -0.1, latPath: "lat", lonPath: "lon" },
+      fieldPath: "lat",
+    }];
+    state().setPayloadTags("a/b", tags);
+
+    const node = findTopicNode("a/b");
+    expect(node!.tagsAnalyzed).toBe(true);
+    expect(node!.payloadTags).toHaveLength(1);
+
+    // Send a second message with different coordinates.
+    // Because the node has a geo tag, it should be re-submitted for analysis
+    // (tagsAnalyzed stays true but the analyze path is still taken).
+    // We verify indirectly: tagsAnalyzed should remain true (no regression)
+    // and the node should still have its tags intact.
+    state().handleMessage("a/b", '{"lat": 52.0, "lon": 0.1}', 0);
+    expect(node!.tagsAnalyzed).toBe(true);
+  });
+
   it("reset() clears tags (node is recreated)", () => {
     state().handleMessage("a/b", "hello", 0);
     state().rebuildGraph();

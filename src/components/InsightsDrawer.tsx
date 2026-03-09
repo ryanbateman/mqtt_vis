@@ -1,7 +1,21 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { GeoMetadata } from "../types/payloadTags";
+import { useTopicStore } from "../stores/topicStore";
+import { findNode } from "../utils/topicParser";
+import { formatTimestamp } from "../utils/formatters";
+import type { GeoMetadata, TrailPoint } from "../types/payloadTags";
+
+/** Maximum number of trail points before oldest are discarded. */
+const MAX_TRAIL_POINTS = 50;
+
+/** Style constants for trail rendering. */
+const TRAIL_DOT_RADIUS = 4;
+const TRAIL_DOT_COLOR = "#00ffff";
+const TRAIL_DOT_OPACITY = 0.4;
+const TRAIL_LINE_COLOR = "#ef4444";
+const TRAIL_LINE_OPACITY = 0.7;
+const TRAIL_LINE_WEIGHT = 2;
 
 /**
  * Custom circle marker icon — avoids the well-known Leaflet/bundler issue
@@ -22,8 +36,21 @@ const geoMarkerIcon = L.divIcon({
 });
 
 /**
+ * Extract the first geo detection result from a topic node looked up by path.
+ * Returns null if the node doesn't exist or has no geo tag.
+ */
+function getGeoForTopic(topicPath: string): GeoMetadata | null {
+  const root = useTopicStore.getState().root;
+  const segments = topicPath === "" ? [] : topicPath.split("/");
+  const node = findNode(root, segments);
+  const tag = node?.payloadTags?.find((t) => t.tag === "geo");
+  return tag ? (tag.metadata as GeoMetadata) : null;
+}
+
+/**
  * Slide-out drawer displaying rich insights for a selected node.
- * Currently supports geo coordinate display via a Leaflet map.
+ * Supports geo coordinate display via a Leaflet map with a historical
+ * position trail that builds as new payloads arrive.
  *
  * React owns the container elements; Leaflet manages the map inside a ref
  * (same pattern as D3 in GraphRenderer).
@@ -35,32 +62,108 @@ export function InsightsDrawer({
 }: {
   /** Full topic path of the selected node. */
   topicPath: string;
-  /** Detected geo coordinates to display on the map. */
+  /** Detected geo coordinates to display on the map (initial snapshot). */
   geo: GeoMetadata;
   /** Called when the drawer is closed. */
   onClose: () => void;
 }) {
+  // --- Refs for Leaflet objects (managed outside React's render cycle) ------
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const polylineRef = useRef<L.Polyline | null>(null);
+  const trailMarkersRef = useRef<L.CircleMarker[]>([]);
+  const trailRef = useRef<TrailPoint[]>([]);
+  const prevGeoRef = useRef<{ lat: number; lon: number } | null>(null);
+  // Ref for the live coordinates displayed in the header
+  const liveGeoRef = useRef<{ lat: number; lon: number }>({ lat: geo.lat, lon: geo.lon });
 
-  // Initialize Leaflet map on mount; update marker when geo changes
-  useEffect(() => {
-    if (!mapContainerRef.current) return;
+  // --- Subscribe to store for live geo updates on this topic ---------------
+  // We use a Zustand subscription rather than a selector to avoid React
+  // re-renders on every store tick. The Leaflet map is imperative — we
+  // update it directly from the subscription callback.
 
-    // If map already exists, update its view and marker
-    if (mapRef.current) {
-      mapRef.current.setView([geo.lat, geo.lon], 13);
-      // Remove existing markers and add new one
-      mapRef.current.eachLayer((layer) => {
-        if (layer instanceof L.Marker) {
-          mapRef.current!.removeLayer(layer);
-        }
-      });
-      L.marker([geo.lat, geo.lon], { icon: geoMarkerIcon }).addTo(mapRef.current);
-      return;
+  /** Clear all trail markers, polyline, and reset the trail array. */
+  const clearTrail = useCallback(() => {
+    const map = mapRef.current;
+    if (map) {
+      for (const m of trailMarkersRef.current) {
+        map.removeLayer(m);
+      }
+      if (polylineRef.current) {
+        map.removeLayer(polylineRef.current);
+        polylineRef.current = null;
+      }
+    }
+    trailMarkersRef.current = [];
+    trailRef.current = [];
+  }, []);
+
+  /** Add a trail dot for a previous position and update the polyline. */
+  const addTrailPoint = useCallback((point: TrailPoint) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const trail = trailRef.current;
+
+    // Enforce cap — remove oldest dot if at limit
+    if (trail.length >= MAX_TRAIL_POINTS) {
+      const oldest = trailMarkersRef.current.shift();
+      if (oldest) map.removeLayer(oldest);
+      trail.shift();
     }
 
-    // Create new map
+    trail.push(point);
+
+    // Create trail dot
+    const dot = L.circleMarker([point.lat, point.lon], {
+      radius: TRAIL_DOT_RADIUS,
+      fillColor: TRAIL_DOT_COLOR,
+      fillOpacity: TRAIL_DOT_OPACITY,
+      stroke: false,
+    }).addTo(map);
+
+    dot.bindTooltip(formatTimestamp(point.timestamp), {
+      direction: "top",
+      offset: [0, -6],
+      className: "trail-tooltip",
+    });
+
+    trailMarkersRef.current.push(dot);
+
+    // Update polyline to connect all trail points + current marker position
+    updatePolyline();
+  }, []);
+
+  /** Rebuild the polyline from trail points + current marker position. */
+  const updatePolyline = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const points: L.LatLngExpression[] = trailRef.current.map((p) => [p.lat, p.lon]);
+    // Append the current (live) marker position
+    if (markerRef.current) {
+      const pos = markerRef.current.getLatLng();
+      points.push([pos.lat, pos.lng]);
+    }
+
+    if (polylineRef.current) {
+      polylineRef.current.setLatLngs(points);
+    } else if (points.length >= 2) {
+      polylineRef.current = L.polyline(points, {
+        color: TRAIL_LINE_COLOR,
+        opacity: TRAIL_LINE_OPACITY,
+        weight: TRAIL_LINE_WEIGHT,
+        smoothFactor: 1,
+      }).addTo(map);
+    }
+  }, []);
+
+  // --- Initialize Leaflet map on mount -------------------------------------
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    if (mapRef.current) return; // already initialized
+
     const map = L.map(mapContainerRef.current, {
       center: [geo.lat, geo.lon],
       zoom: 13,
@@ -73,9 +176,10 @@ export function InsightsDrawer({
       maxZoom: 19,
     }).addTo(map);
 
-    L.marker([geo.lat, geo.lon], { icon: geoMarkerIcon }).addTo(map);
-
+    const marker = L.marker([geo.lat, geo.lon], { icon: geoMarkerIcon }).addTo(map);
+    markerRef.current = marker;
     mapRef.current = map;
+    prevGeoRef.current = { lat: geo.lat, lon: geo.lon };
 
     // Leaflet needs a resize kick after the container transitions in
     const resizeTimer = setTimeout(() => {
@@ -85,19 +189,85 @@ export function InsightsDrawer({
     return () => {
       clearTimeout(resizeTimer);
     };
-  }, [geo.lat, geo.lon]);
+    // Only run on mount — geo updates are handled by the store subscription
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Clean up map on unmount
+  // --- Handle topic path changes (node switch while drawer stays open) -----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Reset trail for the new topic
+    clearTrail();
+    prevGeoRef.current = { lat: geo.lat, lon: geo.lon };
+    liveGeoRef.current = { lat: geo.lat, lon: geo.lon };
+
+    // Move marker and view to new position
+    if (markerRef.current) {
+      markerRef.current.setLatLng([geo.lat, geo.lon]);
+    }
+    map.setView([geo.lat, geo.lon], map.getZoom());
+  }, [topicPath, geo.lat, geo.lon, clearTrail]);
+
+  // --- Store subscription for live geo updates -----------------------------
+  useEffect(() => {
+    const unsubscribe = useTopicStore.subscribe(() => {
+      const liveGeo = getGeoForTopic(topicPath);
+      if (!liveGeo) return;
+
+      const prev = prevGeoRef.current;
+      if (prev && prev.lat === liveGeo.lat && prev.lon === liveGeo.lon) return;
+
+      const map = mapRef.current;
+      if (!map) return;
+
+      // Position changed — push previous position to trail
+      if (prev) {
+        addTrailPoint({ lat: prev.lat, lon: prev.lon, timestamp: Date.now() });
+      }
+
+      // Update current marker
+      if (markerRef.current) {
+        markerRef.current.setLatLng([liveGeo.lat, liveGeo.lon]);
+      }
+      updatePolyline();
+
+      // Smoothly pan to new position
+      map.flyTo([liveGeo.lat, liveGeo.lon], map.getZoom(), {
+        duration: 0.5,
+      });
+
+      prevGeoRef.current = { lat: liveGeo.lat, lon: liveGeo.lon };
+      liveGeoRef.current = { lat: liveGeo.lat, lon: liveGeo.lon };
+
+      // Force a re-render so the coordinates display updates
+      // We do this by updating a state... but we're using refs to avoid
+      // unnecessary re-renders. Instead, update the DOM directly.
+      const latEl = document.getElementById("insights-live-lat");
+      const lonEl = document.getElementById("insights-live-lon");
+      if (latEl) latEl.textContent = String(liveGeo.lat);
+      if (lonEl) lonEl.textContent = String(liveGeo.lon);
+    });
+
+    return unsubscribe;
+  }, [topicPath, addTrailPoint, updatePolyline]);
+
+  // --- Clean up map on unmount ---------------------------------------------
   useEffect(() => {
     return () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
+        markerRef.current = null;
+        polylineRef.current = null;
+        trailMarkersRef.current = [];
+        trailRef.current = [];
       }
     };
   }, []);
 
-  // Close on Escape
+  // --- Close on Escape -----------------------------------------------------
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -145,9 +315,9 @@ export function InsightsDrawer({
       <div className="px-3 py-2 border-b border-gray-700/50 flex-shrink-0">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
           <span className="text-gray-500">Latitude</span>
-          <span className="text-gray-300 font-mono">{geo.lat}</span>
+          <span id="insights-live-lat" className="text-gray-300 font-mono">{geo.lat}</span>
           <span className="text-gray-500">Longitude</span>
-          <span className="text-gray-300 font-mono">{geo.lon}</span>
+          <span id="insights-live-lon" className="text-gray-300 font-mono">{geo.lon}</span>
           <span className="text-gray-500">Source</span>
           <span className="text-gray-300 font-mono text-[10px]">
             {geo.latPath} / {geo.lonPath}
