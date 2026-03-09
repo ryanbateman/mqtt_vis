@@ -35,6 +35,7 @@ export function TopicGraph() {
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
   const highlightedNodes = useTopicStore((s) => s.highlightedNodes);
+  const showGeoIndicators = useTopicStore((s) => s.showGeoIndicators);
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
@@ -215,6 +216,17 @@ export function TopicGraph() {
       rendererRef.current.setHighlightedNodes(highlightedNodes);
     }
   }, [highlightedNodes]);
+
+  // Sync insight ring settings to the renderer
+  useEffect(() => {
+    if (rendererRef.current) {
+      const tags = new Map<string, string>();
+      if (showGeoIndicators) {
+        tags.set("geo", "#00ffff");
+      }
+      rendererRef.current.setEnabledInsightTags(tags);
+    }
+  }, [showGeoIndicators]);
 
   // Escape key deselects the current node
   useEffect(() => {

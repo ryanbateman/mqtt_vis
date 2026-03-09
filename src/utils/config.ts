@@ -27,6 +27,9 @@ export interface AppConfig {
   ancestorPulse?: boolean;
   showRootPath?: boolean;
 
+  // Data Insights
+  showGeoIndicators?: boolean;
+
   // Simulation
   repulsionStrength?: number;
   linkDistance?: number;

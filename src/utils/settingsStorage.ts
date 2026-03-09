@@ -45,6 +45,8 @@ export interface SavedSettings {
   pruneTimeout?: number;
   dropRetainedBurst?: boolean;
   burstWindowDuration?: number;
+  // Data Insights
+  showGeoIndicators?: boolean;
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
@@ -102,6 +104,7 @@ function validate(raw: StoredSettings): SavedSettings {
     pruneTimeout:       validNumber(raw.pruneTimeout,       0, 300_000),
     dropRetainedBurst: validBoolean(raw.dropRetainedBurst),
     burstWindowDuration: validNumber(raw.burstWindowDuration, 5_000, 30_000),
+    showGeoIndicators:  validBoolean(raw.showGeoIndicators),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),
   };

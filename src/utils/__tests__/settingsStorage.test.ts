@@ -222,6 +222,17 @@ describe("loadSavedSettings", () => {
     expect(loadSavedSettings().burstWindowDuration).toBe(15_000);
   });
 
+  it("validates showGeoIndicators as boolean", () => {
+    writeRaw({ _version: 1, showGeoIndicators: true });
+    expect(loadSavedSettings().showGeoIndicators).toBe(true);
+
+    writeRaw({ _version: 1, showGeoIndicators: false });
+    expect(loadSavedSettings().showGeoIndicators).toBe(false);
+
+    writeRaw({ _version: 1, showGeoIndicators: "yes" });
+    expect(loadSavedSettings().showGeoIndicators).toBeUndefined();
+  });
+
   it("drops repulsionStrength outside valid range (-500 to -20)", () => {
     writeRaw({ _version: 1, repulsionStrength: -10 }); // too high (less negative)
     expect(loadSavedSettings().repulsionStrength).toBeUndefined();
@@ -363,6 +374,7 @@ describe("round-trip persist → load", () => {
       showLabels: true,
       scaleTextByDepth: false,
       dropRetainedBurst: false,
+      showGeoIndicators: true,
       settingsCollapsed: true,
       connectionCollapsed: false,
     });
@@ -374,6 +386,7 @@ describe("round-trip persist → load", () => {
     expect(result.showLabels).toBe(true);
     expect(result.scaleTextByDepth).toBe(false);
     expect(result.dropRetainedBurst).toBe(false);
+    expect(result.showGeoIndicators).toBe(true);
     expect(result.settingsCollapsed).toBe(true);
     expect(result.connectionCollapsed).toBe(false);
   });

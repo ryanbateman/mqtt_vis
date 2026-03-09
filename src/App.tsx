@@ -1,14 +1,16 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useMqttClient, loadSavedConnection } from "./hooks/useMqttClient";
 import { useTopicStore } from "./stores/topicStore";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { DetailPanel } from "./components/DetailPanel";
+import { InsightsDrawer } from "./components/InsightsDrawer";
 import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { getConfig } from "./utils/config";
 import { findNode } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
+import type { GeoMetadata } from "./types/payloadTags";
 
 function App() {
   const { connect, disconnect, connectionStatus } = useMqttClient();
@@ -17,6 +19,43 @@ function App() {
   const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
   const graphNodes = useTopicStore((s) => s.graphNodes);
   const autoconnectFired = useRef(false);
+
+  // Insights drawer state
+  const [insightsGeo, setInsightsGeo] = useState<{ topicPath: string; geo: GeoMetadata } | null>(null);
+
+  const handleOpenInsights = useCallback((geo: GeoMetadata) => {
+    if (!selectedNodeId) return;
+    setInsightsGeo({ topicPath: selectedNodeId, geo });
+  }, [selectedNodeId]);
+
+  const handleCloseInsights = useCallback(() => {
+    setInsightsGeo(null);
+  }, []);
+
+  // When node selection changes while the drawer is open, either update
+  // it to show the new node's geo data or close it if the new node has none.
+  useEffect(() => {
+    if (!insightsGeo) return; // drawer already closed — nothing to do
+
+    if (!selectedNodeId) {
+      setInsightsGeo(null);
+      return;
+    }
+
+    // Look up the newly selected node's topic data for geo tags
+    const root = useTopicStore.getState().root;
+    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
+    const node = findNode(root, segments);
+    const geoTag = node?.payloadTags?.find((t) => t.tag === "geo");
+
+    if (geoTag) {
+      // New node has geo — update the drawer in-place
+      setInsightsGeo({ topicPath: selectedNodeId, geo: geoTag.metadata as GeoMetadata });
+    } else {
+      // New node has no geo — close the drawer
+      setInsightsGeo(null);
+    }
+  }, [selectedNodeId]);
 
   // Look up the selected node's data for the detail panel
   const selectedNodes = useMemo(() => {
@@ -89,16 +128,24 @@ function App() {
             topicNode={selectedNodes.topicNode}
             graphNode={selectedNodes.graphNode}
             onClose={() => setSelectedNodeId(null)}
+            onOpenInsights={handleOpenInsights}
           />
         )}
       </div>
+      {insightsGeo && (
+        <InsightsDrawer
+          topicPath={insightsGeo.topicPath}
+          geo={insightsGeo.geo}
+          onClose={handleCloseInsights}
+        />
+      )}
       <SettingsPanel />
       <StatusBar />
       <a
         href="https://github.com/ryanbateman/mqtt_vis"
         target="_blank"
         rel="noopener noreferrer"
-        className="absolute bottom-4 right-4 z-10 text-gray-600 hover:text-gray-400 transition-colors"
+        className="absolute bottom-4 left-4 z-10 text-gray-600 hover:text-gray-400 transition-colors"
         title="View on GitHub"
       >
         <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">

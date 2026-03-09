@@ -1,5 +1,6 @@
 import { useState, Fragment } from "react";
 import type { TopicNode, GraphNode } from "../types";
+import type { GeoMetadata } from "../types/payloadTags";
 import { formatRate, formatTimestamp, formatPayloadSize } from "../utils/formatters";
 
 /**
@@ -17,10 +18,13 @@ export function DetailPanel({
   topicNode,
   graphNode,
   onClose,
+  onOpenInsights,
 }: {
   topicNode: TopicNode;
   graphNode: GraphNode;
   onClose: () => void;
+  /** Called when the user clicks the map pin to view geo coordinates. */
+  onOpenInsights?: (geo: GeoMetadata) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
@@ -66,6 +70,10 @@ export function DetailPanel({
   };
 
   const childCount = topicNode.children.size;
+
+  // Extract first geo detection result (if any) for the map button
+  const geoTag = topicNode.payloadTags?.find((t) => t.tag === "geo");
+  const geoMetadata = geoTag ? (geoTag.metadata as GeoMetadata) : null;
 
   return (
     <div className="bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl w-80 flex flex-col overflow-hidden">
@@ -160,6 +168,27 @@ export function DetailPanel({
             {topicNode.messageCount > 0 ? formatPayloadSize(topicNode.largestPayloadSize) : "-"}
           </span>
         </div>
+
+        {/* Geo insights button — shown when lat/lon detected in payload */}
+        {geoMetadata && onOpenInsights && (
+          <button
+            onClick={() => onOpenInsights(geoMetadata)}
+            className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-cyan-300 bg-cyan-900/20 border border-cyan-800/30 hover:bg-cyan-900/40 transition-colors cursor-pointer"
+            title={`View location: ${geoMetadata.lat}, ${geoMetadata.lon}`}
+          >
+            {/* Map pin icon */}
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+            </svg>
+            <span>
+              View on Map
+              <span className="text-cyan-400/60 ml-1">
+                {geoMetadata.lat.toFixed(4)}, {geoMetadata.lon.toFixed(4)}
+              </span>
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Payload — full content, scrollable */}

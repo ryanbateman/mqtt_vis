@@ -176,6 +176,8 @@ export function SettingsPanel() {
   const setScaleTextByDepth = useTopicStore((s) => s.setScaleTextByDepth);
   const showTooltips = useTopicStore((s) => s.showTooltips);
   const setShowTooltips = useTopicStore((s) => s.setShowTooltips);
+  const showGeoIndicators = useTopicStore((s) => s.showGeoIndicators);
+  const setShowGeoIndicators = useTopicStore((s) => s.setShowGeoIndicators);
   const nodeScale = useTopicStore((s) => s.nodeScale);
   const setNodeScale = useTopicStore((s) => s.setNodeScale);
   const scaleNodeSizeByDepth = useTopicStore((s) => s.scaleNodeSizeByDepth);
@@ -311,6 +313,25 @@ export function SettingsPanel() {
                   onChange={(e) => setShowTooltips(e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
                 />
+              </div>
+
+              {/* Data Insights */}
+              <div className="border-t border-gray-700 pt-2 mt-2">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Data Insights</div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-gray-400">
+                      Geo Indicators
+                    </label>
+                    <InfoTooltip text="Show a coloured ring around nodes whose payload contains geographic coordinates (lat/lon)" />
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={showGeoIndicators}
+                    onChange={(e) => setShowGeoIndicators(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                  />
+                </div>
               </div>
             </>
           )}
