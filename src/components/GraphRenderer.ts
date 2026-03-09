@@ -107,6 +107,13 @@ export class GraphRenderer {
   // Map of nodeId → colour hex for externally highlighted nodes.
   private highlightedNodes: Map<string, string> = new Map();
 
+  // Insight ring elements — one <circle> per node with a detected payload tag.
+  private insightRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private insightRingElements!: d3.Selection<SVGCircleElement, { id: string; color: string }, SVGGElement, unknown>;
+  private insightRingNodeIds = new Set<string>();
+  // Which insight tag types are enabled for ring display.  Map of tag → colour.
+  private enabledInsightTags = new Map<string, string>();
+
   // Selection state — the currently selected/pinned node ID.
   private selectedNodeId: string | null = null;
 
@@ -184,17 +191,19 @@ export class GraphRenderer {
       }
     });
 
-    // Layer ordering: links → highlight rings → nodes → labels
+    // Layer ordering: links → highlight rings → insight rings → nodes → labels
     // Highlight rings sit below node circles so the selection ring (on the node itself)
-    // is always visually on top.
+    // is always visually on top.  Insight rings sit between highlight rings and nodes.
     this.linkGroup = this.container.append("g").attr("class", "links");
     this.highlightRingGroup = this.container.append("g").attr("class", "highlight-rings");
+    this.insightRingGroup = this.container.append("g").attr("class", "insight-rings");
     this.nodeGroup = this.container.append("g").attr("class", "nodes");
     this.labelGroup = this.container.append("g").attr("class", "labels");
 
     // Initialize empty selections
     this.linkElements = this.linkGroup.selectAll<SVGLineElement, GraphLink>("line");
     this.highlightRingElements = this.highlightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
+    this.insightRingElements = this.insightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
     this.nodeElements = this.nodeGroup.selectAll<SVGCircleElement, GraphNode>("circle");
     this.labelElements = this.labelGroup.selectAll<SVGTextElement, GraphNode>("text");
   }
@@ -396,6 +405,11 @@ export class GraphRenderer {
     // Reapply depth-based label visibility for newly entered labels
     this.updateLabelVisibility();
 
+    // Rebuild insight rings (payload tag indicators) for new/changed nodes
+    if (this.enabledInsightTags.size > 0) {
+      this.refreshInsightRings();
+    }
+
     // Burst-aware simulation reheat.
     // During an initial connection burst, hundreds of nodes enter across many consecutive
     // update() calls. Using a full alpha(0.3) on every call keeps reheating the simulation
@@ -427,6 +441,7 @@ export class GraphRenderer {
 
     // Update bound data on existing D3 node elements in-place.
     // Keep displayRadius unchanged — the animation loop will smoothly lerp it.
+    let insightTagsChanged = false;
     this.simulation.nodes().forEach((simNode) => {
       const fresh = nodeMap.get(simNode.id);
       if (fresh) {
@@ -436,9 +451,19 @@ export class GraphRenderer {
         simNode.pulseTimestamp = fresh.pulseTimestamp;
         simNode.pulseRate = fresh.pulseRate;
         simNode.radius = fresh.radius;
+        // Track payload tag changes for insight ring refresh
+        if (simNode.payloadTags !== fresh.payloadTags) {
+          simNode.payloadTags = fresh.payloadTags;
+          insightTagsChanged = true;
+        }
         // displayRadius is NOT updated here — the animation loop lerps it
       }
     });
+
+    // Refresh insight rings if tag data changed
+    if (insightTagsChanged && this.enabledInsightTags.size > 0) {
+      this.refreshInsightRings();
+    }
 
     // Update link pulse data in-place
     const linkKey = (l: GraphLink) => {
@@ -502,6 +527,10 @@ export class GraphRenderer {
     // Sync highlight rings with animated node positions (only when rings exist)
     if (this.highlightedNodes.size > 0) {
       this.syncHighlightRingPositions();
+    }
+    // Sync insight rings with animated node positions
+    if (this.insightRingNodeIds.size > 0) {
+      this.syncInsightRingPositions();
     }
 
     // Counter-scale so labels stay a constant screen size
@@ -869,6 +898,79 @@ export class GraphRenderer {
       .attr("stroke-width", ringStrokeWidth);
   }
 
+  // --- Insight rings (payload tag indicators) --------------------------------
+
+  /**
+   * Set which insight tag types are enabled for ring display.
+   * Pass a Map of tag name → ring colour (e.g. "geo" → "#00ffff").
+   * Pass an empty Map to disable all insight rings.
+   */
+  setEnabledInsightTags(tags: Map<string, string>): void {
+    this.enabledInsightTags = tags;
+    this.refreshInsightRings();
+  }
+
+  /**
+   * Rebuild the insight ring layer from the current simulation nodes.
+   * Nodes whose payloadTags include an enabled tag type get a coloured ring.
+   */
+  private refreshInsightRings(): void {
+    const data: { id: string; color: string }[] = [];
+    this.insightRingNodeIds.clear();
+
+    if (this.enabledInsightTags.size > 0) {
+      this.simulation.nodes().forEach((n) => {
+        if (!n.payloadTags || n.payloadTags.length === 0) return;
+        // Find the first enabled tag on this node
+        for (const tag of n.payloadTags) {
+          const color = this.enabledInsightTags.get(tag);
+          if (color) {
+            data.push({ id: n.id, color });
+            this.insightRingNodeIds.add(n.id);
+            break; // one ring per node
+          }
+        }
+      });
+    }
+
+    this.insightRingElements = this.insightRingGroup
+      .selectAll<SVGCircleElement, { id: string; color: string }>("circle")
+      .data(data, (d) => d.id);
+
+    this.insightRingElements.exit().remove();
+
+    this.insightRingElements = this.insightRingElements
+      .enter()
+      .append("circle")
+      .attr("fill", "none")
+      .attr("stroke-opacity", 0.7)
+      .attr("pointer-events", "none")
+      .merge(this.insightRingElements)
+      .attr("stroke", (d) => d.color);
+
+    this.syncInsightRingPositions();
+  }
+
+  /**
+   * Sync insight ring positions and sizes from current simulation nodes.
+   */
+  private syncInsightRingPositions(): void {
+    if (this.insightRingNodeIds.size === 0) return;
+
+    const nodePositions = new Map<string, { x: number; y: number; r: number }>();
+    this.simulation.nodes().forEach((n) => {
+      nodePositions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, r: n.displayRadius });
+    });
+
+    const ringStrokeWidth = 1.5 / this.currentZoomScale;
+
+    this.insightRingElements
+      .attr("cx", (d) => nodePositions.get(d.id)?.x ?? 0)
+      .attr("cy", (d) => nodePositions.get(d.id)?.y ?? 0)
+      .attr("r", (d) => (nodePositions.get(d.id)?.r ?? 0) + 6 / this.currentZoomScale)
+      .attr("stroke-width", ringStrokeWidth);
+  }
+
   /**
    * Reapply default stroke styles to the previously selected node
    * when selection changes. Called internally by setSelectedNodeId().
@@ -977,6 +1079,10 @@ export class GraphRenderer {
       // Sync highlight ring radii with lerped displayRadius each frame
       if (this.highlightedNodes.size > 0) {
         this.syncHighlightRingPositions();
+      }
+      // Sync insight ring radii with lerped displayRadius each frame
+      if (this.insightRingNodeIds.size > 0) {
+        this.syncInsightRingPositions();
       }
 
       // --- Frame measurement + periodic summary ---

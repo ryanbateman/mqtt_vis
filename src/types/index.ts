@@ -1,3 +1,5 @@
+import type { DetectorResult } from "./payloadTags";
+
 /** MQTT v5 user properties — key-value pairs where values may repeat. */
 export type MqttUserProperties = Record<string, string | string[]>;
 
@@ -29,6 +31,10 @@ export interface TopicNode {
   largestPayloadSize: number;
   /** MQTT v5 user properties from the last message (null if none or v4 connection). */
   lastUserProperties: MqttUserProperties | null;
+  /** Payload analysis tags detected by the Web Worker (null if not yet analyzed). */
+  payloadTags: DetectorResult[] | null;
+  /** Whether this node's payload has been submitted for analysis. */
+  tagsAnalyzed: boolean;
 }
 
 /** A flat node for D3 force simulation. */
@@ -53,6 +59,8 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   pulseTimestamp: number;
   /** Snapshot of the peak rate at pulse time, used for fade colour interpolation. */
   pulseRate: number;
+  /** Detected payload tag type names (e.g. ["geo"]). Empty array = analyzed, nothing found. Null = not yet analyzed. */
+  payloadTags: string[] | null;
 }
 
 /** A link between parent and child for D3 force simulation. */

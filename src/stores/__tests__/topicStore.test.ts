@@ -1859,3 +1859,123 @@ describe("topicStore — MQTT v5 user properties", () => {
     expect(node!.lastUserProperties).toEqual({ tags: ["urgent", "alarm"] });
   });
 });
+
+describe("topicStore — payload analysis tags", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setShowRootPath(true);
+    state().setTopicFilter("#");
+  });
+
+  it("payloadTags defaults to null on new nodes", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node).toBeDefined();
+    expect(node!.payloadTags).toBeNull();
+  });
+
+  it("tagsAnalyzed defaults to false and is set true after first message", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node).toBeDefined();
+    // tagsAnalyzed should be true after handleMessage submits for analysis
+    expect(node!.tagsAnalyzed).toBe(true);
+  });
+
+  it("tagsAnalyzed remains true on subsequent messages (no re-submission)", () => {
+    state().handleMessage("a/b", "first", 0);
+    state().handleMessage("a/b", "second", 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.tagsAnalyzed).toBe(true);
+  });
+
+  it("setPayloadTags stores tags on the correct node", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    const tags = [{
+      tag: "geo" as const,
+      confidence: 0.9,
+      metadata: { lat: 51.5, lon: -0.1, latPath: "lat", lonPath: "lon" },
+      fieldPath: "lat",
+    }];
+    state().setPayloadTags("a/b", tags);
+
+    const node = findTopicNode("a/b");
+    expect(node!.payloadTags).toEqual(tags);
+    expect(node!.payloadTags).toHaveLength(1);
+    expect(node!.payloadTags![0].tag).toBe("geo");
+    expect(node!.payloadTags![0].metadata.lat).toBe(51.5);
+  });
+
+  it("setPayloadTags with empty array stores empty array (not null)", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    state().setPayloadTags("a/b", []);
+
+    const node = findTopicNode("a/b");
+    expect(node!.payloadTags).toEqual([]);
+    expect(node!.payloadTags).not.toBeNull();
+  });
+
+  it("setPayloadTags does not crash for non-existent node", () => {
+    // Should silently do nothing
+    expect(() => {
+      state().setPayloadTags("nonexistent/topic", []);
+    }).not.toThrow();
+  });
+
+  it("tags survive across subsequent messages (not cleared)", () => {
+    state().handleMessage("a/b", "first", 0);
+    state().rebuildGraph();
+
+    const tags = [{
+      tag: "geo" as const,
+      confidence: 1.0,
+      metadata: { lat: 48.85, lon: 2.35, latPath: "latitude", lonPath: "longitude" },
+      fieldPath: "latitude",
+    }];
+    state().setPayloadTags("a/b", tags);
+
+    // Send another message — tags should persist
+    state().handleMessage("a/b", "second", 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    expect(node!.payloadTags).toEqual(tags);
+  });
+
+  it("reset() clears tags (node is recreated)", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    state().setPayloadTags("a/b", [{
+      tag: "geo" as const,
+      confidence: 0.9,
+      metadata: { lat: 0, lon: 0, latPath: "lat", lonPath: "lon" },
+      fieldPath: "lat",
+    }]);
+
+    state().reset();
+
+    // Node no longer exists after reset
+    const node = findTopicNode("a/b");
+    expect(node).toBeUndefined();
+  });
+
+  it("does not submit empty payloads for analysis", () => {
+    state().handleMessage("a/b", "", 0);
+    state().rebuildGraph();
+
+    const node = findTopicNode("a/b");
+    // Empty payload should not set tagsAnalyzed
+    expect(node!.tagsAnalyzed).toBe(false);
+  });
+});

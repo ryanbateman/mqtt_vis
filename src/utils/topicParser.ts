@@ -21,6 +21,8 @@ export function createTopicNode(id: string, segment: string): TopicNode {
     lastPayloadSize: 0,
     largestPayloadSize: 0,
     lastUserProperties: null,
+    payloadTags: null,
+    tagsAnalyzed: false,
   };
 }
 

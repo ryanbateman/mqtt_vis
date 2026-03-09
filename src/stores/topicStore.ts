@@ -7,6 +7,8 @@ import type {
   LabelMode,
   MqttUserProperties,
 } from "../types";
+import type { DetectorResult } from "../types/payloadTags";
+import { payloadAnalyzer } from "../services/payloadAnalyzerService";
 import {
   createTopicNode,
   ensureTopicPathTracked,
@@ -91,6 +93,8 @@ interface TopicStoreState {
   dropRetainedBurst: boolean;
   /** Duration (ms) of the burst window after connection during which retained messages are dropped. */
   burstWindowDuration: number;
+  /** Whether to show geo-tagged node indicator rings in the graph. */
+  showGeoIndicators: boolean;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -175,6 +179,8 @@ interface TopicStoreState {
   setDropRetainedBurst: (enabled: boolean) => void;
   /** Update the burst window duration (ms). */
   setBurstWindowDuration: (value: number) => void;
+  /** Toggle geo indicator rings in the graph. */
+  setShowGeoIndicators: (enabled: boolean) => void;
   /** Request a PNG export of the current graph. */
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
@@ -186,6 +192,8 @@ interface TopicStoreState {
   setHighlightedNodes: (nodes: Map<string, string>) => void;
   /** Remove all node highlights. */
   clearHighlights: () => void;
+  /** Store payload analysis tags on a topic node (called by the analyzer worker callback). */
+  setPayloadTags: (nodeId: string, tags: DetectorResult[]) => void;
 }
 
 /**
@@ -252,6 +260,7 @@ function buildGraphData(
       pulse: now - tn.lastTimestamp < pulseDuration,
       pulseTimestamp: tn.lastTimestamp,
       pulseRate: tn.pulseRate,
+      payloadTags: tn.payloadTags ? tn.payloadTags.map((t) => t.tag) : null,
     };
   });
 
@@ -365,6 +374,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   pruneTimeout:         saved.pruneTimeout        ?? cfg.pruneTimeout        ?? 0,
   dropRetainedBurst: saved.dropRetainedBurst ?? cfg.dropRetainedBurst ?? true,
   burstWindowDuration:  saved.burstWindowDuration  ?? cfg.burstWindowDuration  ?? 5_000,
+  showGeoIndicators:    saved.showGeoIndicators    ?? cfg.showGeoIndicators    ?? false,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -428,6 +438,13 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           break;
         }
       }
+    }
+
+    // Submit first payload per node for off-thread analysis (geo detection, etc.).
+    // Subsequent payloads are only re-analyzed on demand (when the user selects the node).
+    if (!node.tagsAnalyzed && payload.length > 0) {
+      node.tagsAnalyzed = true;
+      payloadAnalyzer.analyze(node.id, payload);
     }
 
     // Instant rate spike: add 1 message worth of rate contribution
@@ -791,6 +808,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       pruneTimeout: cfg.pruneTimeout ?? 0,
       dropRetainedBurst: cfg.dropRetainedBurst ?? true,
       burstWindowDuration: cfg.burstWindowDuration ?? 5_000,
+      showGeoIndicators: cfg.showGeoIndicators ?? false,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
@@ -887,6 +905,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     set({ burstWindowDuration: value });
     persistSettings({ burstWindowDuration: value });
   },
+  setShowGeoIndicators: (enabled: boolean) => {
+    set({ showGeoIndicators: enabled });
+    persistSettings({ showGeoIndicators: enabled });
+  },
   setAncestorPulse: (enabled: boolean) => {
     set({ ancestorPulse: enabled });
     persistSettings({ ancestorPulse: enabled });
@@ -923,7 +945,24 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   clearHighlights: () => {
     set({ highlightedNodes: new Map<string, string>() });
   },
+  setPayloadTags: (nodeId: string, tags: DetectorResult[]) => {
+    const root = get().root;
+    const segments = nodeId === "" ? [] : nodeId.split("/");
+    const node = findNode(root, segments);
+    if (node) {
+      node.payloadTags = tags;
+      // Schedule a non-structural rebuild so graphNodes picks up the new tags
+      // and React re-renders components that depend on payloadTags.
+      get().scheduleRebuild(false);
+    }
+  },
 };});
+
+// Wire up the payload analyzer worker callback to the store.
+// When the worker finishes analyzing a payload, it posts results here.
+payloadAnalyzer.onResult((nodeId, tags) => {
+  useTopicStore.getState().setPayloadTags(nodeId, tags);
+});
 
 /** Start the periodic decay timer. Returns a cleanup function. */
 export function startDecayTimer(): () => void {
