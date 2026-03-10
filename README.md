@@ -1,53 +1,10 @@
 # MQTT Topic Visualiser
 
-A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQTT broker over WebSocket, subscribe with wildcard support, and watch topics come alive as an animated force-directed graph. Nodes glow, pulse, emit particles, and shift colour based on publish activity.
+A browser-based, real-time visualisation of MQTT topic trees, intended to help user browse and understand their MQTT data in real-time. Connect to any MQTT broker over WebSocket, subscribe with wildcard support, and watch topics come alive as an animated force-directed graph. Easily understand where your traffic is and identify key datatypes.
 
 **No backend required** — the entire application is a static SPA. The MQTT connection runs directly from the user's browser to the broker via WebSocket. You host static files and that's it.
 
 ![MQTT Topic Visualiser screenshot](visualiser.png)
-
-## Features
-
-- **Force-directed graph** — topics rendered as an interactive D3.js SVG graph with zoom, pan, and drag
-- **Live message tracking** — nodes grow and shrink based on message frequency using exponential moving average (EMA) rate calculation
-- **Visual effects** — three layered effects on message publish: glow/pulse (SVG filter), particle burst, and heat-map colouring
-- **Custom colour scale** — nodes shift from slate through sky blue, orange, amber, to yellow as activity increases
-- **Ancestor pulse** — optional: when a message arrives, all parent nodes up to the root pulse (toggleable)
-- **Root path filtering** — hide structural ancestor nodes above the subscription prefix (e.g. subscribing to `sensors/temp/#` with this off shows only `temp` and its children)
-- **Zoom-aware labels** — labels stay constant screen size; two visibility modes: Zoom (fade smoothly based on zoom level) or Depth (hard cutoff at a fixed tree depth)
-- **Quick Connect** — an inline dropdown of known MQTT brokers with brand icons (HiveMQ, Mosquitto, EMQX, or your own). Selecting a broker populates the URL field. Configured entirely via `config.json` — deployers ship their own list of brokers (or remove it to hide the dropdown)
-- **Configuration file** — ship a `config.json` alongside the app to customise all defaults for your deployment (broker URL, topic filter, public brokers, simulation params, UI state, and more)
-- **Auto-connect** — optional auto-connect on page load, configurable via UI checkbox or `config.json`
-- **Reset to defaults** — reset all visual, label, and simulation settings back to `config.json` defaults with a two-click confirmation
-- **Collapsible panels** — both connection and settings panels collapse to save screen space; a coloured status dot stays visible when the connection panel is collapsed
-- **Smarter connection errors** — failed connections show actionable hints (mixed content, auth rejection, DNS failure, TLS errors, wrong endpoint, etc.) rather than a raw error string
-- **Connection log** — timestamped log of connection events (connect attempts, errors, retries) in a dedicated Log tab inside the connection panel; auto-switches to the Log tab on error
-- **Settings panel** — sliders for visual and simulation parameters with collapsible sections and hover tooltips
-- **MQTT client ID** — randomised by default (`mqtt_visualiser_<hex>`), with a toggle to manually define a custom ID. Can be locked to a fixed value via `config.json`.
-- **Connection persistence** — broker URL, topic filter, username, client ID, and autoconnect preference are saved to localStorage
-- **Clear on disconnect** — optional checkbox to reset the graph when disconnecting
-- **Shareable links** — copy a URL with broker and topic filter pre-filled as query params; recipients see the connection fields pre-populated
-- **WebMCP integration** — exposes the topic tree, traffic stats, and graph export as tools for browser-integrated AI agents via the [W3C WebMCP API](https://webmachinelearning.github.io/webmcp/) (Chrome 146+). Configurable via `webmcpEnabled` in `config.json`
-- **PNG export** — export the full graph as a PNG image (auto-computed bounding box, 2x resolution, dark background)
-- **Labels toggle** — turn labels on or off entirely; label settings (mode, depth, font size, depth scaling) are grouped in a collapsible sub-section
-- **Depth-scaled text** — optional: label font size decreases with tree depth (inverse falloff), so root labels are largest and leaf labels are smallest. Font size slider sets the maximum.
-- **Hover tooltips** — hover over any node to see full topic path, message rate, aggregate rate, message count, QoS, last seen time, and last payload. Appears after a 0.5s delay. Toggleable in settings.
-- **MQTT v5 user properties** — the client connects using MQTT v5. When messages include user properties (key-value metadata attached by the publisher), they are displayed in the Detail Panel below the payload as a key-value grid. Array values are comma-joined.
-- **Node selection & detail panel** — click any node to select it (highlighted with a zoom-scaled blue ring). A persistent detail panel appears showing full topic path (click to copy), message stats, children count, QoS, last seen time, payload size, all-time largest payload size, MQTT v5 user properties (when present), and the full scrollable payload. JSON payloads can be pretty-printed via a `{ }` toggle button. The selected node is pinned in the payload LRU cache (never evicted while selected) and bypasses the truncation limit so large JSON payloads display and pretty-print correctly. Click background or press Escape to deselect.
-- **Smooth node sizing** — node radius changes are interpolated smoothly via exponential lerp in a 60fps animation loop, avoiding jumpy resizing on message bursts or decay ticks
-- **Dark theme** — designed for dark backgrounds with glow and particle effects
-- **Drop retained burst** — on subscribe, brokers deliver all stored retained messages at once. An optional filter (enabled by default) drops retained messages during a configurable burst window after connecting, preventing the graph from exploding with stale data. Non-retained messages always pass through normally.
-- **Prune idle nodes** — automatically remove nodes that stop receiving messages after a configurable inactivity timeout, keeping the graph clean
-- **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
-- **Payload analysis** — a Web Worker analyses MQTT payloads off the main thread, detecting embedded data patterns. Two detector types:
-  - **Geo detection** — detects lat/lon coordinate pairs in JSON payloads (key-pair heuristic and GeoJSON Point per RFC 7946). Tagged nodes show optional cyan indicator rings. Click "View on Map" in the Detail Panel to open the Insights Drawer
-  - **Image detection** — detects JPEG (JFIF/Exif) and PNG payloads from magic-byte signatures in the UTF-8-decoded string. Tagged nodes show optional bright purple indicator rings. The Detail Panel shows detected format, approximate size, and a live image preview rendered from the raw binary payload
-  - Both indicator ring types are independently toggleable under Settings → Data Insights
-- **Insights Drawer** — a slide-out map panel (bottom-right) powered by Leaflet + OpenStreetMap tiles. Shows the detected location for a selected geo-tagged node. Features include:
-  - **Position trails** — as a node's coordinates change, previous positions are shown as cyan trail dots with a red polyline connecting them (50-point history cap per topic). Trail dots show timestamps on hover
-  - **Pin mode** — pin the drawer so it stays open while browsing other nodes
-  - **Multi-geo mode** — when multiple geo topics are detected, a globe toggle switches to an overview showing all geo nodes as map markers. Forward/back navigation cycles through topics with wrapping. The highlighted topic uses an amber marker. All nodes independently track position trails in this mode. Click any marker to switch to single-topic mode for that node
-- **Performance debug mode** — add `?perf` to the URL to enable console-based performance instrumentation: FPS counter, frame timing, D3 tick duration, decay tick cost, node/link counts, heap usage, and automatic long-frame detection via PerformanceObserver. Zero overhead when disabled. See [Performance Profiling](docs/performance-profiling.md) for automated collection and report interpretation.
 
 ## Quick Start
 
