@@ -38,6 +38,15 @@ function App() {
     setIsInsightsPinned((prev) => !prev);
   }, []);
 
+  // Close insights drawer (and unpin) on disconnect — the topic tree is
+  // about to be cleared so the pinned map would show stale data.
+  useEffect(() => {
+    if (connectionStatus === "disconnected" && insightsGeo) {
+      setInsightsGeo(null);
+      setIsInsightsPinned(false);
+    }
+  }, [connectionStatus, insightsGeo]);
+
   // When node selection changes while the drawer is open, either update
   // it to show the new node's geo data or close it if the new node has none.
   // When pinned, the drawer stays on its current topic regardless of selection.
