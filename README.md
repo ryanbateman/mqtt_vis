@@ -1,6 +1,6 @@
 # MQTT Topic Visualiser
 
-A browser-based, real-time visualisation of MQTT topic trees, intended to help user browse and understand their MQTT data in real-time. Connect to any MQTT broker over WebSocket, subscribe with wildcard support, and watch topics come alive as an animated force-directed graph. Easily understand where your traffic is and identify key datatypes.
+A browser-based, real-time visualisation of MQTT topic trees, intended to help a user browse and understand their MQTT data in real-time. Connect to any MQTT broker over WebSocket, subscribe with wildcard support, and watch topics come alive as an animated force-directed graph. Easily understand where your traffic is and identify key datatypes.
 
 **No backend required** — the entire application is a static SPA. The MQTT connection runs directly from the user's browser to the broker via WebSocket. You host static files and that's it.
 
