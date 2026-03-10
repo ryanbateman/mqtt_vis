@@ -1,4 +1,5 @@
 import type { TopicNode } from "../types";
+import type { GeoMetadata, GeoNode } from "../types/payloadTags";
 
 /** Split an MQTT topic string into its segments. */
 export function parseTopicSegments(topic: string): string[] {
@@ -123,6 +124,26 @@ export function collectAllNodes(root: TopicNode): TopicNode[] {
 
   walk(root);
   return result;
+}
+
+/**
+ * Collect all nodes in the tree that have a geo payload tag.
+ * Returns an array of { topicPath, geo } sorted by topic path for stable ordering.
+ * Uses collectAllNodes() internally — O(n) over the tree.
+ */
+export function collectGeoNodes(root: TopicNode): GeoNode[] {
+  const results: GeoNode[] = [];
+  for (const node of collectAllNodes(root)) {
+    const tag = node.payloadTags?.find((t) => t.tag === "geo");
+    if (tag) {
+      results.push({
+        topicPath: node.id,
+        geo: tag.metadata as GeoMetadata,
+      });
+    }
+  }
+  results.sort((a, b) => a.topicPath.localeCompare(b.topicPath));
+  return results;
 }
 
 /**

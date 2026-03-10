@@ -8,9 +8,9 @@ import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { getConfig } from "./utils/config";
-import { findNode } from "./utils/topicParser";
+import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
-import type { GeoMetadata } from "./types/payloadTags";
+import type { GeoMetadata, GeoNode } from "./types/payloadTags";
 
 function App() {
   const { connect, disconnect, connectionStatus } = useMqttClient();
@@ -23,20 +23,56 @@ function App() {
   // Insights drawer state
   const [insightsGeo, setInsightsGeo] = useState<{ topicPath: string; geo: GeoMetadata } | null>(null);
   const [isInsightsPinned, setIsInsightsPinned] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<"single" | "all">("single");
+  const [geoNavIndex, setGeoNavIndex] = useState(0);
+
+  // Collect all geo-tagged nodes from the topic tree.
+  // Recalculated on every graph rebuild (graphNodes reference changes).
+  const geoNodes: GeoNode[] = useMemo(() => {
+    const root = useTopicStore.getState().root;
+    return collectGeoNodes(root);
+  }, [graphNodes]);
 
   const handleOpenInsights = useCallback((geo: GeoMetadata) => {
     if (!selectedNodeId) return;
     setInsightsGeo({ topicPath: selectedNodeId, geo });
+    setDrawerMode("single");
   }, [selectedNodeId]);
 
   const handleCloseInsights = useCallback(() => {
     setInsightsGeo(null);
     setIsInsightsPinned(false);
+    setDrawerMode("single");
   }, []);
 
   const handleTogglePin = useCallback(() => {
     setIsInsightsPinned((prev) => !prev);
   }, []);
+
+  const handleSetMode = useCallback((mode: "single" | "all") => {
+    if (mode === "all") {
+      // Switching to all-geo mode — unpin since pinning is single-topic only
+      setIsInsightsPinned(false);
+    }
+    setDrawerMode(mode);
+  }, []);
+
+  const handleNavigate = useCallback((index: number) => {
+    if (index < 0 || index >= geoNodes.length) return;
+    setGeoNavIndex(index);
+    const target = geoNodes[index];
+    // In single-topic mode, navigating switches the viewed topic
+    setInsightsGeo({ topicPath: target.topicPath, geo: target.geo });
+    // Navigating while pinned unpins — the user clearly wants a different topic
+    setIsInsightsPinned(false);
+  }, [geoNodes]);
+
+  // Sync geoNavIndex when insightsGeo changes (e.g. opening from DetailPanel)
+  useEffect(() => {
+    if (!insightsGeo) return;
+    const idx = geoNodes.findIndex((n) => n.topicPath === insightsGeo.topicPath);
+    if (idx >= 0) setGeoNavIndex(idx);
+  }, [insightsGeo, geoNodes]);
 
   // Close insights drawer (and unpin) on disconnect — the topic tree is
   // about to be cleared so the pinned map would show stale data.
@@ -44,15 +80,17 @@ function App() {
     if (connectionStatus === "disconnected" && insightsGeo) {
       setInsightsGeo(null);
       setIsInsightsPinned(false);
+      setDrawerMode("single");
     }
   }, [connectionStatus, insightsGeo]);
 
   // When node selection changes while the drawer is open, either update
   // it to show the new node's geo data or close it if the new node has none.
-  // When pinned, the drawer stays on its current topic regardless of selection.
+  // When pinned or in all-geo mode, the drawer stays as-is regardless of selection.
   useEffect(() => {
     if (!insightsGeo) return; // drawer already closed — nothing to do
     if (isInsightsPinned) return; // pinned — ignore node selection changes
+    if (drawerMode === "all") return; // all-geo mode — ignore node selection changes
 
     if (!selectedNodeId) {
       setInsightsGeo(null);
@@ -72,7 +110,7 @@ function App() {
       // New node has no geo — close the drawer
       setInsightsGeo(null);
     }
-  }, [selectedNodeId, isInsightsPinned]);
+  }, [selectedNodeId, isInsightsPinned, drawerMode]);
 
   // Look up the selected node's data for the detail panel
   const selectedNodes = useMemo(() => {
@@ -155,6 +193,11 @@ function App() {
           geo={insightsGeo.geo}
           isPinned={isInsightsPinned}
           onTogglePin={handleTogglePin}
+          mode={drawerMode}
+          onSetMode={handleSetMode}
+          geoNodes={geoNodes}
+          geoNavIndex={geoNavIndex}
+          onNavigate={handleNavigate}
           onClose={handleCloseInsights}
         />
       )}

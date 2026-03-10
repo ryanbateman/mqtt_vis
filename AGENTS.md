@@ -119,10 +119,11 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (305 tests total):
-- `src/stores/__tests__/topicStore.test.ts` — 138 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset), burst window UI state (burstWindowActive/burstSettingsLocked lifecycle, timer expiry, disconnect/reset cleanup), and MQTT v5 user properties (storage, overwrite, clear, array values).
-- `src/utils/__tests__/settingsStorage.test.ts` — 30 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all 22 persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `dropRetainedBurst` validation, `burstWindowDuration` validation, and `labelMode` values including `"activity"`.
+Current test coverage (358 tests total):
+- `src/stores/__tests__/topicStore.test.ts` — 148 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset), burst window UI state (burstWindowActive/burstSettingsLocked lifecycle, timer expiry, disconnect/reset cleanup), MQTT v5 user properties (storage, overwrite, clear, array values), and payload tag storage with geo re-analysis.
+- `src/utils/__tests__/settingsStorage.test.ts` — 31 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `dropRetainedBurst` validation, `burstWindowDuration` validation, `labelMode` values including `"activity"`, and `showGeoIndicators` validation.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
+- `src/utils/detectors/__tests__/geoDetector.test.ts` — 42 tests for geo coordinate detection heuristics (key pairs, nested objects, string coercion, range validation, edge cases).
 - `src/utils/__tests__/formatters.test.ts` — 41 tests for rate/timestamp formatting, payload truncation, depth scaling, and payload size formatting.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.
 - `src/utils/__tests__/sizeCalculator.test.ts` — 11 tests for logarithmic node radius calculation.
@@ -167,6 +168,43 @@ The client connects using **MQTT v5** (`protocolVersion: 5` in `mqttService.ts`)
 - **Display**: The Detail Panel (node click) shows a "User Properties" section below the payload when properties are present. The hover tooltip does not show them (too verbose).
 - **Backward compatibility**: `handleMessage` accepts `userProperties` as an optional 5th parameter (default `undefined` → stored as `null`). Existing 3-arg and 4-arg test calls remain valid.
 - **v4 brokers**: If a broker only supports MQTT v4, the v5 CONNECT may be rejected. The connection error should be diagnosable from the error message.
+
+## Payload Analysis & Insights Drawer
+
+A Web Worker analyses MQTT payloads off the main thread, running registered detector functions and posting back tagged results. The system is designed to be extensible — new detectors can be added without architectural changes.
+
+### Architecture
+
+- **Worker pipeline**: `payloadAnalyzerService.ts` manages the worker lifecycle. The main thread posts payloads to the worker via `handleMessage` in the store. The worker runs detectors (currently geo only) and posts back `DetectorResult[]`.
+- **`tagsAnalyzed` flag**: Each `TopicNode` has a `tagsAnalyzed: boolean`. Only the first payload per node is automatically submitted for analysis — **except** nodes with an existing geo tag, which are re-analyzed on every new payload so coordinates update live (critical for GPS trackers).
+- **`setPayloadTags` must call `scheduleRebuild(false)`** — without it, tags are stored on `TopicNode` but never flow to `GraphNode.payloadTags` or trigger React re-renders.
+- **500ms debounce**: The worker debounces analysis per node ID to avoid flooding on high-frequency topics.
+
+### Geo Detector
+
+`src/utils/detectors/geoDetector.ts` scans JSON objects recursively for adjacent lat/lon key pairs. Key matching is case-insensitive (`lat`/`lon`, `latitude`/`longitude`, `lat`/`lng`, `Lat`/`Long`). Values can be numbers or strings (MQTT payloads commonly have `"53.5511"` instead of `53.5511` — a `toNumber()` coercion helper handles this).
+
+### Graph Indicators
+
+Geo-tagged nodes show optional cyan insight rings in the graph (toggleable under Settings → Data Insights via `showGeoIndicators`). The insight ring layer is rendered in `GraphRenderer.ts`.
+
+### Insights Drawer (`InsightsDrawer.tsx`)
+
+A slide-out panel (bottom-right, ~400px wide) triggered by clicking "View on Map" in the Detail Panel. React owns the container; Leaflet manages the map inside a ref (same pattern as D3 in `GraphRenderer`).
+
+**Two modes:**
+1. **Single mode** — one topic's geo coordinates + historical trail. Live store subscription updates marker position as new payloads arrive. Previous positions become cyan trail dots with a red polyline (50-point cap). Trail dots show timestamps on hover. Pin button keeps the drawer open while browsing other nodes.
+2. **All-geo mode** — all detected geo topics shown as markers on a single map with auto-fitBounds. Globe toggle in the header switches modes (only shown when 2+ geo topics exist). Forward/back navigation cycles through topics with wrapping. Highlighted topic uses an amber marker. Each topic independently tracks its own trail history. Click any marker to switch to single mode for that topic.
+
+**Key implementation details:**
+- `TopicTrailState` — per-topic trail state (trail points, dots, polyline, previous position) stored in `allTrailsRef: Map<string, TopicTrailState>`.
+- Markers indexed by topic path (`allMarkersByTopicRef`) for reliable lookup in the store subscription.
+- Topic set fingerprint prevents unnecessary full marker rebuilds that would wipe trail data — only rebuilds when topics are added/removed, not on position-only changes.
+- Mode transition single→all transfers existing single-mode trail data to the all-trails map. All→single clears all trails and starts fresh.
+- `GeoMetadata` is only on `TopicNode`, not `GraphNode`. React components showing geo data must read from the tree via `findNode()` or `collectAllNodes()`.
+- `collectGeoNodes(root)` in `topicParser.ts` walks the full tree and returns sorted `GeoNode[]`.
+- Leaflet default marker icons don't work with Vite — custom `L.divIcon` with inline CSS (cyan circle) is used instead.
+- Drawer closes on disconnect to prevent stale pinned maps.
 
 ## Common Pitfalls
 

@@ -30,6 +30,14 @@ export interface DetectorResult<T extends PayloadTagType = PayloadTagType> {
   fieldPath: string;
 }
 
+/** A topic node with confirmed geo coordinates — used for multi-geo map views. */
+export interface GeoNode {
+  /** Full MQTT topic path. */
+  topicPath: string;
+  /** Detected coordinates. */
+  geo: GeoMetadata;
+}
+
 // --- Trail types ------------------------------------------------------------
 
 /** A single historical position in a geo trail. */

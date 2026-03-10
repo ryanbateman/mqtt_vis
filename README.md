@@ -39,6 +39,11 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Drop retained burst** — on subscribe, brokers deliver all stored retained messages at once. An optional filter (enabled by default) drops retained messages during a configurable burst window after connecting, preventing the graph from exploding with stale data. Non-retained messages always pass through normally.
 - **Prune idle nodes** — automatically remove nodes that stop receiving messages after a configurable inactivity timeout, keeping the graph clean
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
+- **Payload analysis & geo detection** — a Web Worker analyses MQTT payloads off the main thread, detecting embedded geo coordinates (lat/lon key pairs in JSON). Tagged nodes show optional cyan indicator rings in the graph (toggleable under Settings → Data Insights). Click "View on Map" in the Detail Panel to open the Insights Drawer
+- **Insights Drawer** — a slide-out map panel (bottom-right) powered by Leaflet + OpenStreetMap tiles. Shows the detected location for a selected geo-tagged node. Features include:
+  - **Position trails** — as a node's coordinates change, previous positions are shown as cyan trail dots with a red polyline connecting them (50-point history cap per topic). Trail dots show timestamps on hover
+  - **Pin mode** — pin the drawer so it stays open while browsing other nodes
+  - **Multi-geo mode** — when multiple geo topics are detected, a globe toggle switches to an overview showing all geo nodes as map markers. Forward/back navigation cycles through topics with wrapping. The highlighted topic uses an amber marker. All nodes independently track position trails in this mode. Click any marker to switch to single-topic mode for that node
 - **Performance debug mode** — add `?perf` to the URL to enable console-based performance instrumentation: FPS counter, frame timing, D3 tick duration, decay tick cost, node/link counts, heap usage, and automatic long-frame detection via PerformanceObserver. Zero overhead when disabled. See [Performance Profiling](docs/performance-profiling.md) for automated collection and report interpretation.
 
 ## Quick Start
@@ -244,6 +249,7 @@ See **[docs/performance-profiling.md](docs/performance-profiling.md)** for full 
 | Styling | Tailwind CSS v3 |
 | Visualisation | D3.js v7 (force simulation, SVG) |
 | MQTT | mqtt.js v5 (browser WebSocket bundle, MQTT v5 protocol) |
+| Maps | Leaflet + OpenStreetMap tiles (Insights Drawer) |
 | State | Zustand v5 |
 | Deploy | Static SPA |
 
@@ -255,6 +261,7 @@ public/
 src/
   types/
     index.ts               # TopicNode, GraphNode, GraphLink, ConnectionParams, Particle, MqttUserProperties
+    payloadTags.ts          # Payload tag types, detector results, GeoMetadata, GeoNode, TrailPoint, worker protocol
     webmcp.d.ts            # Ambient type declarations for W3C WebMCP API
   stores/
     topicStore.ts           # Zustand store: topic tree, EMA rates, decay, settings
@@ -262,24 +269,30 @@ src/
     useMqttClient.ts        # MQTT lifecycle hook, localStorage persistence
   services/
     mqttService.ts          # mqtt.js WebSocket wrapper (MQTT v5); connection log ring buffer, retry cap (3 attempts), structured error type
+    payloadAnalyzerService.ts # Web Worker lifecycle manager for off-thread payload analysis
     webMcpService.ts        # WebMCP tool registration (navigator.modelContext)
+  workers/
+    payloadAnalyzer.worker.ts # Web Worker: runs payload detectors off the main thread
   components/
     ConnectionPanel.tsx     # Broker URL, topic filter, client ID, auth, connect/disconnect
     TopicGraph.tsx          # SVG container, syncs store state to GraphRenderer
     GraphRenderer.ts        # D3 force simulation, nodes/links/labels/effects/particles
     DetailPanel.tsx         # Selected node detail panel (topic path, stats, payload)
+    InsightsDrawer.tsx      # Slide-out Leaflet map panel with trails, pin, multi-geo mode
     NodeTooltip.tsx         # Hover tooltip for node details
     SettingsPanel.tsx       # Sliders, toggles, collapsible sections, portal tooltips
     StatusBar.tsx           # Message/topic counts, uptime
   utils/
     config.ts              # Config loader: fetch config.json, AppConfig interface
-    topicParser.ts          # Topic string parsing, tree operations, ancestor paths
+    topicParser.ts          # Topic string parsing, tree operations, ancestor paths, collectGeoNodes
     sizeCalculator.ts       # Logarithmic node radius from aggregate rate
     colorScale.ts           # Custom multi-stop colour scale (slate > sky > orange > amber > yellow)
     formatters.ts           # Rate/timestamp/size formatting, payload truncation, depth scaling
     brokerIcons.ts          # Bundled SVG broker icons (Simple Icons, CC0) + domain matching
     connectionErrors.ts     # Connection error diagnosis: maps raw errors to actionable hints + log timestamp formatter
     perfDebug.ts            # Performance debug module (?perf URL param activation)
+    detectors/
+      geoDetector.ts        # Geo coordinate detection heuristic (lat/lon key pairs in JSON)
 ```
 
 ## How It Works
