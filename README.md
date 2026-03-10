@@ -24,65 +24,6 @@ npm run preview    # preview the production build locally
 
 The output in `dist/` is a fully static SPA — deploy it to any static hosting (GitHub Pages, Netlify, S3, etc.). Edit `dist/config.json` after building to customise defaults for your deployment without rebuilding.
 
-## Usage
-
-### Connection Panel (top-left)
-
-The connection panel is collapsible — click the header to toggle. A coloured status dot in the top-right corner of the header shows the current connection state at a glance (green = connected, amber = connecting, red = error, grey = disconnected). When collapsed and an error is active, a truncated error hint is shown in the header.
-
-The panel has two tabs:
-
-**Connect tab**
-
-| Field | Description |
-|---|---|
-| **Quick Connect** | Dropdown of known brokers (from `config.json`) with brand icons. Selecting one populates the Broker URL field; the selected broker name and icon persist until the user manually edits the URL. Hidden if no brokers are configured. |
-| **Broker URL** | WebSocket endpoint (`ws://` or `wss://`) |
-| **Topic Filter** | MQTT subscription filter. `#` for all topics, `+` for single-level wildcard |
-| **Client ID** | Randomised by default. Toggle "Custom" to define your own (disabled while connected). Can be locked via config. |
-| **Authentication** | Optional username/password (click "Show authentication") |
-| **Connect / Disconnect button** | Colour and label reflect current state: blue "Connect" when idle, amber pulsing "Connecting…" or "Reconnecting (N/3)…" during attempts, red "Disconnect" when connected |
-| **Auto-connect on load** | When checked, the app connects automatically on page load using the current settings |
-| **Clear graph on disconnect** | Reset the graph when disconnecting |
-| **Copy connection share link** | Copies a URL with the current broker and topic filter as query params to the clipboard |
-| **Export graph as PNG** | Downloads the full graph as a PNG image (`mqtt-vis-{timestamp}.png`) |
-
-**Log tab**
-
-Shows timestamped connection events (attempts, errors, retries) in a scrollable log. When a connection error occurs the panel automatically switches to this tab and displays the error message with an actionable hint at the top. A red dot badge appears on the Log tab label when there is an unread error and the Connect tab is active.
-
-### Settings Panel (top-right)
-
-The settings panel is collapsible — click the header to toggle.
-
-**Appearance**
-- **Fade Time** — how long messages affect node size and colour (EMA time constant)
-- **Labels** — toggle labels on or off entirely. When on, the following sub-settings appear:
-- **Label Mode** — toggle between two label visibility strategies:
-  - **Zoom** — labels fade in/out based on zoom level and tree depth (deeper labels disappear first when zoomed out)
-  - **Depth** — labels are shown or hidden by a fixed tree depth cutoff, independent of zoom level
-- **Label Depth / Max Label Depth** — the slider meaning changes with the label mode. In Zoom mode, it controls how many depth levels remain visible when zoomed out. In Depth mode, it sets the hard cutoff depth.
-- **Font Size** — slider to set the label font size (6–32px). When depth scaling is on, this is the maximum size (used at the root level).
-- **Scale by Depth** — toggle depth-based text scaling. When on, root-level labels use the full font size and deeper nodes get progressively smaller text (inverse falloff: `size / (1 + depth * 0.25)`).
-- **Node Scale** — slider to scale all node sizes proportionally (0.5x–4.0x). Affects both minimum and maximum radius.
-- **Scale Nodes by Depth** — toggle depth-based node sizing. When on, deeper nodes are rendered smaller using inverse falloff: `radius / (1 + depth * 0.4)`. Only affects visual size, not collision radius.
-- **Ancestor Pulse** — toggle whether parent nodes pulse when descendants receive messages
-- **Show Root Path** — toggle visibility of structural ancestor nodes above the subscription prefix
-- **Hover Tooltips** — toggle whether hovering over a node shows a tooltip with topic details (full path, rates, payload, etc.)
-
-**Simulation**
-- **Repulsion** — how strongly nodes push each other apart
-- **Link Distance** — ideal spacing between connected parent-child nodes
-- **Link Strength** — how rigidly links enforce their ideal distance
-- **Collision Gap** — extra space around nodes to prevent overlap
-- **Settle Speed** — how quickly the graph stops moving after changes
-
-**Reset to Defaults** — resets all visual, label, and simulation settings back to deployment defaults from `config.json`. Requires a confirmation click to prevent accidental resets. Does not affect the connection, topic tree, or topic filter.
-
-### Status Bar (bottom)
-
-Shows total messages received, unique topics discovered, and session uptime.
-
 ## Configuration
 
 The app loads `config.json` from the server root on startup. Edit `public/config.json` before building, or `dist/config.json` after building, to customise defaults for your deployment.
