@@ -438,8 +438,9 @@ export class GraphRenderer {
       .attr("stroke", "#111827")
       .attr("stroke-width", this.labelStrokeWidth)
       .attr("paint-order", "stroke fill")
-      .merge(this.labelElements)
-      .text((d) => d.label);
+      .attr("opacity", 0) // Start invisible — visibility mode sets correct value
+      .text((d) => d.label) // Set text on enter only (labels are immutable)
+      .merge(this.labelElements);
 
     // Reapply depth-based label visibility for newly entered labels
     this.updateLabelVisibility();
@@ -611,8 +612,10 @@ export class GraphRenderer {
       this.labelElements.attr("opacity", (d) => (d.depth <= maxDepth ? 1 : 0));
     } else if (this.labelMode === "activity") {
       // Activity mode: opacity driven per-frame by updateActivityLabelOpacity().
-      // Start all labels at 0 — the animation loop will set correct opacities.
-      this.labelElements.attr("opacity", 0);
+      // New labels already enter with opacity 0.  Existing labels retain their
+      // current per-frame opacity — no blanket reset needed.  This avoids a
+      // 1-frame blink where all labels vanish and reappear on structural updates.
+      return;
     } else {
       // Zoom mode: deeper labels fade out when zoomed out.
       // The +2 offset ensures shallow labels (depth 1-2) resist fading
