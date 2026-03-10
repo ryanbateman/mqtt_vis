@@ -18,8 +18,25 @@ export function useMqttClient() {
   // Set up message and status handlers
   useEffect(() => {
     mqttService.setMessageHandler((topic, payload, qos, retain, userProperties) => {
+      // Detect image payloads from raw binary before UTF-8 decoding mangles them.
+      // Buffer extends Uint8Array so we can check magic bytes directly.
+      let imageBlobUrl: string | undefined;
+      if (payload.length >= 4) {
+        const isJpeg = payload[0] === 0xFF && payload[1] === 0xD8;
+        const isPng = payload[0] === 0x89 && payload[1] === 0x50
+          && payload[2] === 0x4E && payload[3] === 0x47;
+        if (isJpeg || isPng) {
+          const mime = isJpeg ? "image/jpeg" : "image/png";
+          // Buffer (browser polyfill) may be a view into a pooled ArrayBuffer,
+          // so slice out only the relevant bytes before creating the Blob.
+          const bytes = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
+          const blob = new Blob([bytes], { type: mime });
+          imageBlobUrl = URL.createObjectURL(blob);
+        }
+      }
+
       const payloadStr = payload.toString();
-      handleMessage(topic, payloadStr, qos, retain, userProperties);
+      handleMessage(topic, payloadStr, qos, retain, userProperties, imageBlobUrl);
     });
 
     mqttService.setStatusHandler((status, error) => {

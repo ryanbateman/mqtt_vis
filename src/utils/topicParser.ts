@@ -24,6 +24,7 @@ export function createTopicNode(id: string, segment: string): TopicNode {
     lastUserProperties: null,
     payloadTags: null,
     tagsAnalyzed: false,
+    lastImageBlobUrl: null,
   };
 }
 

@@ -35,6 +35,9 @@ export interface TopicNode {
   payloadTags: DetectorResult[] | null;
   /** Whether this node's payload has been submitted for analysis. */
   tagsAnalyzed: boolean;
+  /** Blob URL for the most recent image payload (JPEG/PNG). Null if not an image topic.
+   *  Must be revoked via URL.revokeObjectURL() on eviction/reset to prevent memory leaks. */
+  lastImageBlobUrl: string | null;
 }
 
 /** A flat node for D3 force simulation. */

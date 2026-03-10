@@ -29,6 +29,7 @@ export interface AppConfig {
 
   // Data Insights
   showGeoIndicators?: boolean;
+  showImageIndicators?: boolean;
 
   // Simulation
   repulsionStrength?: number;

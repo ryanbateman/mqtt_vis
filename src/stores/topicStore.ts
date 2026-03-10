@@ -95,6 +95,8 @@ interface TopicStoreState {
   burstWindowDuration: number;
   /** Whether to show geo-tagged node indicator rings in the graph. */
   showGeoIndicators: boolean;
+  /** Whether to show image-tagged node indicator rings in the graph. */
+  showImageIndicators: boolean;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -131,7 +133,7 @@ interface TopicStoreState {
   setTopicFilter: (filter: string) => void;
 
   /** Process an incoming MQTT message. retain defaults to false for backward compatibility. */
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, userProperties?: MqttUserProperties) => void;
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, userProperties?: MqttUserProperties, imageBlobUrl?: string) => void;
   /** Update connection status. */
   setConnectionStatus: (status: ConnectionStatus, error?: string) => void;
   /** Run one decay tick — called periodically. */
@@ -181,6 +183,8 @@ interface TopicStoreState {
   setBurstWindowDuration: (value: number) => void;
   /** Toggle geo indicator rings in the graph. */
   setShowGeoIndicators: (enabled: boolean) => void;
+  /** Toggle image indicator rings in the graph. */
+  setShowImageIndicators: (enabled: boolean) => void;
   /** Request a PNG export of the current graph. */
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
@@ -309,6 +313,17 @@ const PAYLOAD_MAX_STORE = 1024;
  */
 const _payloadLru = new Set<string>();
 
+/** Walk the topic tree and revoke all image blob URLs. Called on reset/disconnect. */
+function revokeAllBlobUrls(node: TopicNode): void {
+  if (node.lastImageBlobUrl) {
+    URL.revokeObjectURL(node.lastImageBlobUrl);
+    node.lastImageBlobUrl = null;
+  }
+  for (const child of node.children.values()) {
+    revokeAllBlobUrls(child);
+  }
+}
+
 /**
  * Module-level state for the batched rebuild scheduler.
  * Lives outside the store to avoid Zustand re-render triggers.
@@ -375,6 +390,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   dropRetainedBurst: saved.dropRetainedBurst ?? cfg.dropRetainedBurst ?? true,
   burstWindowDuration:  saved.burstWindowDuration  ?? cfg.burstWindowDuration  ?? 5_000,
   showGeoIndicators:    saved.showGeoIndicators    ?? cfg.showGeoIndicators    ?? false,
+  showImageIndicators:  saved.showImageIndicators  ?? cfg.showImageIndicators  ?? false,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -385,7 +401,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   burstWindowActive: false,
   burstSettingsLocked: false,
 
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false, userProperties?: MqttUserProperties) => {
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false, userProperties?: MqttUserProperties, imageBlobUrl?: string) => {
     perfMark("handle-msg-start");
     const state = get();
 
@@ -395,6 +411,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const inBurstWindow = _burstWindowStart > 0
       && (Date.now() - _burstWindowStart < state.burstWindowDuration);
     if (state.dropRetainedBurst && retain && inBurstWindow) {
+      if (imageBlobUrl) URL.revokeObjectURL(imageBlobUrl);
       return;
     }
 
@@ -410,6 +427,12 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // so size history is always available for debugging and WebMCP queries.
     node.lastPayloadSize = payload.length;
     node.largestPayloadSize = Math.max(node.largestPayloadSize, payload.length);
+
+    // Store image blob URL — revoke the previous one to prevent memory leaks.
+    if (imageBlobUrl) {
+      if (node.lastImageBlobUrl) URL.revokeObjectURL(node.lastImageBlobUrl);
+      node.lastImageBlobUrl = imageBlobUrl;
+    }
 
     // Only store payloads when tooltips are enabled (opt-in).
     // Use LRU eviction to cap the number of stored payloads.
@@ -434,7 +457,14 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           _payloadLru.delete(candidateId);
           const segments = candidateId === "" ? [] : candidateId.split("/");
           const evicted = findNode(root, segments);
-          if (evicted) evicted.lastPayload = null;
+          if (evicted) {
+            evicted.lastPayload = null;
+            // Revoke blob URL on eviction to free memory
+            if (evicted.lastImageBlobUrl) {
+              URL.revokeObjectURL(evicted.lastImageBlobUrl);
+              evicted.lastImageBlobUrl = null;
+            }
+          }
           break;
         }
       }
@@ -759,6 +789,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     }
     _burstWindowStart = 0;
     _lastStructuralFlush = 0;
+    // Revoke all image blob URLs to prevent memory leaks on reset
+    revokeAllBlobUrls(get().root);
     _payloadLru.clear();
     _pendingMessages = 0;
     _pendingNewTopics = 0;
@@ -815,6 +847,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       dropRetainedBurst: cfg.dropRetainedBurst ?? true,
       burstWindowDuration: cfg.burstWindowDuration ?? 5_000,
       showGeoIndicators: cfg.showGeoIndicators ?? false,
+      showImageIndicators: cfg.showImageIndicators ?? false,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
@@ -914,6 +947,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   setShowGeoIndicators: (enabled: boolean) => {
     set({ showGeoIndicators: enabled });
     persistSettings({ showGeoIndicators: enabled });
+  },
+  setShowImageIndicators: (enabled: boolean) => {
+    set({ showImageIndicators: enabled });
+    persistSettings({ showImageIndicators: enabled });
   },
   setAncestorPulse: (enabled: boolean) => {
     set({ ancestorPulse: enabled });

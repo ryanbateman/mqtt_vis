@@ -119,11 +119,12 @@ npm run preview    # Preview production build locally
 
 Vitest is configured. Run with `npm test`. Tests live in `__tests__/` directories adjacent to their source files.
 
-Current test coverage (358 tests total):
+Current test coverage (393 tests total):
 - `src/stores/__tests__/topicStore.test.ts` — 148 tests covering pulse data flow, fade timing, link targeting, ancestor sizing, store state management, node selection, settings reset, highlight sets, batched counter updates, decay rebuild suppression, localStorage settings persistence, selected-node LRU pinning and truncation bypass, payload size tracking, node pruning (stale leaf removal, implicit ancestor cleanup, root/selected protection, sibling preservation, persistence, reset), drop retained burst (full message drop, no node creation, no counters, non-retained passthrough, persistence, reset), burst window UI state (burstWindowActive/burstSettingsLocked lifecycle, timer expiry, disconnect/reset cleanup), MQTT v5 user properties (storage, overwrite, clear, array values), and payload tag storage with geo re-analysis.
-- `src/utils/__tests__/settingsStorage.test.ts` — 31 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `dropRetainedBurst` validation, `burstWindowDuration` validation, `labelMode` values including `"activity"`, and `showGeoIndicators` validation.
+- `src/utils/detectors/__tests__/imageDetector.test.ts` — 18 tests for JPEG/PNG image detection from UTF-8-decoded binary payloads (JFIF, Exif, PNG signatures, negative cases, edge cases).
+- `src/utils/__tests__/settingsStorage.test.ts` — 32 tests covering load/persist/clear, corrupt data, missing fields, version mismatch, type and range validation, full round-trip for all persisted fields, `pruneTimeout` validation, `labelStrokeWidth` validation, `dropRetainedBurst` validation, `burstWindowDuration` validation, `labelMode` values including `"activity"`, `showGeoIndicators` validation, and `showImageIndicators` validation.
 - `src/utils/__tests__/topicParser.test.ts` — 43 tests for topic parsing, tree operations, and ancestor paths.
-- `src/utils/detectors/__tests__/geoDetector.test.ts` — 42 tests for geo coordinate detection heuristics (key pairs, nested objects, string coercion, range validation, edge cases).
+- `src/utils/detectors/__tests__/geoDetector.test.ts` — 58 tests for geo coordinate detection heuristics (GeoJSON Point detection, key pairs, nested objects, string coercion, range validation, edge cases).
 - `src/utils/__tests__/formatters.test.ts` — 41 tests for rate/timestamp formatting, payload truncation, depth scaling, and payload size formatting.
 - `src/utils/__tests__/colorScale.test.ts` — 15 tests for the custom colour scale.
 - `src/utils/__tests__/sizeCalculator.test.ts` — 11 tests for logarithmic node radius calculation.
@@ -175,18 +176,49 @@ A Web Worker analyses MQTT payloads off the main thread, running registered dete
 
 ### Architecture
 
-- **Worker pipeline**: `payloadAnalyzerService.ts` manages the worker lifecycle. The main thread posts payloads to the worker via `handleMessage` in the store. The worker runs detectors (currently geo only) and posts back `DetectorResult[]`.
+- **Worker pipeline**: `payloadAnalyzerService.ts` manages the worker lifecycle. The main thread posts payloads to the worker via `handleMessage` in the store. The worker runs two phases of detectors and posts back `DetectorResult[]`:
+  1. **Raw-string detectors** — run on the payload string before JSON parsing. Used for binary format detection (e.g. image detector). Always run, even for non-JSON payloads.
+  2. **JSON detectors** — run on the parsed JSON object. Used for structured data detection (e.g. geo detector). Skipped if JSON parsing fails.
 - **`tagsAnalyzed` flag**: Each `TopicNode` has a `tagsAnalyzed: boolean`. Only the first payload per node is automatically submitted for analysis — **except** nodes with an existing geo tag, which are re-analyzed on every new payload so coordinates update live (critical for GPS trackers).
 - **`setPayloadTags` must call `scheduleRebuild(false)`** — without it, tags are stored on `TopicNode` but never flow to `GraphNode.payloadTags` or trigger React re-renders.
 - **500ms debounce**: The worker debounces analysis per node ID to avoid flooding on high-frequency topics.
 
 ### Geo Detector
 
-`src/utils/detectors/geoDetector.ts` scans JSON objects recursively for adjacent lat/lon key pairs. Key matching is case-insensitive (`lat`/`lon`, `latitude`/`longitude`, `lat`/`lng`, `Lat`/`Long`). Values can be numbers or strings (MQTT payloads commonly have `"53.5511"` instead of `53.5511` — a `toNumber()` coercion helper handles this).
+`src/utils/detectors/geoDetector.ts` scans JSON objects recursively using two strategies:
+
+1. **GeoJSON Point detection** — recognises `{ "type": "Point", "coordinates": [lon, lat] }` per RFC 7946. Handles the `Feature` wrapper naturally via recursion (walks into `geometry`). Coordinate order is `[longitude, latitude]` — the detector swaps to lat/lon for `GeoMetadata`. Confidence: 0.95. Only `Point` geometries are detected; `LineString`, `Polygon`, etc. are ignored (future work). String values in the coordinates array are coerced via `toNumber()`.
+
+2. **Key-pair detection** — looks for adjacent keys in the same object matching known lat/lon patterns (case-insensitive: `lat`/`lon`, `latitude`/`longitude`, `lat`/`lng`, `Lat`/`Long`). Values can be numbers or strings (MQTT payloads commonly have `"53.5511"` instead of `53.5511` — a `toNumber()` coercion helper handles this).
+
+Both strategies run on every object during the recursive walk, so a single payload can produce multiple detections (e.g. a GeoJSON Feature that also contains a key-pair in `properties`). The consumer picks the highest-confidence result.
+
+### Image Detector
+
+`src/utils/detectors/imageDetector.ts` detects JPEG and PNG image payloads from their magic-byte signatures in the UTF-8-decoded string. Since MQTT payloads are decoded as UTF-8, binary bytes > 0x7F become `\uFFFD` (U+FFFD replacement characters), but ASCII portions of file headers survive:
+
+- **JPEG**: First char is `\uFFFD` AND `"JFIF"` or `"Exif"` appears within the first 20 characters. Sub-format is `"jfif"` or `"exif"`. Confidence: 0.95.
+- **PNG**: First char is `\uFFFD` AND chars 1-3 are `"PNG"` (from bytes `0x50 0x4E 0x47`). Confidence: 0.95.
+
+This is a **raw-string detector** — it runs on the payload string before JSON parsing, so it works even when the payload is not valid JSON.
+
+### Image Preview
+
+Image preview is independent of the image *detector*. The detector runs in the Web Worker on the UTF-8-decoded string; the preview requires the raw binary bytes.
+
+- **Binary interception**: `useMqttClient.ts` checks magic bytes on the raw `Buffer` payload (before `.toString()` mangles it): `0xFF 0xD8` for JPEG, `0x89 0x50 0x4E 0x47` for PNG.
+- **Blob creation**: A `Blob` is created from the raw bytes with the correct MIME type (`image/jpeg` or `image/png`), then `URL.createObjectURL()` produces a blob URL. **Critical**: the browser's `Buffer` polyfill (used by mqtt.js) may be a view into a pooled/shared `ArrayBuffer`. Always create a clean `Uint8Array` slice using `payload.buffer`, `payload.byteOffset`, and `payload.byteLength` before passing to `new Blob()` — otherwise the Blob may contain stale pool bytes.
+- **Store storage**: The blob URL is stored on `TopicNode.lastImageBlobUrl`. Previous URLs are revoked via `URL.revokeObjectURL()` to prevent memory leaks. Blob URLs are also revoked on LRU eviction and on `reset()` (via `revokeAllBlobUrls()` tree walker).
+- **Rendering**: `DetailPanel.tsx` conditionally renders an `<img src={blobUrl}>` when `lastImageBlobUrl` is present, hiding the garbled text payload section.
+- **`handleMessage` signature**: accepts `imageBlobUrl` as an optional 6th parameter.
 
 ### Graph Indicators
 
-Geo-tagged nodes show optional cyan insight rings in the graph (toggleable under Settings → Data Insights via `showGeoIndicators`). The insight ring layer is rendered in `GraphRenderer.ts`.
+Tagged nodes show optional insight rings in the graph (toggleable under Settings → Data Insights):
+- **Geo**: cyan (`#00ffff`) ring via `showGeoIndicators`
+- **Image**: bright purple (`#a855f7`) ring via `showImageIndicators`
+
+The insight ring layer is rendered in `GraphRenderer.ts`. One ring per node — if a node has multiple tag types, the first enabled tag's colour is used.
 
 ### Insights Drawer (`InsightsDrawer.tsx`)
 
@@ -213,3 +245,4 @@ A slide-out panel (bottom-right, ~400px wide) triggered by clicking "View on Map
 - **WebSocket connection failures**: Browsers enforce CORS and mixed-content rules. An `https://` page cannot connect to `ws://` brokers (mixed content). For self-hosted deployments behind HTTPS (e.g. Tailscale), use an nginx reverse proxy to terminate `wss://` and forward to the broker's `ws://` endpoint. See the `/mqtt_ws/` location block in the pi-infra repo's `boat.horse.conf`.
 - **Performance with many topics**: SVG can handle hundreds of nodes but may struggle above ~1000. If performance becomes an issue, the first optimisation is to switch to Canvas rendering (planned as a future enhancement).
 - **Wildcard subscriptions**: MQTT wildcards (`#` multi-level, `+` single-level) are handled by the broker, not the client. The client just subscribes with the filter string as-is. The topic tree builder must handle any topic string that arrives.
+- **Browser Buffer polyfill and Blob creation**: The browser's `Buffer` polyfill (used by mqtt.js) extends `Uint8Array` but may be a *view* into a larger pooled `ArrayBuffer`. When creating a `Blob` from a `Buffer` payload, always slice using `new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength)` — passing the `Buffer` directly to `new Blob([payload])` can include stale bytes from the shared pool, corrupting binary data (e.g. image previews).

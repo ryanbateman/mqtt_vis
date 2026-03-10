@@ -1911,7 +1911,7 @@ describe("topicStore — payload analysis tags", () => {
     expect(node!.payloadTags).toEqual(tags);
     expect(node!.payloadTags).toHaveLength(1);
     expect(node!.payloadTags![0].tag).toBe("geo");
-    expect(node!.payloadTags![0].metadata.lat).toBe(51.5);
+    expect((node!.payloadTags![0].metadata as { lat: number }).lat).toBe(51.5);
   });
 
   it("setPayloadTags with empty array stores empty array (not null)", () => {

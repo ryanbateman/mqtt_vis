@@ -39,7 +39,10 @@ A browser-based, real-time visualisation of MQTT topic trees. Connect to any MQT
 - **Drop retained burst** — on subscribe, brokers deliver all stored retained messages at once. An optional filter (enabled by default) drops retained messages during a configurable burst window after connecting, preventing the graph from exploding with stale data. Non-retained messages always pass through normally.
 - **Prune idle nodes** — automatically remove nodes that stop receiving messages after a configurable inactivity timeout, keeping the graph clean
 - **Wildcard subscriptions** — supports MQTT `#` (multi-level) and `+` (single-level) wildcards
-- **Payload analysis & geo detection** — a Web Worker analyses MQTT payloads off the main thread, detecting embedded geo coordinates (lat/lon key pairs in JSON). Tagged nodes show optional cyan indicator rings in the graph (toggleable under Settings → Data Insights). Click "View on Map" in the Detail Panel to open the Insights Drawer
+- **Payload analysis** — a Web Worker analyses MQTT payloads off the main thread, detecting embedded data patterns. Two detector types:
+  - **Geo detection** — detects lat/lon coordinate pairs in JSON payloads (key-pair heuristic and GeoJSON Point per RFC 7946). Tagged nodes show optional cyan indicator rings. Click "View on Map" in the Detail Panel to open the Insights Drawer
+  - **Image detection** — detects JPEG (JFIF/Exif) and PNG payloads from magic-byte signatures in the UTF-8-decoded string. Tagged nodes show optional bright purple indicator rings. The Detail Panel shows detected format, approximate size, and a live image preview rendered from the raw binary payload
+  - Both indicator ring types are independently toggleable under Settings → Data Insights
 - **Insights Drawer** — a slide-out map panel (bottom-right) powered by Leaflet + OpenStreetMap tiles. Shows the detected location for a selected geo-tagged node. Features include:
   - **Position trails** — as a node's coordinates change, previous positions are shown as cyan trail dots with a red polyline connecting them (50-point history cap per topic). Trail dots show timestamps on hover
   - **Pin mode** — pin the drawer so it stays open while browsing other nodes
@@ -292,7 +295,8 @@ src/
     connectionErrors.ts     # Connection error diagnosis: maps raw errors to actionable hints + log timestamp formatter
     perfDebug.ts            # Performance debug module (?perf URL param activation)
     detectors/
-      geoDetector.ts        # Geo coordinate detection heuristic (lat/lon key pairs in JSON)
+      geoDetector.ts        # Geo coordinate detection (lat/lon key pairs + GeoJSON Point)
+      imageDetector.ts      # JPEG/PNG detection from magic-byte signatures in UTF-8-decoded strings
 ```
 
 ## How It Works

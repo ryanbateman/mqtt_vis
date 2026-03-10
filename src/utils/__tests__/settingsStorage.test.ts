@@ -233,6 +233,17 @@ describe("loadSavedSettings", () => {
     expect(loadSavedSettings().showGeoIndicators).toBeUndefined();
   });
 
+  it("validates showImageIndicators as boolean", () => {
+    writeRaw({ _version: 1, showImageIndicators: true });
+    expect(loadSavedSettings().showImageIndicators).toBe(true);
+
+    writeRaw({ _version: 1, showImageIndicators: false });
+    expect(loadSavedSettings().showImageIndicators).toBe(false);
+
+    writeRaw({ _version: 1, showImageIndicators: "yes" });
+    expect(loadSavedSettings().showImageIndicators).toBeUndefined();
+  });
+
   it("drops repulsionStrength outside valid range (-500 to -20)", () => {
     writeRaw({ _version: 1, repulsionStrength: -10 }); // too high (less negative)
     expect(loadSavedSettings().repulsionStrength).toBeUndefined();
@@ -375,6 +386,7 @@ describe("round-trip persist → load", () => {
       scaleTextByDepth: false,
       dropRetainedBurst: false,
       showGeoIndicators: true,
+      showImageIndicators: true,
       settingsCollapsed: true,
       connectionCollapsed: false,
     });
@@ -387,6 +399,7 @@ describe("round-trip persist → load", () => {
     expect(result.scaleTextByDepth).toBe(false);
     expect(result.dropRetainedBurst).toBe(false);
     expect(result.showGeoIndicators).toBe(true);
+    expect(result.showImageIndicators).toBe(true);
     expect(result.settingsCollapsed).toBe(true);
     expect(result.connectionCollapsed).toBe(false);
   });

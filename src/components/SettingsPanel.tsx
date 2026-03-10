@@ -178,6 +178,8 @@ export function SettingsPanel() {
   const setShowTooltips = useTopicStore((s) => s.setShowTooltips);
   const showGeoIndicators = useTopicStore((s) => s.showGeoIndicators);
   const setShowGeoIndicators = useTopicStore((s) => s.setShowGeoIndicators);
+  const showImageIndicators = useTopicStore((s) => s.showImageIndicators);
+  const setShowImageIndicators = useTopicStore((s) => s.setShowImageIndicators);
   const nodeScale = useTopicStore((s) => s.nodeScale);
   const setNodeScale = useTopicStore((s) => s.setNodeScale);
   const scaleNodeSizeByDepth = useTopicStore((s) => s.scaleNodeSizeByDepth);
@@ -329,6 +331,20 @@ export function SettingsPanel() {
                     type="checkbox"
                     checked={showGeoIndicators}
                     onChange={(e) => setShowGeoIndicators(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-gray-400">
+                      Image Indicators
+                    </label>
+                    <InfoTooltip text="Show a coloured ring around nodes whose payload contains image data (JPEG, PNG)" />
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={showImageIndicators}
+                    onChange={(e) => setShowImageIndicators(e.target.checked)}
                     className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
                   />
                 </div>

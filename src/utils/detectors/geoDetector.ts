@@ -77,9 +77,37 @@ function walk(
     return;
   }
 
-  // Build a case-insensitive lookup of this object's keys
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj);
+
+  // --- GeoJSON Point detection ------------------------------------------------
+  // GeoJSON spec (RFC 7946): { "type": "Point", "coordinates": [lon, lat] }
+  // Coordinate order is [longitude, latitude, optional altitude].
+  if (
+    obj.type === "Point" &&
+    Array.isArray(obj.coordinates) &&
+    obj.coordinates.length >= 2
+  ) {
+    const lonVal = obj.coordinates[0];
+    const latVal = obj.coordinates[1];
+    if (isValidLon(lonVal) && isValidLat(latVal)) {
+      const coordPath = buildPath(path, "coordinates");
+      results.push({
+        tag: "geo",
+        confidence: 0.95,
+        metadata: {
+          lat: toNumber(latVal),
+          lon: toNumber(lonVal),
+          latPath: `${coordPath}[1]`,
+          lonPath: `${coordPath}[0]`,
+        },
+        fieldPath: path || "coordinates",
+      });
+    }
+  }
+
+  // --- Key-pair detection -----------------------------------------------------
+  // Build a case-insensitive lookup of this object's keys
   const lowerKeyMap = new Map<string, string>(); // lowercase → original key
   for (const k of keys) {
     lowerKeyMap.set(k.toLowerCase(), k);

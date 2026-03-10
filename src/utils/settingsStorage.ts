@@ -47,6 +47,7 @@ export interface SavedSettings {
   burstWindowDuration?: number;
   // Data Insights
   showGeoIndicators?: boolean;
+  showImageIndicators?: boolean;
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
@@ -105,6 +106,7 @@ function validate(raw: StoredSettings): SavedSettings {
     dropRetainedBurst: validBoolean(raw.dropRetainedBurst),
     burstWindowDuration: validNumber(raw.burstWindowDuration, 5_000, 30_000),
     showGeoIndicators:  validBoolean(raw.showGeoIndicators),
+    showImageIndicators: validBoolean(raw.showImageIndicators),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),
   };

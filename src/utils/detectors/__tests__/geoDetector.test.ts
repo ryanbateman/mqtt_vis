@@ -335,4 +335,182 @@ describe("detectGeo", () => {
     const results = detectGeo({ lat: true, lon: false });
     expect(results).toHaveLength(0);
   });
+
+  // --- GeoJSON Point detection ---
+
+  describe("GeoJSON Point detection", () => {
+    it("should detect a GeoJSON Feature with Point geometry", () => {
+      const payload = {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [13.03971725, 47.82335442, 427],
+        },
+        properties: { tracker_name: "Teltonika TM250" },
+      };
+      const results = detectGeo(payload);
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      const geo = results.find((r) => r.confidence === 0.95);
+      expect(geo).toBeDefined();
+      // GeoJSON order is [lon, lat] — verify we swap correctly
+      expect(geo!.metadata.lat).toBe(47.82335442);
+      expect(geo!.metadata.lon).toBe(13.03971725);
+      expect(geo!.metadata.latPath).toBe("geometry.coordinates[1]");
+      expect(geo!.metadata.lonPath).toBe("geometry.coordinates[0]");
+    });
+
+    it("should detect a bare Point geometry (no Feature wrapper)", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [-0.1278, 51.5074],
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].metadata.lat).toBe(51.5074);
+      expect(results[0].metadata.lon).toBe(-0.1278);
+      expect(results[0].confidence).toBe(0.95);
+      expect(results[0].metadata.latPath).toBe("coordinates[1]");
+      expect(results[0].metadata.lonPath).toBe("coordinates[0]");
+    });
+
+    it("should detect Point with 2-element coordinates (no altitude)", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [9.9937, 53.5511],
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].metadata.lat).toBe(53.5511);
+      expect(results[0].metadata.lon).toBe(9.9937);
+    });
+
+    it("should detect Point with altitude (3-element coordinates)", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [13.405, 52.52, 34],
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].metadata.lat).toBe(52.52);
+      expect(results[0].metadata.lon).toBe(13.405);
+    });
+
+    it("should reject Point with coordinates array too short", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [13.405],
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should reject Point with empty coordinates", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [],
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should reject Point with out-of-range latitude", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [0, 91],
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should reject Point with out-of-range longitude", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [181, 45],
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should not detect LineString geometry", () => {
+      const results = detectGeo({
+        type: "LineString",
+        coordinates: [
+          [0, 0],
+          [1, 1],
+        ],
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should not detect Polygon geometry", () => {
+      const results = detectGeo({
+        type: "Polygon",
+        coordinates: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 0],
+          ],
+        ],
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should detect Point with string coordinate values", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: ["2.3522", "48.8566"],
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].metadata.lat).toBe(48.8566);
+      expect(results[0].metadata.lon).toBe(2.3522);
+    });
+
+    it("should detect both GeoJSON and key-pair geo in the same payload", () => {
+      const payload = {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [13.04, 47.82] },
+        properties: {
+          geometry_esri: { lat: 47.82, lon: 13.04 },
+        },
+      };
+      const results = detectGeo(payload);
+      // Should find at least 2: the GeoJSON Point + the lat/lon pair
+      expect(results.length).toBeGreaterThanOrEqual(2);
+      const geojson = results.find((r) => r.confidence === 0.95);
+      const keypair = results.find((r) => r.confidence === 0.9);
+      expect(geojson).toBeDefined();
+      expect(keypair).toBeDefined();
+    });
+
+    it("should reject when type is not exactly 'Point' (case-sensitive)", () => {
+      const results = detectGeo({
+        type: "point",
+        coordinates: [0, 0],
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should reject when coordinates is not an array", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: { x: 0, y: 0 },
+      });
+      expect(results).toHaveLength(0);
+    });
+
+    it("should detect GeoJSON Point at boundary values", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [180, -90],
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].metadata.lat).toBe(-90);
+      expect(results[0].metadata.lon).toBe(180);
+    });
+
+    it("should detect GeoJSON Point at zero coordinates", () => {
+      const results = detectGeo({
+        type: "Point",
+        coordinates: [0, 0],
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].metadata.lat).toBe(0);
+      expect(results[0].metadata.lon).toBe(0);
+    });
+  });
 });

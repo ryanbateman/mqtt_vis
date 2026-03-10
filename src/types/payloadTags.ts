@@ -1,5 +1,5 @@
 /** Supported payload tag types. Extensible as new detectors are added. */
-export type PayloadTagType = "geo";
+export type PayloadTagType = "geo" | "image";
 
 /** Detected geo coordinates extracted from a JSON payload. */
 export interface GeoMetadata {
@@ -13,9 +13,20 @@ export interface GeoMetadata {
   lonPath: string;
 }
 
+/** Detected image format metadata extracted from a binary payload. */
+export interface ImageMetadata {
+  /** Detected image format. */
+  format: "jpeg" | "png";
+  /** Sub-format detail (e.g. "jfif", "exif" for JPEG). Null when not applicable. */
+  subFormat: string | null;
+  /** Approximate payload size in bytes (derived from string length). */
+  sizeBytes: number;
+}
+
 /** Mapping from tag type to its metadata shape. */
 export interface TagMetadataMap {
   geo: GeoMetadata;
+  image: ImageMetadata;
 }
 
 /** A single detection result from a payload analyzer detector. */

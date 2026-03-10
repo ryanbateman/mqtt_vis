@@ -36,6 +36,7 @@ export function TopicGraph() {
   const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
   const highlightedNodes = useTopicStore((s) => s.highlightedNodes);
   const showGeoIndicators = useTopicStore((s) => s.showGeoIndicators);
+  const showImageIndicators = useTopicStore((s) => s.showImageIndicators);
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
@@ -224,9 +225,12 @@ export function TopicGraph() {
       if (showGeoIndicators) {
         tags.set("geo", "#00ffff");
       }
+      if (showImageIndicators) {
+        tags.set("image", "#a855f7");
+      }
       rendererRef.current.setEnabledInsightTags(tags);
     }
-  }, [showGeoIndicators]);
+  }, [showGeoIndicators, showImageIndicators]);
 
   // Escape key deselects the current node
   useEffect(() => {
