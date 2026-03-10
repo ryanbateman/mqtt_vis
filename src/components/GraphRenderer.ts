@@ -28,6 +28,14 @@ const IS_TOUCH_ONLY =
 const BASE_GLOW_STD_DEV = 4;
 
 /**
+ * Minimum hit-target radius in screen pixels.  At low zoom, small nodes become
+ * nearly impossible to click — this invisible hit area ensures they remain
+ * accessible.  The value is divided by the current zoom scale so it represents
+ * a constant screen-space size.
+ */
+const MIN_HIT_RADIUS_PX = 12;
+
+/**
  * Compute the idle stroke-opacity for a link based on the child (target) node's
  * depth.  Shallow links (depth 1) are faint to reduce visual clutter near the
  * root; deeper links are more prominent.
@@ -70,6 +78,8 @@ export class GraphRenderer {
   private highlightRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private nodeGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private labelGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private hitAreaGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private hitAreaElements!: d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown>;
 
   private glowBlur!: d3.Selection<SVGFEGaussianBlurElement, unknown, null, undefined>;
   private animationFrame: number | null = null;
@@ -177,6 +187,8 @@ export class GraphRenderer {
         this.container.attr("transform", event.transform);
         this.glowBlur.attr("stdDeviation", String(BASE_GLOW_STD_DEV / this.currentZoomScale));
         this.updateLabelVisibility();
+        // Recalculate hit area radii — the floor is zoom-dependent
+        this.hitAreaElements.attr("r", (d) => this.hitRadius(d));
       });
 
     this.svg.call(zoom);
@@ -191,14 +203,16 @@ export class GraphRenderer {
       }
     });
 
-    // Layer ordering: links → highlight rings → insight rings → nodes → labels
+    // Layer ordering: links → highlight rings → insight rings → nodes → labels → hit areas
     // Highlight rings sit below node circles so the selection ring (on the node itself)
     // is always visually on top.  Insight rings sit between highlight rings and nodes.
+    // Hit areas are the topmost layer — invisible circles that handle all pointer events.
     this.linkGroup = this.container.append("g").attr("class", "links");
     this.highlightRingGroup = this.container.append("g").attr("class", "highlight-rings");
     this.insightRingGroup = this.container.append("g").attr("class", "insight-rings");
     this.nodeGroup = this.container.append("g").attr("class", "nodes");
     this.labelGroup = this.container.append("g").attr("class", "labels");
+    this.hitAreaGroup = this.container.append("g").attr("class", "hit-areas");
 
     // Initialize empty selections
     this.linkElements = this.linkGroup.selectAll<SVGLineElement, GraphLink>("line");
@@ -206,6 +220,7 @@ export class GraphRenderer {
     this.insightRingElements = this.insightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
     this.nodeElements = this.nodeGroup.selectAll<SVGCircleElement, GraphNode>("circle");
     this.labelElements = this.labelGroup.selectAll<SVGTextElement, GraphNode>("text");
+    this.hitAreaElements = this.hitAreaGroup.selectAll<SVGCircleElement, GraphNode>("circle");
   }
 
   private setupSimulation(): void {
@@ -342,7 +357,7 @@ export class GraphRenderer {
       .attr("stroke", (d) => (d.depth === 0 ? "#ffffff" : IDLE_STROKE))
       .attr("stroke-width", 2)
       .attr("stroke-opacity", (d) => (d.depth === 0 ? 1 : 0.6))
-      .call(this.setupDrag());
+      .attr("pointer-events", "none");
 
     // Capture enter count before merge — used for burst-aware reheat below.
     const enterCount = enterSelection.size();
@@ -355,8 +370,32 @@ export class GraphRenderer {
       .attr("r", (d) => d.displayRadius)
       .attr("stroke-width", (d) => (d.depth === 0 ? 2.5 : 2));
 
-    // Attach hover events for tooltip (idempotent on merged selection)
-    this.nodeElements
+    // --- Update invisible hit areas ---
+    // Hit areas are transparent circles with a minimum screen-space radius that
+    // handle all pointer events (drag, click, hover).  This ensures small nodes
+    // remain clickable at any zoom level.
+    this.hitAreaElements = this.hitAreaGroup
+      .selectAll<SVGCircleElement, GraphNode>("circle")
+      .data(nodes, (d) => d.id);
+
+    this.hitAreaElements.exit().remove();
+
+    this.hitAreaElements = this.hitAreaElements
+      .enter()
+      .append("circle")
+      .attr("fill", "transparent")
+      .attr("stroke", "none")
+      .attr("cursor", "pointer")
+      .call(this.setupDrag())
+      .merge(this.hitAreaElements);
+
+    this.hitAreaElements
+      .attr("r", (d) => this.hitRadius(d))
+      .attr("cx", (d) => d.x ?? 0)
+      .attr("cy", (d) => d.y ?? 0);
+
+    // Attach hover events for tooltip to hit areas (idempotent on merged selection)
+    this.hitAreaElements
       .on("mouseenter", (_event: MouseEvent, d: GraphNode) => {
         if (!this.onTooltip || !this.showTooltips || IS_TOUCH_ONLY) return;
         // Clear any pending delay from a previous hover
@@ -521,6 +560,10 @@ export class GraphRenderer {
       .attr("y2", (d) => (d.target as GraphNode).y ?? 0);
 
     this.nodeElements
+      .attr("cx", (d) => d.x ?? 0)
+      .attr("cy", (d) => d.y ?? 0);
+
+    this.hitAreaElements
       .attr("cx", (d) => d.x ?? 0)
       .attr("cy", (d) => d.y ?? 0);
 
@@ -986,6 +1029,15 @@ export class GraphRenderer {
       .attr("stroke-opacity", (d) => (d.depth === 0 ? 1 : 0.6));
   }
 
+  /**
+   * Compute the hit-area radius for a node.  Returns the larger of the node's
+   * visual displayRadius and a minimum screen-space floor (divided by current
+   * zoom scale so it stays constant in screen pixels).
+   */
+  private hitRadius(d: GraphNode): number {
+    return Math.max(d.displayRadius, MIN_HIT_RADIUS_PX / this.currentZoomScale);
+  }
+
   /** Create a drag behaviour for nodes. */
   private setupDrag(): d3.DragBehavior<SVGCircleElement, GraphNode, GraphNode | d3.SubjectPosition> {
     return d3
@@ -1039,6 +1091,7 @@ export class GraphRenderer {
 
     if (anyChanged) {
       this.nodeElements.attr("r", (d) => d.displayRadius);
+      this.hitAreaElements.attr("r", (d) => this.hitRadius(d));
 
       // Keep collision force in sync with displayed size
       (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(

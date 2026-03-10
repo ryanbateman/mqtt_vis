@@ -22,6 +22,7 @@ function App() {
 
   // Insights drawer state
   const [insightsGeo, setInsightsGeo] = useState<{ topicPath: string; geo: GeoMetadata } | null>(null);
+  const [isInsightsPinned, setIsInsightsPinned] = useState(false);
 
   const handleOpenInsights = useCallback((geo: GeoMetadata) => {
     if (!selectedNodeId) return;
@@ -30,12 +31,19 @@ function App() {
 
   const handleCloseInsights = useCallback(() => {
     setInsightsGeo(null);
+    setIsInsightsPinned(false);
+  }, []);
+
+  const handleTogglePin = useCallback(() => {
+    setIsInsightsPinned((prev) => !prev);
   }, []);
 
   // When node selection changes while the drawer is open, either update
   // it to show the new node's geo data or close it if the new node has none.
+  // When pinned, the drawer stays on its current topic regardless of selection.
   useEffect(() => {
     if (!insightsGeo) return; // drawer already closed — nothing to do
+    if (isInsightsPinned) return; // pinned — ignore node selection changes
 
     if (!selectedNodeId) {
       setInsightsGeo(null);
@@ -55,7 +63,7 @@ function App() {
       // New node has no geo — close the drawer
       setInsightsGeo(null);
     }
-  }, [selectedNodeId]);
+  }, [selectedNodeId, isInsightsPinned]);
 
   // Look up the selected node's data for the detail panel
   const selectedNodes = useMemo(() => {
@@ -136,6 +144,8 @@ function App() {
         <InsightsDrawer
           topicPath={insightsGeo.topicPath}
           geo={insightsGeo.geo}
+          isPinned={isInsightsPinned}
+          onTogglePin={handleTogglePin}
           onClose={handleCloseInsights}
         />
       )}

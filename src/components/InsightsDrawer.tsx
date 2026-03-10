@@ -58,12 +58,18 @@ function getGeoForTopic(topicPath: string): GeoMetadata | null {
 export function InsightsDrawer({
   topicPath,
   geo,
+  isPinned,
+  onTogglePin,
   onClose,
 }: {
   /** Full topic path of the selected node. */
   topicPath: string;
   /** Detected geo coordinates to display on the map (initial snapshot). */
   geo: GeoMetadata;
+  /** Whether the drawer is pinned (stays open across node selection changes). */
+  isPinned: boolean;
+  /** Toggle the pinned state. */
+  onTogglePin: () => void;
   /** Called when the drawer is closed. */
   onClose: () => void;
 }) {
@@ -279,36 +285,54 @@ export function InsightsDrawer({
   }, [onClose]);
 
   return (
-    <div className="absolute bottom-4 right-4 z-20 w-96 max-h-[calc(100vh-2rem)] flex flex-col bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl overflow-hidden animate-slide-up">
+    <div className={`absolute bottom-4 right-4 z-20 w-96 max-h-[calc(100vh-2rem)] flex flex-col bg-gray-900/95 backdrop-blur-sm border rounded-lg shadow-xl overflow-hidden animate-slide-up ${
+      isPinned ? "border-amber-600/50 ring-1 ring-amber-500/20" : "border-gray-700"
+    }`}>
       {/* Header */}
-      <div className="flex items-start gap-2 p-3 pb-2 border-b border-gray-700/50 flex-shrink-0">
+      <div className={`flex items-start gap-2 p-3 pb-2 border-b flex-shrink-0 ${isPinned ? "border-amber-600/40" : "border-gray-700/50"}`}>
         <div className="flex-1 min-w-0">
           <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">
-            Location
+            {isPinned ? "Pinned Location" : "Location"}
           </div>
           <div className="text-xs font-mono text-gray-100 break-all leading-snug">
             {topicPath}
           </div>
         </div>
-        <button
-          onClick={onClose}
-          title="Close (Esc)"
-          className="flex-shrink-0 p-0.5 text-gray-500 hover:text-gray-200 transition-colors"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button
+            onClick={onTogglePin}
+            title={isPinned ? "Unpin — drawer follows node selection" : "Pin — keep this map open while browsing"}
+            className={`p-0.5 transition-colors ${
+              isPinned
+                ? "text-amber-400 hover:text-amber-300"
+                : "text-gray-500 hover:text-gray-200"
+            }`}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
-        </button>
+            {/* Pin icon — filled when pinned, outline when not */}
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 4v6l-2 4h5v6l1 2l1-2v-6h5l-2-4V4a1 1 0 0 0-1-1H10a1 1 0 0 0-1 1Z" />
+            </svg>
+          </button>
+          <button
+            onClick={onClose}
+            title="Close (Esc)"
+            className="p-0.5 text-gray-500 hover:text-gray-200 transition-colors"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Coordinates */}
