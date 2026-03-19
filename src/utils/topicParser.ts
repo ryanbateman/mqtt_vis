@@ -23,7 +23,6 @@ export function createTopicNode(id: string, segment: string): TopicNode {
     largestPayloadSize: 0,
     lastUserProperties: null,
     payloadTags: null,
-    tagsAnalyzed: false,
     lastImageBlobUrl: null,
   };
 }

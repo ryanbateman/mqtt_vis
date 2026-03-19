@@ -6,6 +6,9 @@ import { findNode } from "../utils/topicParser";
 import { formatTimestamp } from "../utils/formatters";
 import type { GeoMetadata, GeoNode, TrailPoint } from "../types/payloadTags";
 
+/** Which content tab is active in the Insights Drawer. */
+export type InsightsTab = "map" | "image";
+
 /** Maximum number of trail points per topic before oldest are discarded. */
 const MAX_TRAIL_POINTS = 50;
 
@@ -71,7 +74,7 @@ function getGeoForTopic(topicPath: string): GeoMetadata | null {
 
 /**
  * Slide-out drawer displaying rich insights for a selected node.
- * Supports two modes:
+ * Supports content tabs (Map and Image) and two geo modes:
  * - **single**: One topic's geo coordinates + historical trail.
  * - **all**: All detected geo topics shown as pins on a single map.
  *
@@ -81,6 +84,9 @@ function getGeoForTopic(topicPath: string): GeoMetadata | null {
 export function InsightsDrawer({
   topicPath,
   geo,
+  imageBlobUrl,
+  activeTab,
+  onSetTab,
   isPinned,
   onTogglePin,
   mode,
@@ -92,8 +98,14 @@ export function InsightsDrawer({
 }: {
   /** Full topic path of the selected node. */
   topicPath: string;
-  /** Detected geo coordinates to display on the map (initial snapshot). */
-  geo: GeoMetadata;
+  /** Detected geo coordinates to display on the map (null if no geo data). */
+  geo: GeoMetadata | null;
+  /** Blob URL for an image payload preview (null if no image). */
+  imageBlobUrl: string | null;
+  /** Which content tab is currently active. */
+  activeTab: InsightsTab;
+  /** Switch the active content tab. */
+  onSetTab: (tab: InsightsTab) => void;
   /** Whether the drawer is pinned (stays open across node selection changes). */
   isPinned: boolean;
   /** Toggle the pinned state. */
@@ -305,8 +317,9 @@ export function InsightsDrawer({
     }
   }, []);
 
-  // --- Initialize Leaflet map on mount -------------------------------------
+  // --- Initialize Leaflet map on mount (only when geo data is available) ----
   useEffect(() => {
+    if (!geo) return; // no geo data — skip map init
     if (!mapContainerRef.current) return;
     if (mapRef.current) return; // already initialized
 
@@ -341,12 +354,13 @@ export function InsightsDrawer({
     return () => {
       clearTimeout(resizeTimer);
     };
-    // Only run on mount
+    // Only run on mount (or when geo first becomes available)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [geo !== null]);
 
   // --- Handle mode changes -------------------------------------------------
   useEffect(() => {
+    if (!geo) return; // no geo data — mode changes are irrelevant
     const map = mapRef.current;
     if (!map) return;
 
@@ -393,6 +407,7 @@ export function InsightsDrawer({
   // --- Handle topic path changes in single mode ----------------------------
   useEffect(() => {
     if (mode !== "single") return;
+    if (!geo) return; // no geo data
     const map = mapRef.current;
     if (!map) return;
 
@@ -409,7 +424,7 @@ export function InsightsDrawer({
     const lonEl = document.getElementById("insights-live-lon");
     if (latEl) latEl.textContent = String(geo.lat);
     if (lonEl) lonEl.textContent = String(geo.lon);
-  }, [topicPath, geo.lat, geo.lon, clearTrail, mode]);
+  }, [topicPath, geo?.lat, geo?.lon, clearTrail, mode]);
 
   // --- Handle navigation index changes in all mode -------------------------
   useEffect(() => {
@@ -579,10 +594,35 @@ export function InsightsDrawer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  // --- Invalidate map size when switching tabs (map may have been hidden) ---
+  useEffect(() => {
+    if (activeTab === "map" && mapRef.current) {
+      // Leaflet needs a resize kick when the container becomes visible again
+      setTimeout(() => mapRef.current?.invalidateSize(), 50);
+    }
+  }, [activeTab]);
+
   // --- Derived values for rendering ----------------------------------------
-  const showNav = geoNodes.length > 1;
+  const hasGeo = geo !== null;
+  const hasImage = imageBlobUrl !== null;
+  const showTabs = hasGeo && hasImage;
+  const showNav = geoNodes.length > 1 && activeTab === "map";
   const canToggleMode = geoNodes.length > 1;
   const navTopic = geoNodes[geoNavIndex]?.topicPath ?? topicPath;
+
+  // Determine header label based on active tab and mode
+  const headerLabel = (() => {
+    if (activeTab === "image") return "Image Preview";
+    if (mode === "all") return `All Locations (${geoNodes.length})`;
+    if (isPinned) return "Pinned Location";
+    return "Location";
+  })();
+
+  const headerDetail = (() => {
+    if (activeTab === "image") return topicPath;
+    if (mode === "all") return `${geoNodes.length} geo topic${geoNodes.length !== 1 ? "s" : ""}`;
+    return topicPath;
+  })();
 
   return (
     <div className={`absolute bottom-4 right-4 z-20 w-96 max-h-[calc(100vh-2rem)] flex flex-col bg-gray-900/95 backdrop-blur-sm border rounded-lg shadow-xl overflow-hidden animate-slide-up ${
@@ -592,19 +632,15 @@ export function InsightsDrawer({
       <div className={`flex items-start gap-2 p-3 pb-2 border-b flex-shrink-0 ${isPinned ? "border-amber-600/40" : "border-gray-700/50"}`}>
         <div className="flex-1 min-w-0">
           <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">
-            {mode === "all"
-              ? `All Locations (${geoNodes.length})`
-              : isPinned
-                ? "Pinned Location"
-                : "Location"}
+            {headerLabel}
           </div>
           <div className="text-xs font-mono text-gray-100 break-all leading-snug">
-            {mode === "all" ? `${geoNodes.length} geo topic${geoNodes.length !== 1 ? "s" : ""}` : topicPath}
+            {headerDetail}
           </div>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
-          {/* Mode toggle — switch between single/all */}
-          {canToggleMode && (
+          {/* Mode toggle — switch between single/all (map tab only) */}
+          {canToggleMode && activeTab === "map" && (
             <button
               onClick={() => onSetMode(mode === "single" ? "all" : "single")}
               title={mode === "single" ? "Show all geo locations" : "Show single topic"}
@@ -621,8 +657,8 @@ export function InsightsDrawer({
               </svg>
             </button>
           )}
-          {/* Pin toggle — only in single mode */}
-          {mode === "single" && (
+          {/* Pin toggle — only in single mode, map tab */}
+          {mode === "single" && activeTab === "map" && (
             <button
               onClick={onTogglePin}
               title={isPinned ? "Unpin — drawer follows node selection" : "Pin — keep this map open while browsing"}
@@ -659,7 +695,42 @@ export function InsightsDrawer({
         </div>
       </div>
 
-      {/* Navigation bar — shown when multiple geo topics exist */}
+      {/* Tab bar — shown only when both geo and image are available */}
+      {showTabs && (
+        <div className="flex border-b border-gray-700/50 flex-shrink-0">
+          <button
+            onClick={() => onSetTab("map")}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
+              activeTab === "map"
+                ? "text-cyan-300 border-b-2 border-cyan-400"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {/* Map pin icon */}
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+            </svg>
+            Map
+          </button>
+          <button
+            onClick={() => onSetTab("image")}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
+              activeTab === "image"
+                ? "text-purple-300 border-b-2 border-purple-400"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {/* Image icon */}
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+            </svg>
+            Image
+          </button>
+        </div>
+      )}
+
+      {/* Navigation bar — shown when multiple geo topics exist (map tab only) */}
       {showNav && (
         <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-700/50 flex-shrink-0">
           <button
@@ -691,8 +762,8 @@ export function InsightsDrawer({
         </div>
       )}
 
-      {/* Coordinates — shown in single mode only */}
-      {mode === "single" && (
+      {/* Coordinates — shown in single mode, map tab only */}
+      {mode === "single" && activeTab === "map" && geo && (
         <div className="px-3 py-2 border-b border-gray-700/50 flex-shrink-0">
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
             <span className="text-gray-500">Latitude</span>
@@ -707,14 +778,26 @@ export function InsightsDrawer({
         </div>
       )}
 
-      {/* Map */}
-      <div className="flex-1 min-h-0">
+      {/* Map — hidden (not destroyed) when image tab is active so Leaflet state is preserved */}
+      <div className="flex-1 min-h-0" style={{ display: activeTab === "map" && hasGeo ? undefined : "none" }}>
         <div
           ref={mapContainerRef}
           className="w-full h-72"
           style={{ background: "#1e293b" }}
         />
       </div>
+
+      {/* Image preview — shown when image tab is active */}
+      {activeTab === "image" && imageBlobUrl && (
+        <div className="flex-1 min-h-0 p-3 overflow-y-auto">
+          <img
+            src={imageBlobUrl}
+            alt={`Image payload from ${topicPath}`}
+            className="w-full rounded border border-gray-700/50"
+            style={{ imageRendering: "auto" }}
+          />
+        </div>
+      )}
     </div>
   );
 }

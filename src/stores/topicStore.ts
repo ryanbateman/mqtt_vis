@@ -470,17 +470,13 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
     }
 
-    // Submit payload for off-thread analysis (geo detection, etc.).
-    // First payload is always analyzed.  Subsequent payloads are re-analyzed
-    // only when the node already carries a geo tag — the coordinates are
-    // expected to change with each new message (e.g. GPS tracker).  Non-geo
-    // nodes are analyzed once only to avoid unnecessary worker churn.
+    // Submit payload for off-thread analysis (geo detection, image detection,
+    // etc.).  Every non-empty payload is submitted — the 500ms per-node
+    // debounce in payloadAnalyzerService prevents flooding the worker on
+    // high-frequency topics.  Results are merged (not replaced) in
+    // setPayloadTags, so tags from different payload types coexist.
     if (payload.length > 0) {
-      const hasGeoTag = node.payloadTags?.some((t) => t.tag === "geo") ?? false;
-      if (!node.tagsAnalyzed || hasGeoTag) {
-        node.tagsAnalyzed = true;
-        payloadAnalyzer.analyze(node.id, payload);
-      }
+      payloadAnalyzer.analyze(node.id, payload);
     }
 
     // Instant rate spike: add 1 message worth of rate contribution
@@ -993,7 +989,13 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const segments = nodeId === "" ? [] : nodeId.split("/");
     const node = findNode(root, segments);
     if (node) {
-      node.payloadTags = tags;
+      // Merge new tags with existing tags: new tags replace existing tags of
+      // the same type, while existing tags of types not present in the new
+      // results are preserved.  This prevents e.g. an image analysis result
+      // from wiping a previously detected geo tag (and vice versa).
+      const newTagTypes = new Set(tags.map((t) => t.tag));
+      const preserved = node.payloadTags?.filter((t) => !newTagTypes.has(t.tag)) ?? [];
+      node.payloadTags = [...preserved, ...tags];
       // Schedule a non-structural rebuild so graphNodes picks up the new tags
       // and React re-renders components that depend on payloadTags.
       get().scheduleRebuild(false);

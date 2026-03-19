@@ -1876,25 +1876,6 @@ describe("topicStore — payload analysis tags", () => {
     expect(node!.payloadTags).toBeNull();
   });
 
-  it("tagsAnalyzed defaults to false and is set true after first message", () => {
-    state().handleMessage("a/b", "hello", 0);
-    state().rebuildGraph();
-
-    const node = findTopicNode("a/b");
-    expect(node).toBeDefined();
-    // tagsAnalyzed should be true after handleMessage submits for analysis
-    expect(node!.tagsAnalyzed).toBe(true);
-  });
-
-  it("tagsAnalyzed remains true on subsequent messages (no re-submission)", () => {
-    state().handleMessage("a/b", "first", 0);
-    state().handleMessage("a/b", "second", 0);
-    state().rebuildGraph();
-
-    const node = findTopicNode("a/b");
-    expect(node!.tagsAnalyzed).toBe(true);
-  });
-
   it("setPayloadTags stores tags on the correct node", () => {
     state().handleMessage("a/b", "hello", 0);
     state().rebuildGraph();
@@ -1952,7 +1933,7 @@ describe("topicStore — payload analysis tags", () => {
     expect(node!.payloadTags).toEqual(tags);
   });
 
-  it("geo-tagged nodes are re-analyzed on subsequent messages", () => {
+  it("tags persist across subsequent messages (not cleared by handleMessage)", () => {
     state().handleMessage("a/b", '{"lat": 51.5, "lon": -0.1}', 0);
     state().rebuildGraph();
 
@@ -1966,16 +1947,85 @@ describe("topicStore — payload analysis tags", () => {
     state().setPayloadTags("a/b", tags);
 
     const node = findTopicNode("a/b");
-    expect(node!.tagsAnalyzed).toBe(true);
     expect(node!.payloadTags).toHaveLength(1);
 
-    // Send a second message with different coordinates.
-    // Because the node has a geo tag, it should be re-submitted for analysis
-    // (tagsAnalyzed stays true but the analyze path is still taken).
-    // We verify indirectly: tagsAnalyzed should remain true (no regression)
-    // and the node should still have its tags intact.
+    // Send a second message — tags should still be intact
     state().handleMessage("a/b", '{"lat": 52.0, "lon": 0.1}', 0);
-    expect(node!.tagsAnalyzed).toBe(true);
+    expect(node!.payloadTags).toHaveLength(1);
+    expect(node!.payloadTags![0].tag).toBe("geo");
+  });
+
+  it("setPayloadTags merges tags of different types (preserves existing)", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    // Simulate geo tag from first analysis
+    state().setPayloadTags("a/b", [{
+      tag: "geo" as const,
+      confidence: 0.9,
+      metadata: { lat: 51.5, lon: -0.1, latPath: "lat", lonPath: "lon" },
+      fieldPath: "lat",
+    }]);
+
+    const node = findTopicNode("a/b");
+    expect(node!.payloadTags).toHaveLength(1);
+    expect(node!.payloadTags![0].tag).toBe("geo");
+
+    // Simulate image tag from second analysis — should merge, not overwrite
+    state().setPayloadTags("a/b", [{
+      tag: "image" as const,
+      confidence: 0.95,
+      metadata: { format: "jpeg", subFormat: "jfif", sizeBytes: 1234 },
+      fieldPath: "",
+    }]);
+
+    expect(node!.payloadTags).toHaveLength(2);
+    expect(node!.payloadTags!.find((t) => t.tag === "geo")).toBeDefined();
+    expect(node!.payloadTags!.find((t) => t.tag === "image")).toBeDefined();
+  });
+
+  it("setPayloadTags replaces tags of the same type on merge", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    // Set initial geo tag
+    state().setPayloadTags("a/b", [{
+      tag: "geo" as const,
+      confidence: 0.9,
+      metadata: { lat: 51.5, lon: -0.1, latPath: "lat", lonPath: "lon" },
+      fieldPath: "lat",
+    }]);
+
+    // Set updated geo tag — should replace the old one, not duplicate
+    state().setPayloadTags("a/b", [{
+      tag: "geo" as const,
+      confidence: 0.95,
+      metadata: { lat: 52.0, lon: 0.1, latPath: "lat", lonPath: "lon" },
+      fieldPath: "lat",
+    }]);
+
+    const node = findTopicNode("a/b");
+    expect(node!.payloadTags).toHaveLength(1);
+    expect((node!.payloadTags![0].metadata as { lat: number }).lat).toBe(52.0);
+  });
+
+  it("setPayloadTags with empty array preserves all existing tags", () => {
+    state().handleMessage("a/b", "hello", 0);
+    state().rebuildGraph();
+
+    state().setPayloadTags("a/b", [{
+      tag: "geo" as const,
+      confidence: 0.9,
+      metadata: { lat: 51.5, lon: -0.1, latPath: "lat", lonPath: "lon" },
+      fieldPath: "lat",
+    }]);
+
+    // Empty result set has no tag types — all existing tags are preserved
+    state().setPayloadTags("a/b", []);
+
+    const node = findTopicNode("a/b");
+    expect(node!.payloadTags).toHaveLength(1);
+    expect(node!.payloadTags![0].tag).toBe("geo");
   });
 
   it("reset() clears tags (node is recreated)", () => {
@@ -1996,12 +2046,12 @@ describe("topicStore — payload analysis tags", () => {
     expect(node).toBeUndefined();
   });
 
-  it("does not submit empty payloads for analysis", () => {
+  it("empty payloads leave payloadTags unchanged", () => {
     state().handleMessage("a/b", "", 0);
     state().rebuildGraph();
 
     const node = findTopicNode("a/b");
-    // Empty payload should not set tagsAnalyzed
-    expect(node!.tagsAnalyzed).toBe(false);
+    // Empty payload is not submitted for analysis — tags remain null
+    expect(node!.payloadTags).toBeNull();
   });
 });

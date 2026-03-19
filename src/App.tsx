@@ -12,6 +12,17 @@ import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
 import type { GeoMetadata, GeoNode } from "./types/payloadTags";
 
+/** Which content tab is active in the Insights Drawer. */
+type InsightsTab = "map" | "image";
+
+/** State for the Insights Drawer — tracks which topic is shown and what content is available. */
+interface InsightsState {
+  topicPath: string;
+  geo: GeoMetadata | null;
+  imageBlobUrl: string | null;
+  activeTab: InsightsTab;
+}
+
 function App() {
   const { connect, disconnect, connectionStatus } = useMqttClient();
   const errorMessage = useTopicStore((s) => s.errorMessage);
@@ -21,7 +32,7 @@ function App() {
   const autoconnectFired = useRef(false);
 
   // Insights drawer state
-  const [insightsGeo, setInsightsGeo] = useState<{ topicPath: string; geo: GeoMetadata } | null>(null);
+  const [insightsState, setInsightsState] = useState<InsightsState | null>(null);
   const [isInsightsPinned, setIsInsightsPinned] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"single" | "all">("single");
   const [geoNavIndex, setGeoNavIndex] = useState(0);
@@ -33,14 +44,39 @@ function App() {
     return collectGeoNodes(root);
   }, [graphNodes]);
 
+  /** Open the drawer to show a geo map for the selected node. */
   const handleOpenInsights = useCallback((geo: GeoMetadata) => {
     if (!selectedNodeId) return;
-    setInsightsGeo({ topicPath: selectedNodeId, geo });
+    const root = useTopicStore.getState().root;
+    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
+    const node = findNode(root, segments);
+    setInsightsState({
+      topicPath: selectedNodeId,
+      geo,
+      imageBlobUrl: node?.lastImageBlobUrl ?? null,
+      activeTab: "map",
+    });
+    setDrawerMode("single");
+  }, [selectedNodeId]);
+
+  /** Open the drawer to show an image preview for the selected node. */
+  const handleOpenInsightsImage = useCallback((imageBlobUrl: string) => {
+    if (!selectedNodeId) return;
+    const root = useTopicStore.getState().root;
+    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
+    const node = findNode(root, segments);
+    const geoTag = node?.payloadTags?.find((t) => t.tag === "geo");
+    setInsightsState({
+      topicPath: selectedNodeId,
+      geo: geoTag ? (geoTag.metadata as GeoMetadata) : null,
+      imageBlobUrl,
+      activeTab: "image",
+    });
     setDrawerMode("single");
   }, [selectedNodeId]);
 
   const handleCloseInsights = useCallback(() => {
-    setInsightsGeo(null);
+    setInsightsState(null);
     setIsInsightsPinned(false);
     setDrawerMode("single");
   }, []);
@@ -61,54 +97,74 @@ function App() {
     if (index < 0 || index >= geoNodes.length) return;
     setGeoNavIndex(index);
     const target = geoNodes[index];
-    // In single-topic mode, navigating switches the viewed topic
-    setInsightsGeo({ topicPath: target.topicPath, geo: target.geo });
+    // In single-topic mode, navigating switches the viewed topic.
+    // Look up full node to get image blob URL too.
+    const root = useTopicStore.getState().root;
+    const segments = target.topicPath === "" ? [] : target.topicPath.split("/");
+    const node = findNode(root, segments);
+    setInsightsState((prev) => ({
+      topicPath: target.topicPath,
+      geo: target.geo,
+      imageBlobUrl: node?.lastImageBlobUrl ?? null,
+      activeTab: prev?.activeTab ?? "map",
+    }));
     // Navigating while pinned unpins — the user clearly wants a different topic
     setIsInsightsPinned(false);
   }, [geoNodes]);
 
-  // Sync geoNavIndex when insightsGeo changes (e.g. opening from DetailPanel)
+  /** Switch the active tab in the Insights Drawer. */
+  const handleSetInsightsTab = useCallback((tab: InsightsTab) => {
+    setInsightsState((prev) => prev ? { ...prev, activeTab: tab } : null);
+  }, []);
+
+  // Sync geoNavIndex when the drawer's topic changes (e.g. opening from DetailPanel)
   useEffect(() => {
-    if (!insightsGeo) return;
-    const idx = geoNodes.findIndex((n) => n.topicPath === insightsGeo.topicPath);
+    if (!insightsState) return;
+    const idx = geoNodes.findIndex((n) => n.topicPath === insightsState.topicPath);
     if (idx >= 0) setGeoNavIndex(idx);
-  }, [insightsGeo, geoNodes]);
+  }, [insightsState, geoNodes]);
 
   // Close insights drawer (and unpin) on disconnect — the topic tree is
   // about to be cleared so the pinned map would show stale data.
   useEffect(() => {
-    if (connectionStatus === "disconnected" && insightsGeo) {
-      setInsightsGeo(null);
+    if (connectionStatus === "disconnected" && insightsState) {
+      setInsightsState(null);
       setIsInsightsPinned(false);
       setDrawerMode("single");
     }
-  }, [connectionStatus, insightsGeo]);
+  }, [connectionStatus, insightsState]);
 
   // When node selection changes while the drawer is open, either update
-  // it to show the new node's geo data or close it if the new node has none.
+  // it to show the new node's data or close it if the new node has nothing to show.
   // When pinned or in all-geo mode, the drawer stays as-is regardless of selection.
   useEffect(() => {
-    if (!insightsGeo) return; // drawer already closed — nothing to do
+    if (!insightsState) return; // drawer already closed — nothing to do
     if (isInsightsPinned) return; // pinned — ignore node selection changes
     if (drawerMode === "all") return; // all-geo mode — ignore node selection changes
 
     if (!selectedNodeId) {
-      setInsightsGeo(null);
+      setInsightsState(null);
       return;
     }
 
-    // Look up the newly selected node's topic data for geo tags
+    // Look up the newly selected node's topic data
     const root = useTopicStore.getState().root;
     const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
     const node = findNode(root, segments);
     const geoTag = node?.payloadTags?.find((t) => t.tag === "geo");
+    const newGeo = geoTag ? (geoTag.metadata as GeoMetadata) : null;
+    const newImage = node?.lastImageBlobUrl ?? null;
 
-    if (geoTag) {
-      // New node has geo — update the drawer in-place
-      setInsightsGeo({ topicPath: selectedNodeId, geo: geoTag.metadata as GeoMetadata });
+    if (newGeo || newImage) {
+      // New node has insights content — update the drawer in-place.
+      // If the currently active tab is no longer available, switch to the other.
+      let tab = insightsState.activeTab;
+      if (tab === "map" && !newGeo && newImage) tab = "image";
+      if (tab === "image" && !newImage && newGeo) tab = "map";
+      setInsightsState({ topicPath: selectedNodeId, geo: newGeo, imageBlobUrl: newImage, activeTab: tab });
     } else {
-      // New node has no geo — close the drawer
-      setInsightsGeo(null);
+      // New node has neither geo nor image — close the drawer
+      setInsightsState(null);
     }
   }, [selectedNodeId, isInsightsPinned, drawerMode]);
 
@@ -184,13 +240,17 @@ function App() {
             graphNode={selectedNodes.graphNode}
             onClose={() => setSelectedNodeId(null)}
             onOpenInsights={handleOpenInsights}
+            onOpenInsightsImage={handleOpenInsightsImage}
           />
         )}
       </div>
-      {insightsGeo && (
+      {insightsState && (
         <InsightsDrawer
-          topicPath={insightsGeo.topicPath}
-          geo={insightsGeo.geo}
+          topicPath={insightsState.topicPath}
+          geo={insightsState.geo}
+          imageBlobUrl={insightsState.imageBlobUrl}
+          activeTab={insightsState.activeTab}
+          onSetTab={handleSetInsightsTab}
           isPinned={isInsightsPinned}
           onTogglePin={handleTogglePin}
           mode={drawerMode}

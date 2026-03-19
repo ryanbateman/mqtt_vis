@@ -19,12 +19,15 @@ export function DetailPanel({
   graphNode,
   onClose,
   onOpenInsights,
+  onOpenInsightsImage,
 }: {
   topicNode: TopicNode;
   graphNode: GraphNode;
   onClose: () => void;
   /** Called when the user clicks the map pin to view geo coordinates. */
   onOpenInsights?: (geo: GeoMetadata) => void;
+  /** Called when the user clicks the image button to view image preview in Insights Drawer. */
+  onOpenInsightsImage?: (imageBlobUrl: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
@@ -194,10 +197,32 @@ export function DetailPanel({
           </button>
         )}
 
-        {/* Image tag indicator — shown when image data detected in payload */}
-        {imageMetadata && (
-          <div className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-purple-300 bg-purple-900/20 border border-purple-800/30">
+        {/* Image insights button — shown when image data detected in payload */}
+        {imageMetadata && topicNode.lastImageBlobUrl && onOpenInsightsImage && (
+          <button
+            onClick={() => onOpenInsightsImage(topicNode.lastImageBlobUrl!)}
+            className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-purple-300 bg-purple-900/20 border border-purple-800/30 hover:bg-purple-900/40 transition-colors cursor-pointer"
+            title={`View image: ${imageMetadata.format.toUpperCase()}`}
+          >
             {/* Image icon */}
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+            </svg>
+            <span>
+              View Image
+              <span className="text-purple-400/60 ml-1">
+                {imageMetadata.format.toUpperCase()}
+                {imageMetadata.subFormat && ` (${imageMetadata.subFormat.toUpperCase()})`}
+              </span>
+              <span className="text-purple-400/60 ml-1">
+                {formatPayloadSize(imageMetadata.sizeBytes)}
+              </span>
+            </span>
+          </button>
+        )}
+        {/* Image tag indicator (no blob URL available yet) — static, non-clickable */}
+        {imageMetadata && !topicNode.lastImageBlobUrl && (
+          <div className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-purple-300 bg-purple-900/20 border border-purple-800/30">
             <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
             </svg>
@@ -216,23 +241,8 @@ export function DetailPanel({
         )}
       </div>
 
-      {/* Image preview — shown when a blob URL is available for image payloads */}
-      {topicNode.lastImageBlobUrl && (
-        <div className="p-3 overflow-y-auto min-h-0 flex-1 border-t border-gray-700/50">
-          <div className="mb-1">
-            <span className="text-[10px] text-gray-500">Image Preview</span>
-          </div>
-          <img
-            src={topicNode.lastImageBlobUrl}
-            alt={`Image payload from ${topicPath}`}
-            className="w-full rounded border border-gray-700/50"
-            style={{ imageRendering: "auto" }}
-          />
-        </div>
-      )}
-
-      {/* Payload — full content, scrollable (hidden when image preview is shown) */}
-      {!topicNode.lastImageBlobUrl && topicNode.lastPayload !== null && (
+      {/* Payload — full content, scrollable */}
+      {topicNode.lastPayload !== null && (
         <div className="p-3 overflow-y-auto min-h-0 flex-1 border-t border-gray-700/50">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-gray-500">Last Payload</span>
