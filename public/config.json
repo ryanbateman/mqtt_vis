@@ -10,6 +10,7 @@
   "brokers": [
     { "name": "Mosquitto Test Server", "url": "wss://test.mosquitto.org:8081" },
     { "name": "HiveMQ Public Broker", "url": "wss://broker.hivemq.com:8884/mqtt" },
+    { "name": "Coreflux Public Broker", "url": "wss://iot.coreflux.cloud:443/mqtt" },
     { "name": "EMQX Public Broker", "url": "wss://broker.emqx.io:8084/mqtt" }
   ],
 
