@@ -111,6 +111,8 @@ interface TopicStoreState {
   showGeoIndicators: boolean;
   /** Whether to show image-tagged node indicator rings in the graph. */
   showImageIndicators: boolean;
+  /** Whether to show sparkplug edge-node/device indicator rings in the graph. */
+  showSparkplugIndicators: boolean;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -462,6 +464,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   burstWindowDuration:  saved.burstWindowDuration  ?? cfg.burstWindowDuration  ?? 5_000,
   showGeoIndicators:    saved.showGeoIndicators    ?? cfg.showGeoIndicators    ?? true,
   showImageIndicators:  saved.showImageIndicators  ?? cfg.showImageIndicators  ?? true,
+  showSparkplugIndicators: saved.showSparkplugIndicators ?? cfg.showSparkplugIndicators ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -943,6 +946,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       burstWindowDuration: cfg.burstWindowDuration ?? 5_000,
       showGeoIndicators: cfg.showGeoIndicators ?? true,
       showImageIndicators: cfg.showImageIndicators ?? true,
+      showSparkplugIndicators: cfg.showSparkplugIndicators ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });

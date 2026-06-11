@@ -1,6 +1,7 @@
 import { useState, Fragment } from "react";
 import type { TopicNode, GraphNode } from "../types";
 import type { GeoMetadata } from "../types/payloadTags";
+import type { SparkplugMetadata } from "../types/sparkplug";
 import { formatRate, formatTimestamp, formatPayloadSize } from "../utils/formatters";
 import { getTag } from "../utils/tagRegistry";
 
@@ -21,6 +22,7 @@ export function DetailPanel({
   onClose,
   onOpenInsights,
   onOpenInsightsImage,
+  onOpenInsightsDevice,
 }: {
   topicNode: TopicNode;
   graphNode: GraphNode;
@@ -29,6 +31,8 @@ export function DetailPanel({
   onOpenInsights?: (geo: GeoMetadata) => void;
   /** Called when the user clicks the image button to view image preview in Insights Drawer. */
   onOpenInsightsImage?: (imageBlobUrl: string) => void;
+  /** Called when the user clicks the device button to view sparkplug metrics in Insights Drawer. */
+  onOpenInsightsDevice?: (sparkplug: SparkplugMetadata) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
@@ -75,9 +79,10 @@ export function DetailPanel({
 
   const childCount = topicNode.children.size;
 
-  // Extract first geo/image detection results (if any)
+  // Extract first geo/image/sparkplug detection results (if any)
   const geoMetadata = getTag(topicNode.payloadTags, "geo")?.metadata ?? null;
   const imageMetadata = getTag(topicNode.payloadTags, "image")?.metadata ?? null;
+  const sparkplugMetadata = getTag(topicNode.payloadTags, "sparkplug")?.metadata ?? null;
 
   return (
     <div className="bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl w-80 flex flex-col overflow-hidden">
@@ -217,6 +222,31 @@ export function DetailPanel({
             </span>
           </button>
         )}
+        {/* Sparkplug device button — shown for sparkplug edge-node/device topics */}
+        {sparkplugMetadata && onOpenInsightsDevice && (
+          <button
+            onClick={() => onOpenInsightsDevice(sparkplugMetadata)}
+            className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-amber-300 bg-amber-900/20 border border-amber-800/30 hover:bg-amber-900/40 transition-colors cursor-pointer"
+            title={`View device: ${sparkplugMetadata.deviceKey}`}
+          >
+            {/* CPU chip icon */}
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M15.75 3v1.5M8.25 19.5V21M15.75 19.5V21M3 8.25h1.5M3 15.75h1.5M19.5 8.25H21M19.5 15.75H21M7.5 6h9A1.5 1.5 0 0 1 18 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 16.5v-9A1.5 1.5 0 0 1 7.5 6Z" />
+            </svg>
+            <span>
+              View Device
+              <span className={`ml-1 ${sparkplugMetadata.online ? "text-emerald-400/80" : "text-red-400/80"}`}>
+                {sparkplugMetadata.online ? "ONLINE" : "OFFLINE"}
+              </span>
+              {sparkplugMetadata.metricCount > 0 && (
+                <span className="text-amber-400/60 ml-1">
+                  {sparkplugMetadata.metricCount} metric{sparkplugMetadata.metricCount === 1 ? "" : "s"}
+                </span>
+              )}
+            </span>
+          </button>
+        )}
+
         {/* Image tag indicator (no blob URL available yet) — static, non-clickable */}
         {imageMetadata && !topicNode.lastImageBlobUrl && (
           <div className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-purple-300 bg-purple-900/20 border border-purple-800/30">

@@ -244,6 +244,17 @@ describe("loadSavedSettings", () => {
     expect(loadSavedSettings().showImageIndicators).toBeUndefined();
   });
 
+  it("validates showSparkplugIndicators as boolean", () => {
+    writeRaw({ _version: 1, showSparkplugIndicators: true });
+    expect(loadSavedSettings().showSparkplugIndicators).toBe(true);
+
+    writeRaw({ _version: 1, showSparkplugIndicators: false });
+    expect(loadSavedSettings().showSparkplugIndicators).toBe(false);
+
+    writeRaw({ _version: 1, showSparkplugIndicators: "yes" });
+    expect(loadSavedSettings().showSparkplugIndicators).toBeUndefined();
+  });
+
   it("drops repulsionStrength outside valid range (-500 to -20)", () => {
     writeRaw({ _version: 1, repulsionStrength: -10 }); // too high (less negative)
     expect(loadSavedSettings().repulsionStrength).toBeUndefined();

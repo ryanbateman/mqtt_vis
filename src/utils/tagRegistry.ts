@@ -14,10 +14,13 @@ import type { DetectorResult, PayloadTagType } from "../types/payloadTags";
  */
 
 /** Insights Drawer tab identifiers. Single source of truth. */
-export type InsightsTab = "map" | "image";
+export type InsightsTab = "map" | "image" | "device";
 
 /** Store/settings boolean keys that toggle a tag's indicator ring. */
-export type IndicatorSettingsKey = "showGeoIndicators" | "showImageIndicators";
+export type IndicatorSettingsKey =
+  | "showGeoIndicators"
+  | "showImageIndicators"
+  | "showSparkplugIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -62,6 +65,17 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
       "Show a coloured ring around nodes whose payload contains image data (JPEG, PNG)",
     defaultEnabled: true,
     drawerTab: "image",
+  },
+  {
+    id: "sparkplug",
+    label: "Sparkplug",
+    ringColor: "#f59e0b",
+    settingsKey: "showSparkplugIndicators",
+    settingsLabel: "Sparkplug Indicators",
+    settingsTooltip:
+      "Show a coloured ring around Sparkplug B edge nodes and devices (offline entities get a dashed red ring)",
+    defaultEnabled: true,
+    drawerTab: "device",
   },
 ];
 

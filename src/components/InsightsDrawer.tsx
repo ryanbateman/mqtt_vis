@@ -5,7 +5,9 @@ import { useTopicStore } from "../stores/topicStore";
 import { findNode } from "../utils/topicParser";
 import { formatTimestamp } from "../utils/formatters";
 import { getTag, type InsightsTab } from "../utils/tagRegistry";
+import { SparkplugDevicePanel } from "./SparkplugDevicePanel";
 import type { GeoMetadata, GeoNode, TrailPoint } from "../types/payloadTags";
+import type { SparkplugMetadata } from "../types/sparkplug";
 
 export type { InsightsTab };
 
@@ -84,6 +86,7 @@ export function InsightsDrawer({
   topicPath,
   geo,
   imageBlobUrl,
+  sparkplug,
   activeTab,
   onSetTab,
   isPinned,
@@ -101,6 +104,8 @@ export function InsightsDrawer({
   geo: GeoMetadata | null;
   /** Blob URL for an image payload preview (null if no image). */
   imageBlobUrl: string | null;
+  /** Sparkplug metadata for the selected node (null if not a sparkplug topic). */
+  sparkplug: SparkplugMetadata | null;
   /** Which content tab is currently active. */
   activeTab: InsightsTab;
   /** Switch the active content tab. */
@@ -604,7 +609,9 @@ export function InsightsDrawer({
   // --- Derived values for rendering ----------------------------------------
   const hasGeo = geo !== null;
   const hasImage = imageBlobUrl !== null;
-  const showTabs = hasGeo && hasImage;
+  const hasSparkplug = sparkplug !== null;
+  const availableTabs = [hasGeo, hasImage, hasSparkplug].filter(Boolean).length;
+  const showTabs = availableTabs > 1;
   const showNav = geoNodes.length > 1 && activeTab === "map";
   const canToggleMode = geoNodes.length > 1;
   const navTopic = geoNodes[geoNavIndex]?.topicPath ?? topicPath;
@@ -612,14 +619,17 @@ export function InsightsDrawer({
   // Determine header label based on active tab and mode
   const headerLabel = (() => {
     if (activeTab === "image") return "Image Preview";
+    if (activeTab === "device") return "Sparkplug Device";
     if (mode === "all") return `All Locations (${geoNodes.length})`;
     if (isPinned) return "Pinned Location";
     return "Location";
   })();
 
   const headerDetail = (() => {
-    if (activeTab === "image") return topicPath;
-    if (mode === "all") return `${geoNodes.length} geo topic${geoNodes.length !== 1 ? "s" : ""}`;
+    if (activeTab === "device") return sparkplug?.deviceKey ?? topicPath;
+    if (mode === "all" && activeTab === "map") {
+      return `${geoNodes.length} geo topic${geoNodes.length !== 1 ? "s" : ""}`;
+    }
     return topicPath;
   })();
 
@@ -694,38 +704,58 @@ export function InsightsDrawer({
         </div>
       </div>
 
-      {/* Tab bar — shown only when both geo and image are available */}
+      {/* Tab bar — shown when more than one content type is available */}
       {showTabs && (
         <div className="flex border-b border-gray-700/50 flex-shrink-0">
-          <button
-            onClick={() => onSetTab("map")}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
-              activeTab === "map"
-                ? "text-cyan-300 border-b-2 border-cyan-400"
-                : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            {/* Map pin icon */}
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-            </svg>
-            Map
-          </button>
-          <button
-            onClick={() => onSetTab("image")}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
-              activeTab === "image"
-                ? "text-purple-300 border-b-2 border-purple-400"
-                : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            {/* Image icon */}
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
-            </svg>
-            Image
-          </button>
+          {hasGeo && (
+            <button
+              onClick={() => onSetTab("map")}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                activeTab === "map"
+                  ? "text-cyan-300 border-b-2 border-cyan-400"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {/* Map pin icon */}
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+              </svg>
+              Map
+            </button>
+          )}
+          {hasImage && (
+            <button
+              onClick={() => onSetTab("image")}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                activeTab === "image"
+                  ? "text-purple-300 border-b-2 border-purple-400"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {/* Image icon */}
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+              </svg>
+              Image
+            </button>
+          )}
+          {hasSparkplug && (
+            <button
+              onClick={() => onSetTab("device")}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                activeTab === "device"
+                  ? "text-amber-300 border-b-2 border-amber-400"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {/* CPU chip icon */}
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M15.75 3v1.5M8.25 19.5V21M15.75 19.5V21M3 8.25h1.5M3 15.75h1.5M19.5 8.25H21M19.5 15.75H21M7.5 6h9A1.5 1.5 0 0 1 18 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 16.5v-9A1.5 1.5 0 0 1 7.5 6Z" />
+              </svg>
+              Device
+            </button>
+          )}
         </div>
       )}
 
@@ -796,6 +826,11 @@ export function InsightsDrawer({
             style={{ imageRendering: "auto" }}
           />
         </div>
+      )}
+
+      {/* Sparkplug device panel — shown when device tab is active */}
+      {activeTab === "device" && sparkplug && (
+        <SparkplugDevicePanel deviceKey={sparkplug.deviceKey} />
       )}
     </div>
   );

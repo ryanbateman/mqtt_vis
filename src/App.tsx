@@ -10,15 +10,37 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { getConfig } from "./utils/config";
 import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
-import { getTag, type InsightsTab } from "./utils/tagRegistry";
+import { getTag, TAG_REGISTRY, type InsightsTab } from "./utils/tagRegistry";
 import type { GeoMetadata, GeoNode } from "./types/payloadTags";
+import type { SparkplugMetadata } from "./types/sparkplug";
 
 /** State for the Insights Drawer — tracks which topic is shown and what content is available. */
 interface InsightsState {
   topicPath: string;
   geo: GeoMetadata | null;
   imageBlobUrl: string | null;
+  sparkplug: SparkplugMetadata | null;
   activeTab: InsightsTab;
+}
+
+/**
+ * Pick the drawer tab to show: keep the current tab when its content is still
+ * available, otherwise fall back to the first available tab in registry order.
+ */
+function resolveInsightsTab(
+  current: InsightsTab,
+  available: { geo: boolean; image: boolean; sparkplug: boolean },
+): InsightsTab {
+  const tabHasContent: Record<InsightsTab, boolean> = {
+    map: available.geo,
+    image: available.image,
+    device: available.sparkplug,
+  };
+  if (tabHasContent[current]) return current;
+  for (const def of TAG_REGISTRY) {
+    if (def.drawerTab && tabHasContent[def.drawerTab]) return def.drawerTab;
+  }
+  return current;
 }
 
 function App() {
@@ -42,23 +64,8 @@ function App() {
     return collectGeoNodes(root);
   }, [graphNodes]);
 
-  /** Open the drawer to show a geo map for the selected node. */
-  const handleOpenInsights = useCallback((geo: GeoMetadata) => {
-    if (!selectedNodeId) return;
-    const root = useTopicStore.getState().root;
-    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
-    const node = findNode(root, segments);
-    setInsightsState({
-      topicPath: selectedNodeId,
-      geo,
-      imageBlobUrl: node?.lastImageBlobUrl ?? null,
-      activeTab: "map",
-    });
-    setDrawerMode("single");
-  }, [selectedNodeId]);
-
-  /** Open the drawer to show an image preview for the selected node. */
-  const handleOpenInsightsImage = useCallback((imageBlobUrl: string) => {
+  /** Open the drawer on a given tab for the selected node. */
+  const openInsightsForSelected = useCallback((activeTab: InsightsTab) => {
     if (!selectedNodeId) return;
     const root = useTopicStore.getState().root;
     const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
@@ -66,11 +73,30 @@ function App() {
     setInsightsState({
       topicPath: selectedNodeId,
       geo: getTag(node?.payloadTags, "geo")?.metadata ?? null,
-      imageBlobUrl,
-      activeTab: "image",
+      imageBlobUrl: node?.lastImageBlobUrl ?? null,
+      sparkplug: getTag(node?.payloadTags, "sparkplug")?.metadata ?? null,
+      activeTab,
     });
     setDrawerMode("single");
   }, [selectedNodeId]);
+
+  /** Open the drawer to show a geo map for the selected node. */
+  const handleOpenInsights = useCallback(
+    (_geo: GeoMetadata) => openInsightsForSelected("map"),
+    [openInsightsForSelected],
+  );
+
+  /** Open the drawer to show an image preview for the selected node. */
+  const handleOpenInsightsImage = useCallback(
+    (_imageBlobUrl: string) => openInsightsForSelected("image"),
+    [openInsightsForSelected],
+  );
+
+  /** Open the drawer to show sparkplug device metrics for the selected node. */
+  const handleOpenInsightsDevice = useCallback(
+    (_sparkplug: SparkplugMetadata) => openInsightsForSelected("device"),
+    [openInsightsForSelected],
+  );
 
   const handleCloseInsights = useCallback(() => {
     setInsightsState(null);
@@ -103,6 +129,7 @@ function App() {
       topicPath: target.topicPath,
       geo: target.geo,
       imageBlobUrl: node?.lastImageBlobUrl ?? null,
+      sparkplug: getTag(node?.payloadTags, "sparkplug")?.metadata ?? null,
       activeTab: prev?.activeTab ?? "map",
     }));
     // Navigating while pinned unpins — the user clearly wants a different topic
@@ -150,16 +177,26 @@ function App() {
     const node = findNode(root, segments);
     const newGeo = getTag(node?.payloadTags, "geo")?.metadata ?? null;
     const newImage = node?.lastImageBlobUrl ?? null;
+    const newSparkplug = getTag(node?.payloadTags, "sparkplug")?.metadata ?? null;
 
-    if (newGeo || newImage) {
+    if (newGeo || newImage || newSparkplug) {
       // New node has insights content — update the drawer in-place.
-      // If the currently active tab is no longer available, switch to the other.
-      let tab = insightsState.activeTab;
-      if (tab === "map" && !newGeo && newImage) tab = "image";
-      if (tab === "image" && !newImage && newGeo) tab = "map";
-      setInsightsState({ topicPath: selectedNodeId, geo: newGeo, imageBlobUrl: newImage, activeTab: tab });
+      // If the currently active tab is no longer available, fall back to the
+      // first available tab (registry order).
+      const tab = resolveInsightsTab(insightsState.activeTab, {
+        geo: newGeo !== null,
+        image: newImage !== null,
+        sparkplug: newSparkplug !== null,
+      });
+      setInsightsState({
+        topicPath: selectedNodeId,
+        geo: newGeo,
+        imageBlobUrl: newImage,
+        sparkplug: newSparkplug,
+        activeTab: tab,
+      });
     } else {
-      // New node has neither geo nor image — close the drawer
+      // New node has no insight content — close the drawer
       setInsightsState(null);
     }
   }, [selectedNodeId, isInsightsPinned, drawerMode]);
@@ -237,6 +274,7 @@ function App() {
             onClose={() => setSelectedNodeId(null)}
             onOpenInsights={handleOpenInsights}
             onOpenInsightsImage={handleOpenInsightsImage}
+            onOpenInsightsDevice={handleOpenInsightsDevice}
           />
         )}
       </div>
@@ -245,6 +283,7 @@ function App() {
           topicPath={insightsState.topicPath}
           geo={insightsState.geo}
           imageBlobUrl={insightsState.imageBlobUrl}
+          sparkplug={insightsState.sparkplug}
           activeTab={insightsState.activeTab}
           onSetTab={handleSetInsightsTab}
           isPinned={isInsightsPinned}

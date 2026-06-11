@@ -224,6 +224,21 @@ export function TopicGraph() {
     }
   }, [highlightedNodes]);
 
+  // Sync sparkplug offline state to the renderer. Offline devices contribute
+  // every topic node their messages have arrived on (NBIRTH/NDATA/... are
+  // sibling subtrees), so the whole family restyles at once.
+  const sparkplugVersion = useTopicStore((s) => s.sparkplugVersion);
+  useEffect(() => {
+    if (!rendererRef.current) return;
+    const offline = new Set<string>();
+    for (const device of useTopicStore.getState().sparkplugDevices.values()) {
+      if (!device.online) {
+        for (const nodeId of device.topicNodeIds) offline.add(nodeId);
+      }
+    }
+    rendererRef.current.setSparkplugOfflineNodes(offline);
+  }, [sparkplugVersion]);
+
   // Sync insight ring settings to the renderer (colours from the tag registry)
   useEffect(() => {
     if (rendererRef.current) {

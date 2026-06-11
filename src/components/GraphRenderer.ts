@@ -133,6 +133,8 @@ export class GraphRenderer {
   private insightRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
   private insightRingElements!: d3.Selection<SVGCircleElement, InsightRingDatum, SVGGElement, unknown>;
   private insightRingNodeIds = new Set<string>();
+  /** Node ids whose sparkplug entity is offline — rings restyle red/dashed. */
+  private sparkplugOfflineNodes = new Set<string>();
   // Which insight tag types are enabled for ring display.  Map of tag → colour.
   private enabledInsightTags = new Map<string, string>();
 
@@ -991,6 +993,16 @@ export class GraphRenderer {
   }
 
   /**
+   * Set the node ids whose sparkplug entity is currently offline.
+   * Their sparkplug rings render red and dashed instead of the tag colour.
+   * Node fill stays untouched — it belongs to the heat-map/pulse pipeline.
+   */
+  setSparkplugOfflineNodes(ids: Set<string>): void {
+    this.sparkplugOfflineNodes = ids;
+    this.refreshInsightRings();
+  }
+
+  /**
    * Rebuild the insight ring layer from the current simulation nodes.
    * Nodes whose payloadTags include enabled tag types get one ring per
    * matching tag, drawn concentrically (ringIndex offsets the radius).
@@ -1028,7 +1040,12 @@ export class GraphRenderer {
       .attr("stroke-opacity", 0.7)
       .attr("pointer-events", "none")
       .merge(this.insightRingElements)
-      .attr("stroke", (d) => d.color);
+      .attr("stroke", (d) =>
+        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "#ef4444" : d.color
+      )
+      .attr("stroke-dasharray", (d) =>
+        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "4 2" : null
+      );
 
     this.syncInsightRingPositions();
   }
