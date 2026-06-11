@@ -19,7 +19,8 @@ import {
 } from "../utils/sparkplug/topic";
 import {
   applySparkplugLifecycle,
-  applySparkplugDecode,
+  applySparkplugMetrics,
+  applySparkplugSeq,
   cascadeEdgeDeath,
 } from "../utils/sparkplug/lifecycle";
 import { payloadAnalyzer } from "../services/payloadAnalyzerService";
@@ -1094,13 +1095,19 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       const processed = tags.map((t) => {
         if (t.tag !== "sparkplug") return t;
         const meta = t.metadata as SparkplugMetadata;
-        const device = get().sparkplugDevices.get(meta.deviceKey);
+        const devices = get().sparkplugDevices;
+        const device = devices.get(meta.deviceKey);
         if (device && meta.metrics) {
-          applySparkplugDecode(device, {
+          applySparkplugMetrics(device, {
             timestamp: meta.payloadTimestamp ?? null,
             seq: meta.seq ?? null,
             metrics: meta.metrics,
           });
+          // seq is a per-EDGE counter shared across node and device messages,
+          // so it tracks on the edge entry (fall back to the device entry
+          // when no edge-level message has been seen yet).
+          const edgeEntry = devices.get(`${device.groupId}/${device.edgeNodeId}`) ?? device;
+          applySparkplugSeq(edgeEntry, meta.seq ?? null);
           set({ sparkplugVersion: get().sparkplugVersion + 1 });
         }
         const slim: SparkplugMetadata = {

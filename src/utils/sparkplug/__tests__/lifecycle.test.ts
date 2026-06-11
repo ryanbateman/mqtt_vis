@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   applySparkplugLifecycle,
-  applySparkplugDecode,
+  applySparkplugMetrics,
+  applySparkplugSeq,
   cascadeEdgeDeath,
   SPARKPLUG_METRICS_CAP,
 } from "../lifecycle";
@@ -103,7 +104,7 @@ describe("applySparkplugLifecycle", () => {
 
   it("a new BIRTH resets seq tracking", () => {
     let state = apply(undefined, "spBv1.0/g/NBIRTH/e")!;
-    applySparkplugDecode(state, { timestamp: null, seq: 5, metrics: [] });
+    applySparkplugSeq(state, 5);
     expect(state.lastSeq).toBe(5);
     state = apply(state, "spBv1.0/g/NBIRTH/e")!;
     expect(state.lastSeq).toBeNull();
@@ -129,15 +130,15 @@ describe("cascadeEdgeDeath", () => {
   });
 });
 
-describe("applySparkplugDecode", () => {
+describe("applySparkplugMetrics", () => {
   it("merges metrics and updates existing ones", () => {
     const state = apply(undefined, "spBv1.0/g/NBIRTH/e")!;
-    applySparkplugDecode(state, {
+    applySparkplugMetrics(state, {
       timestamp: null,
       seq: 0,
       metrics: [metric("Temp", 20), metric("Pressure", 100)],
     });
-    applySparkplugDecode(state, {
+    applySparkplugMetrics(state, {
       timestamp: null,
       seq: 1,
       metrics: [metric("Temp", 21)],
@@ -149,7 +150,7 @@ describe("applySparkplugDecode", () => {
 
   it("skips unnamed metrics", () => {
     const state = apply(undefined, "spBv1.0/g/NBIRTH/e")!;
-    applySparkplugDecode(state, {
+    applySparkplugMetrics(state, {
       timestamp: null,
       seq: null,
       metrics: [{ ...metric("x", 1), name: null }],
@@ -157,30 +158,39 @@ describe("applySparkplugDecode", () => {
     expect(state.metrics.size).toBe(0);
   });
 
-  it("counts seq gaps with 0-255 wraparound", () => {
-    const state = apply(undefined, "spBv1.0/g/NBIRTH/e")!;
-    applySparkplugDecode(state, { timestamp: null, seq: 254, metrics: [] });
-    applySparkplugDecode(state, { timestamp: null, seq: 255, metrics: [] });
-    applySparkplugDecode(state, { timestamp: null, seq: 0, metrics: [] }); // wraps cleanly
-    expect(state.seqGapCount).toBe(0);
-    applySparkplugDecode(state, { timestamp: null, seq: 5, metrics: [] }); // gap (1-4 missing)
-    expect(state.seqGapCount).toBe(1);
-    expect(state.lastSeq).toBe(5);
-  });
-
   it("caps stored metrics but keeps updating known ones", () => {
     const state = apply(undefined, "spBv1.0/g/NBIRTH/e")!;
     const many = Array.from({ length: SPARKPLUG_METRICS_CAP }, (_, i) => metric(`m${i}`, i));
-    applySparkplugDecode(state, { timestamp: null, seq: null, metrics: many });
+    applySparkplugMetrics(state, { timestamp: null, seq: null, metrics: many });
     expect(state.metrics.size).toBe(SPARKPLUG_METRICS_CAP);
 
-    applySparkplugDecode(state, {
+    applySparkplugMetrics(state, {
       timestamp: null,
       seq: null,
       metrics: [metric("overflow", 1), metric("m0", 999)],
     });
     expect(state.metrics.has("overflow")).toBe(false); // dropped at cap
     expect(state.metrics.get("m0")?.value).toBe(999); // known metric still updates
+  });
+});
+
+describe("applySparkplugSeq", () => {
+  it("counts seq gaps with 0-255 wraparound", () => {
+    const state = apply(undefined, "spBv1.0/g/NBIRTH/e")!;
+    applySparkplugSeq(state, 254);
+    applySparkplugSeq(state, 255);
+    applySparkplugSeq(state, 0); // wraps cleanly
+    expect(state.seqGapCount).toBe(0);
+    applySparkplugSeq(state, 5); // gap (1-4 missing)
+    expect(state.seqGapCount).toBe(1);
+    expect(state.lastSeq).toBe(5);
+  });
+
+  it("ignores null seq", () => {
+    const state = apply(undefined, "spBv1.0/g/NBIRTH/e")!;
+    applySparkplugSeq(state, null);
+    expect(state.lastSeq).toBeNull();
+    expect(state.seqGapCount).toBe(0);
   });
 });
 

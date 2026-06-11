@@ -19,7 +19,12 @@ function formatMetricValue(metric: SparkplugMetric): string {
 export function SparkplugDevicePanel({ deviceKey }: { deviceKey: string }) {
   // Version subscription drives re-renders; the Map itself is mutated in place.
   useTopicStore((s) => s.sparkplugVersion);
-  const device = useTopicStore.getState().sparkplugDevices.get(deviceKey);
+  const devices = useTopicStore.getState().sparkplugDevices;
+  const device = devices.get(deviceKey);
+  // seq is tracked per edge node (shared counter across its messages)
+  const edgeEntry = device
+    ? devices.get(`${device.groupId}/${device.edgeNodeId}`) ?? device
+    : undefined;
 
   if (!device) {
     return (
@@ -56,10 +61,10 @@ export function SparkplugDevicePanel({ deviceKey }: { deviceKey: string }) {
           </span>
           <span className="text-gray-500">Seq</span>
           <span className="text-gray-300 font-mono">
-            {device.lastSeq ?? "-"}
-            {device.seqGapCount > 0 && (
+            {edgeEntry?.lastSeq ?? "-"}
+            {(edgeEntry?.seqGapCount ?? 0) > 0 && (
               <span className="text-amber-400/80 ml-1.5">
-                {device.seqGapCount} gap{device.seqGapCount === 1 ? "" : "s"}
+                {edgeEntry!.seqGapCount} gap{edgeEntry!.seqGapCount === 1 ? "" : "s"}
               </span>
             )}
           </span>

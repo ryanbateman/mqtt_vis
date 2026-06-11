@@ -94,21 +94,12 @@ export function cascadeEdgeDeath(
 }
 
 /**
- * Merge a decoded payload's metrics and seq into a device state (in place).
- * Tracks approximate seq gaps: seq is 0-255 with wraparound, and DATA
- * analysis is debounced upstream, so gaps are a lower bound, not exact.
+ * Merge a decoded payload's metrics into a device state (in place).
  */
-export function applySparkplugDecode(
+export function applySparkplugMetrics(
   state: SparkplugDeviceState,
   decoded: SparkplugDecodedPayload,
 ): void {
-  if (decoded.seq !== null) {
-    if (state.lastSeq !== null && decoded.seq !== (state.lastSeq + 1) % 256) {
-      state.seqGapCount++;
-    }
-    state.lastSeq = decoded.seq;
-  }
-
   for (const metric of decoded.metrics) {
     if (metric.name === null) continue;
     if (!state.metrics.has(metric.name) && state.metrics.size >= SPARKPLUG_METRICS_CAP) {
@@ -116,4 +107,22 @@ export function applySparkplugDecode(
     }
     state.metrics.set(metric.name, metric);
   }
+}
+
+/**
+ * Track a payload seq number (in place). Per the Sparkplug spec, seq is a
+ * single 0-255 wraparound counter PER EDGE NODE shared across all its node
+ * and device messages — so this must be applied to the edge node's entry,
+ * not the device's. Gaps are approximate (a lower bound): DATA analysis is
+ * debounced upstream, so coalesced messages can also register as gaps.
+ */
+export function applySparkplugSeq(
+  edgeState: SparkplugDeviceState,
+  seq: number | null,
+): void {
+  if (seq === null) return;
+  if (edgeState.lastSeq !== null && seq !== (edgeState.lastSeq + 1) % 256) {
+    edgeState.seqGapCount++;
+  }
+  edgeState.lastSeq = seq;
 }

@@ -174,14 +174,19 @@ The client connects using **MQTT v5** (`protocolVersion: 5` in `mqttService.ts`)
 
 A Web Worker analyses MQTT payloads off the main thread, running registered detector functions and posting back tagged results. The system is designed to be extensible — new detectors can be added without architectural changes.
 
+### Tag Registry
+
+`src/utils/tagRegistry.ts` is the single source of truth for payload tag types. Each `TagDefinition` carries the id, label, ring colour, settings key, settings checkbox label/tooltip, default, and (optional) Insights Drawer tab. The Settings → Data Insights checkboxes, the ring colour map in `TopicGraph`, and tag lookups (`getTag(tags, type)` — typed metadata narrowing) all derive from it. Adding a new tag type means: extend `PayloadTagType`/`TagMetadataMap`, write + register the detector in the worker, add a `TagDefinition`, and add the optional settings boolean to `settingsStorage.ts`/`config.ts`/store defaults. No other UI wiring.
+
 ### Architecture
 
-- **Worker pipeline**: `payloadAnalyzerService.ts` manages the worker lifecycle. The main thread posts payloads to the worker via `handleMessage` in the store. The worker runs two phases of detectors and posts back `DetectorResult[]`:
-  1. **Raw-string detectors** — run on the payload string before JSON parsing. Used for binary format detection (e.g. image detector). Always run, even for non-JSON payloads.
-  2. **JSON detectors** — run on the parsed JSON object. Used for structured data detection (e.g. geo detector). Skipped if JSON parsing fails.
-- **`tagsAnalyzed` flag**: Each `TopicNode` has a `tagsAnalyzed: boolean`. Only the first payload per node is automatically submitted for analysis — **except** nodes with an existing geo tag, which are re-analyzed on every new payload so coordinates update live (critical for GPS trackers).
+- **Worker pipeline**: `payloadAnalyzerService.ts` manages the worker lifecycle. The main thread posts `{nodeId, topic, payload, truncated, rawBytes?}` to the worker via `handleMessage` in the store. The worker runs three phases of detectors and posts back `DetectorResult[]`:
+  1. **Topic-aware detectors** — see topic, payload string, and raw bytes (e.g. sparkplug). A match short-circuits the remaining phases.
+  2. **Raw-string detectors** — run on the payload string before JSON parsing. Used for binary format detection (e.g. image detector). Always run, even for non-JSON payloads.
+  3. **JSON detectors** — run on the parsed JSON object. Used for structured data detection (e.g. geo detector). Skipped if JSON parsing fails or the payload was truncated.
+- **Every non-empty payload is submitted**; the per-node 500ms debounce plus the identical-payload skip (length + FNV-1a fingerprint in `payloadAnalyzerService`) keep worker load bounded. Payloads are sliced to 64 KB (`prepareAnalysisPayload` in `src/utils/payloadAnalysis.ts`) before posting.
+- **Worker state**: the worker holds per-session state for stateful protocols (sparkplug alias maps). `payloadAnalyzer.reset()` — called from the store's `reset()` — clears pending debounces, fingerprints, and posts a `reset` message to the worker.
 - **`setPayloadTags` must call `scheduleRebuild(false)`** — without it, tags are stored on `TopicNode` but never flow to `GraphNode.payloadTags` or trigger React re-renders.
-- **500ms debounce**: The worker debounces analysis per node ID to avoid flooding on high-frequency topics.
 
 ### Geo Detector
 
@@ -214,11 +219,26 @@ Image preview is independent of the image *detector*. The detector runs in the W
 
 ### Graph Indicators
 
-Tagged nodes show optional insight rings in the graph (toggleable under Settings → Data Insights):
+Tagged nodes show optional insight rings in the graph (toggleable under Settings → Data Insights; colours/labels from the tag registry):
 - **Geo**: cyan (`#00ffff`) ring via `showGeoIndicators`
 - **Image**: bright purple (`#a855f7`) ring via `showImageIndicators`
+- **Sparkplug**: amber (`#f59e0b`) ring via `showSparkplugIndicators`; offline entities restyle red (`#ef4444`) + dashed
 
-The insight ring layer is rendered in `GraphRenderer.ts`. One ring per node — if a node has multiple tag types, the first enabled tag's colour is used.
+The insight ring layer is rendered in `GraphRenderer.ts`. Multi-tag nodes get concentric rings — one per enabled tag, radius offset by ring index, ordered by registry order.
+
+### Sparkplug B
+
+Eclipse Sparkplug B support: topic-shape detection, protobuf metric decoding, and full BIRTH/DEATH lifecycle tracking. Pure utilities live in `src/utils/sparkplug/` (`topic.ts`, `decoder.ts`, `datatypes.ts`, `lifecycle.ts`, `aliases.ts`); types in `src/types/sparkplug.ts`.
+
+- **Detection is split**: lifecycle (online/offline) is applied synchronously in `handleMessage` from the topic shape alone — it must not be lost to the analyzer debounce. Metric decoding happens in the worker (`detectSparkplug`, a topic-aware detector); BIRTH/DEATH analyses bypass the debounce (`immediate: true`) so the worker's alias maps never miss a BIRTH.
+- **Raw bytes**: sparkplug payloads are protobuf — `useMqttClient` copies a clean byte slice for `spBv1.0/`/`STATE/` topics and passes it through `handleMessage` (optional 7th param) to the worker as a transferable `ArrayBuffer`.
+- **Decoder**: hand-rolled minimal protobuf wire-format reader (no protobufjs — ~25-30 KB gzip saved; schema is frozen). Decodes Payload timestamp/seq/metrics with scalar values; complex types (DataSet, Template) skip with `value: null`. Returns null on malformed input.
+- **Device state** lives in the `sparkplugDevices` store slice keyed by `group/edge[/device]`, NOT on topic nodes — the same device's BIRTH/DATA/DEATH arrive on sibling subtrees. Mutate-in-place + `sparkplugVersion` bump (matches the tree pattern). Topic nodes carry a slim `DetectorResult<"sparkplug">`; `setPayloadTags` strips worker-decoded metrics into the device state and defers `online` to the slice (authoritative).
+- **Lifecycle semantics**: BIRTH→online, DEATH→offline (NDEATH cascades to the edge's devices), DATA→online (deliberate deviation: late subscribers never see the non-retained BIRTH). `seq` is a per-EDGE 0-255 wraparound counter shared across node+device messages — tracked on the edge entry; gap counts are approximate (DATA is debounced).
+- **Alias maps** (BIRTH name↔alias → DATA alias-only resolution) live in worker module state per edge node; unknown aliases render as `alias:N` (late-subscriber case). Cleared by the worker `reset` message.
+- **UI**: amber ring (family-wide red/dashed when offline via `GraphRenderer.setSparkplugOfflineNodes`), DetailPanel "View Device" button, Insights Drawer "Device" tab (`SparkplugDevicePanel.tsx`: status, last birth/data, seq + gaps, live metric table).
+- **Testing**: `scripts/publish-sparkplug.ts` (tsx) simulates an edge node + device against any broker (NBIRTH/DBIRTH → looping alias-only DATA → NDEATH on Ctrl-C, with LWT). Decoder test fixtures are built with `src/utils/sparkplug/__tests__/encodeHelper.ts` (test/script-only protobuf encoder, never bundled).
+- **Future work**: canonical synthetic device nodes (today each message's arrival node is tagged; the family is grouped via `SparkplugDeviceState.topicNodeIds`).
 
 ### Insights Drawer (`InsightsDrawer.tsx`)
 
