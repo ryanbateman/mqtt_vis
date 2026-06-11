@@ -1,6 +1,10 @@
 import type { WorkerRequest, WorkerResponse, DetectorResult } from "../types/payloadTags";
+import type { SparkplugMetadata, SparkplugMetric } from "../types/sparkplug";
 import { detectGeo } from "../utils/detectors/geoDetector";
 import { detectImage } from "../utils/detectors/imageDetector";
+import { parseSparkplugTopic, sparkplugDeviceKey, isBirth, isDeath } from "../utils/sparkplug/topic";
+import { decodeSparkplugPayload } from "../utils/sparkplug/decoder";
+import { recordAliases, resolveAliases, type AliasMap } from "../utils/sparkplug/aliases";
 
 /**
  * Payload Analyzer Web Worker
@@ -29,10 +33,71 @@ import { detectImage } from "../utils/detectors/imageDetector";
  * alias maps); a "reset" message clears it on disconnect/store reset.
  */
 
+/**
+ * Per-edge-node alias maps for Sparkplug DATA decoding ("group/edge" keyed).
+ * BIRTH messages define alias→name; DATA messages may carry aliases only.
+ * Cleared by the "reset" message on disconnect/store reset.
+ */
+const sparkplugAliasMaps = new Map<string, AliasMap>();
+
+/**
+ * Sparkplug B detector — matches on topic shape, decodes the protobuf
+ * payload when raw bytes were supplied. STATE topics return no result so
+ * their JSON payloads fall through to the regular JSON detectors.
+ * Note: a match short-circuits the other phases, so a hypothetical JPEG
+ * published under spBv1.0/ would not get an image tag — acceptable, the
+ * topic explicitly claims the sparkplug protocol.
+ */
+function detectSparkplug(
+  topic: string,
+  _payload: string,
+  rawBytes: ArrayBuffer | undefined,
+): DetectorResult[] {
+  const info = parseSparkplugTopic(topic);
+  if (!info || info.messageType === "STATE") return [];
+  const deviceKey = sparkplugDeviceKey(info);
+  if (deviceKey === null) return [];
+
+  let metrics: SparkplugMetric[] = [];
+  let seq: number | null = null;
+  let payloadTimestamp: number | null = null;
+
+  const decoded = rawBytes ? decodeSparkplugPayload(new Uint8Array(rawBytes)) : null;
+  if (decoded) {
+    const edgeKey = `${info.groupId}/${info.edgeNodeId}`;
+    let aliasMap = sparkplugAliasMaps.get(edgeKey);
+    if (!aliasMap) {
+      aliasMap = new Map();
+      sparkplugAliasMaps.set(edgeKey, aliasMap);
+    }
+    if (isBirth(info.messageType)) {
+      recordAliases(aliasMap, decoded.metrics);
+    }
+    resolveAliases(aliasMap, decoded.metrics);
+    metrics = decoded.metrics;
+    seq = decoded.seq;
+    payloadTimestamp = decoded.timestamp;
+  }
+
+  const metadata: SparkplugMetadata = {
+    deviceKey,
+    role: info.deviceId !== null ? "device" : "edge-node",
+    messageType: info.messageType,
+    // Approximation — the store overrides this with its authoritative
+    // lifecycle state when the result lands (setPayloadTags).
+    online: !isDeath(info.messageType),
+    metricCount: metrics.length,
+    metrics,
+    seq,
+    payloadTimestamp,
+  };
+  return [{ tag: "sparkplug", confidence: 1, fieldPath: "", metadata }];
+}
+
 /** Topic-aware detectors — run first; returning results short-circuits. */
 const topicDetectors: Array<
   (topic: string, payload: string, rawBytes: ArrayBuffer | undefined) => DetectorResult[]
-> = [];
+> = [detectSparkplug];
 
 /** Raw-string detectors — run on every payload before JSON parsing. */
 const rawDetectors: Array<(payload: string) => DetectorResult[]> = [
@@ -45,7 +110,9 @@ const jsonDetectors: Array<(parsed: unknown) => DetectorResult[]> = [
 ];
 
 /** Reset hooks — called when the main thread sends a "reset" message. */
-const resetHooks: Array<() => void> = [];
+const resetHooks: Array<() => void> = [
+  () => sparkplugAliasMaps.clear(),
+];
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;

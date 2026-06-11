@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import { mqttService } from "../services/mqttService";
 import { useTopicStore, startDecayTimer } from "../stores/topicStore";
 import { diagnoseConnectionError } from "../utils/connectionErrors";
+import { isSparkplugTopic } from "../utils/sparkplug/topic";
 import type { ConnectionParams } from "../types";
 
 /**
@@ -35,8 +36,20 @@ export function useMqttClient() {
         }
       }
 
+      // Sparkplug B payloads are protobuf — UTF-8 decoding destroys them, so
+      // capture the raw bytes here (same reason as the image check above).
+      // Copy out a clean slice: the Buffer may be a view into a pooled
+      // ArrayBuffer shared with other messages.
+      let rawPayload: ArrayBuffer | undefined;
+      if (isSparkplugTopic(topic)) {
+        rawPayload = payload.buffer.slice(
+          payload.byteOffset,
+          payload.byteOffset + payload.byteLength,
+        );
+      }
+
       const payloadStr = payload.toString();
-      handleMessage(topic, payloadStr, qos, retain, userProperties, imageBlobUrl);
+      handleMessage(topic, payloadStr, qos, retain, userProperties, imageBlobUrl, rawPayload);
     });
 
     mqttService.setStatusHandler((status, error) => {

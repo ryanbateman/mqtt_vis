@@ -2077,3 +2077,128 @@ describe("topicStore — payload analysis tags", () => {
     expect(node!.payloadTags).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sparkplug B lifecycle integration
+// ---------------------------------------------------------------------------
+
+describe("topicStore — sparkplug lifecycle", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setTopicFilter("#");
+  });
+
+  it("tags the topic node and creates device state on NBIRTH", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/edge1", "ignored");
+
+    const node = findTopicNode("spBv1.0/g/NBIRTH/edge1")!;
+    const tag = node.payloadTags?.find((t) => t.tag === "sparkplug");
+    expect(tag).toBeDefined();
+    const meta = tag!.metadata as import("../../types/sparkplug").SparkplugMetadata;
+    expect(meta.deviceKey).toBe("g/edge1");
+    expect(meta.role).toBe("edge-node");
+    expect(meta.online).toBe(true);
+
+    const device = state().sparkplugDevices.get("g/edge1")!;
+    expect(device.online).toBe(true);
+    expect(device.lastMessageType).toBe("NBIRTH");
+    expect(state().sparkplugVersion).toBeGreaterThan(0);
+
+    // The tag flows into graphNodes for ring rendering
+    expect(findGraphNode("spBv1.0/g/NBIRTH/edge1")!.payloadTags).toContain("sparkplug");
+  });
+
+  it("NDEATH marks the edge offline and cascades to its devices", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/edge1", "x");
+    handleMessageAndFlush("spBv1.0/g/DBIRTH/edge1/pump", "x");
+    expect(state().sparkplugDevices.get("g/edge1/pump")!.online).toBe(true);
+
+    handleMessageAndFlush("spBv1.0/g/NDEATH/edge1", "x");
+    expect(state().sparkplugDevices.get("g/edge1")!.online).toBe(false);
+    expect(state().sparkplugDevices.get("g/edge1/pump")!.online).toBe(false);
+  });
+
+  it("the same device accumulates topicNodeIds across message-type branches", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/edge1", "x");
+    handleMessageAndFlush("spBv1.0/g/NDATA/edge1", "x");
+    const device = state().sparkplugDevices.get("g/edge1")!;
+    expect(device.topicNodeIds.has("spBv1.0/g/NBIRTH/edge1")).toBe(true);
+    expect(device.topicNodeIds.has("spBv1.0/g/NDATA/edge1")).toBe(true);
+  });
+
+  it("STATE topics create no device state", () => {
+    handleMessageAndFlush("spBv1.0/STATE/host1", '{"online":true}');
+    handleMessageAndFlush("STATE/host2", "ONLINE");
+    expect(state().sparkplugDevices.size).toBe(0);
+  });
+
+  it("non-sparkplug topics create no device state", () => {
+    handleMessageAndFlush("home/kitchen/temp", "21.5");
+    expect(state().sparkplugDevices.size).toBe(0);
+  });
+
+  it("setPayloadTags strips worker metrics into the device state", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/edge1", "x");
+
+    // Simulate the worker result for the BIRTH payload
+    state().setPayloadTags("spBv1.0/g/NBIRTH/edge1", [{
+      tag: "sparkplug",
+      confidence: 1,
+      fieldPath: "",
+      metadata: {
+        deviceKey: "g/edge1",
+        role: "edge-node",
+        messageType: "NBIRTH",
+        online: true,
+        metricCount: 2,
+        seq: 0,
+        payloadTimestamp: 1000,
+        metrics: [
+          { name: "Temp", alias: 1, datatype: 10, datatypeName: "Double", value: 21.5, timestamp: null, isNull: false },
+          { name: "Running", alias: 2, datatype: 11, datatypeName: "Boolean", value: true, timestamp: null, isNull: false },
+        ],
+      },
+    }]);
+
+    const device = state().sparkplugDevices.get("g/edge1")!;
+    expect(device.metrics.get("Temp")?.value).toBe(21.5);
+    expect(device.metrics.get("Running")?.value).toBe(true);
+    expect(device.lastSeq).toBe(0);
+
+    // The node keeps only the slim tag — no metrics payload
+    const node = findTopicNode("spBv1.0/g/NBIRTH/edge1")!;
+    const meta = node.payloadTags!.find((t) => t.tag === "sparkplug")!
+      .metadata as import("../../types/sparkplug").SparkplugMetadata;
+    expect(meta.metrics).toBeUndefined();
+    expect(meta.metricCount).toBe(2);
+  });
+
+  it("worker tag online state defers to the authoritative store slice", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/edge1", "x");
+    handleMessageAndFlush("spBv1.0/g/NDEATH/edge1", "x");
+
+    // A stale worker result claiming online arrives after the DEATH
+    state().setPayloadTags("spBv1.0/g/NBIRTH/edge1", [{
+      tag: "sparkplug",
+      confidence: 1,
+      fieldPath: "",
+      metadata: {
+        deviceKey: "g/edge1", role: "edge-node", messageType: "NBIRTH",
+        online: true, metricCount: 0, metrics: [], seq: null, payloadTimestamp: null,
+      },
+    }]);
+
+    const node = findTopicNode("spBv1.0/g/NBIRTH/edge1")!;
+    const meta = node.payloadTags!.find((t) => t.tag === "sparkplug")!
+      .metadata as import("../../types/sparkplug").SparkplugMetadata;
+    expect(meta.online).toBe(false);
+  });
+
+  it("reset clears the sparkplug slice", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/edge1", "x");
+    expect(state().sparkplugDevices.size).toBe(1);
+    state().reset();
+    expect(state().sparkplugDevices.size).toBe(0);
+    expect(state().sparkplugVersion).toBe(0);
+  });
+});

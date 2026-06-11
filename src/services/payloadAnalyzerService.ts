@@ -118,8 +118,13 @@ class PayloadAnalyzerService {
 
   // --- Private ---
 
-  /** Lazily create the worker if it doesn't exist yet. */
-  private ensureWorker(): Worker {
+  /**
+   * Lazily create the worker if it doesn't exist yet. Returns null in
+   * environments without Worker support (unit tests) — analysis is then
+   * silently skipped.
+   */
+  private ensureWorker(): Worker | null {
+    if (typeof Worker === "undefined") return null;
     if (!this.worker) {
       this.worker = new Worker(
         new URL("../workers/payloadAnalyzer.worker.ts", import.meta.url),
@@ -157,6 +162,7 @@ class PayloadAnalyzerService {
     this.lastFingerprint.set(nodeId, fingerprint);
 
     const worker = this.ensureWorker();
+    if (!worker) return;
     const msg: AnalyzeRequest = { type: "analyze", nodeId, topic, payload: slice, truncated };
     if (rawBytes) {
       msg.rawBytes = rawBytes;

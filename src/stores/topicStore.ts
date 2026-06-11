@@ -8,7 +8,20 @@ import type {
   MqttUserProperties,
 } from "../types";
 import type { DetectorResult } from "../types/payloadTags";
+import type { SparkplugDeviceState, SparkplugMetadata, SparkplugTopicInfo } from "../types/sparkplug";
 import type { IndicatorSettingsKey } from "../utils/tagRegistry";
+import {
+  isSparkplugTopic,
+  parseSparkplugTopic,
+  sparkplugDeviceKey,
+  isBirth,
+  isDeath,
+} from "../utils/sparkplug/topic";
+import {
+  applySparkplugLifecycle,
+  applySparkplugDecode,
+  cascadeEdgeDeath,
+} from "../utils/sparkplug/lifecycle";
 import { payloadAnalyzer } from "../services/payloadAnalyzerService";
 import {
   createTopicNode,
@@ -113,6 +126,14 @@ interface TopicStoreState {
   graphStructureVersion: number;
   /** Incremented when an export is requested. TopicGraph watches this to trigger renderer.exportPng(). */
   exportRequested: number;
+  /**
+   * Live Sparkplug B edge-node/device state, keyed by deviceKey
+   * ("group/edge" or "group/edge/device"). Mutated in place;
+   * sparkplugVersion is bumped on every change for React reactivity.
+   */
+  sparkplugDevices: Map<string, SparkplugDeviceState>;
+  /** Incremented whenever sparkplugDevices content changes. */
+  sparkplugVersion: number;
   /** ID of the currently selected/pinned node, or null if nothing is selected. */
   selectedNodeId: string | null;
   /**
@@ -134,7 +155,7 @@ interface TopicStoreState {
   setTopicFilter: (filter: string) => void;
 
   /** Process an incoming MQTT message. retain defaults to false for backward compatibility. */
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, userProperties?: MqttUserProperties, imageBlobUrl?: string) => void;
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, userProperties?: MqttUserProperties, imageBlobUrl?: string, rawPayload?: ArrayBuffer) => void;
   /** Update connection status. */
   setConnectionStatus: (status: ConnectionStatus, error?: string) => void;
   /** Run one decay tick — called periodically. */
@@ -312,6 +333,57 @@ const PAYLOAD_MAX_STORE = 1024;
  */
 const _payloadLru = new Set<string>();
 
+/**
+ * Merge one detector result onto a node's payloadTags, replacing any existing
+ * tag of the same type (same semantics as setPayloadTags' merge).
+ */
+function mergeNodeTag(node: TopicNode, result: DetectorResult): void {
+  const preserved = node.payloadTags?.filter((t) => t.tag !== result.tag) ?? [];
+  node.payloadTags = [...preserved, result];
+}
+
+/**
+ * Apply a Sparkplug message's lifecycle effect: update the device state
+ * slice, cascade NDEATH to the edge's devices, bump sparkplugVersion, and
+ * synchronously attach a slim sparkplug tag to the topic node (instant
+ * indicator ring — no worker round-trip needed).
+ */
+function recordSparkplugMessage(
+  get: () => TopicStoreState,
+  set: (partial: Partial<TopicStoreState>) => void,
+  node: TopicNode,
+  info: SparkplugTopicInfo,
+): void {
+  const devices = get().sparkplugDevices;
+  const key = sparkplugDeviceKey(info);
+  if (key === null) return;
+
+  const deviceState = applySparkplugLifecycle(devices.get(key), info, node.id, Date.now());
+  if (!deviceState) return;
+  devices.set(key, deviceState);
+
+  // An edge node's death takes all its devices down with it (their MQTT
+  // session died together — Sparkplug spec semantics).
+  if (info.messageType === "NDEATH") {
+    cascadeEdgeDeath(devices, info.groupId, info.edgeNodeId);
+  }
+
+  mergeNodeTag(node, {
+    tag: "sparkplug",
+    confidence: 1,
+    fieldPath: "",
+    metadata: {
+      deviceKey: key,
+      role: deviceState.role,
+      messageType: info.messageType,
+      online: deviceState.online,
+      metricCount: deviceState.metrics.size,
+    } satisfies SparkplugMetadata,
+  });
+
+  set({ sparkplugVersion: get().sparkplugVersion + 1 });
+}
+
 /** Walk the topic tree and revoke all image blob URLs. Called on reset/disconnect. */
 function revokeAllBlobUrls(node: TopicNode): void {
   if (node.lastImageBlobUrl) {
@@ -395,12 +467,14 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   topicFilter: cfg.topicFilter ?? "#",
   graphStructureVersion: 0,
   exportRequested: 0,
+  sparkplugDevices: new Map<string, SparkplugDeviceState>(),
+  sparkplugVersion: 0,
   selectedNodeId: null,
   highlightedNodes: new Map<string, string>(),
   burstWindowActive: false,
   burstSettingsLocked: false,
 
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false, userProperties?: MqttUserProperties, imageBlobUrl?: string) => {
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false, userProperties?: MqttUserProperties, imageBlobUrl?: string, rawPayload?: ArrayBuffer) => {
     perfMark("handle-msg-start");
     const state = get();
 
@@ -469,13 +543,27 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
     }
 
+    // Sparkplug B: lifecycle (online/offline) is applied synchronously from
+    // the topic shape alone — BIRTH/DEATH ordering must not be lost to the
+    // analyzer's per-node debounce, and no payload decode is needed for it.
+    // Metric decoding still happens in the worker (rawPayload below).
+    const spInfo = isSparkplugTopic(topic) ? parseSparkplugTopic(topic) : null;
+    if (spInfo && spInfo.messageType !== "STATE") {
+      recordSparkplugMessage(get, set, node, spInfo);
+    }
+
     // Submit payload for off-thread analysis (geo detection, image detection,
     // etc.).  Every non-empty payload is submitted — the 500ms per-node
     // debounce in payloadAnalyzerService prevents flooding the worker on
     // high-frequency topics.  Results are merged (not replaced) in
     // setPayloadTags, so tags from different payload types coexist.
-    if (payload.length > 0) {
-      payloadAnalyzer.analyze(node.id, topic, payload);
+    // Sparkplug BIRTH/DEATH bypass the debounce: their decode populates the
+    // worker's alias maps, which a coalescing debounce could silently drop.
+    if (payload.length > 0 || rawPayload) {
+      payloadAnalyzer.analyze(node.id, topic, payload, {
+        rawBytes: rawPayload,
+        immediate: spInfo !== null && (isBirth(spInfo.messageType) || isDeath(spInfo.messageType)),
+      });
     }
 
     // Instant rate spike: add 1 message worth of rate contribution
@@ -799,6 +887,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _pendingNewTopics = 0;
     // Clear analyzer state (pending debounces, fingerprints, worker-held maps)
     payloadAnalyzer.reset();
+    get().sparkplugDevices.clear();
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
     const savedForReset = loadSavedSettings();
@@ -811,6 +900,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       sessionStart: Date.now(),
       errorMessage: null,
       graphStructureVersion: 0,
+      sparkplugVersion: 0,
       nodeScale: savedForReset.nodeScale ?? cfg.nodeScale ?? 1.0,
       scaleNodeSizeByDepth: savedForReset.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
       selectedNodeId: null,
@@ -994,13 +1084,40 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const segments = nodeId === "" ? [] : nodeId.split("/");
     const node = findNode(root, segments);
     if (node) {
+      // Sparkplug tags arrive from the worker carrying full decoded metrics.
+      // Strip those into the device state slice (the authoritative store)
+      // and keep only the slim metadata on the node.
+      const processed = tags.map((t) => {
+        if (t.tag !== "sparkplug") return t;
+        const meta = t.metadata as SparkplugMetadata;
+        const device = get().sparkplugDevices.get(meta.deviceKey);
+        if (device && meta.metrics) {
+          applySparkplugDecode(device, {
+            timestamp: meta.payloadTimestamp ?? null,
+            seq: meta.seq ?? null,
+            metrics: meta.metrics,
+          });
+          set({ sparkplugVersion: get().sparkplugVersion + 1 });
+        }
+        const slim: SparkplugMetadata = {
+          deviceKey: meta.deviceKey,
+          role: meta.role,
+          messageType: meta.messageType,
+          // The store slice is authoritative for online state — the worker
+          // result may be stale (it lags lifecycle by the debounce window).
+          online: device?.online ?? meta.online,
+          metricCount: device?.metrics.size ?? meta.metricCount,
+        };
+        return { ...t, metadata: slim } as DetectorResult;
+      });
+
       // Merge new tags with existing tags: new tags replace existing tags of
       // the same type, while existing tags of types not present in the new
       // results are preserved.  This prevents e.g. an image analysis result
       // from wiping a previously detected geo tag (and vice versa).
-      const newTagTypes = new Set(tags.map((t) => t.tag));
+      const newTagTypes = new Set(processed.map((t) => t.tag));
       const preserved = node.payloadTags?.filter((t) => !newTagTypes.has(t.tag)) ?? [];
-      node.payloadTags = [...preserved, ...tags];
+      node.payloadTags = [...preserved, ...processed];
       // Schedule a non-structural rebuild so graphNodes picks up the new tags
       // and React re-renders components that depend on payloadTags.
       get().scheduleRebuild(false);
