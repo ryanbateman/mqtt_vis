@@ -8,6 +8,7 @@ import type {
   MqttUserProperties,
 } from "../types";
 import type { DetectorResult } from "../types/payloadTags";
+import type { IndicatorSettingsKey } from "../utils/tagRegistry";
 import { payloadAnalyzer } from "../services/payloadAnalyzerService";
 import {
   createTopicNode,
@@ -181,10 +182,8 @@ interface TopicStoreState {
   setDropRetainedBurst: (enabled: boolean) => void;
   /** Update the burst window duration (ms). */
   setBurstWindowDuration: (value: number) => void;
-  /** Toggle geo indicator rings in the graph. */
-  setShowGeoIndicators: (enabled: boolean) => void;
-  /** Toggle image indicator rings in the graph. */
-  setShowImageIndicators: (enabled: boolean) => void;
+  /** Toggle a payload tag's indicator rings in the graph (see tagRegistry). */
+  setIndicatorEnabled: (key: IndicatorSettingsKey, enabled: boolean) => void;
   /** Request a PNG export of the current graph. */
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
@@ -940,13 +939,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     set({ burstWindowDuration: value });
     persistSettings({ burstWindowDuration: value });
   },
-  setShowGeoIndicators: (enabled: boolean) => {
-    set({ showGeoIndicators: enabled });
-    persistSettings({ showGeoIndicators: enabled });
-  },
-  setShowImageIndicators: (enabled: boolean) => {
-    set({ showImageIndicators: enabled });
-    persistSettings({ showImageIndicators: enabled });
+  setIndicatorEnabled: (key: IndicatorSettingsKey, enabled: boolean) => {
+    set({ [key]: enabled });
+    persistSettings({ [key]: enabled });
   },
   setAncestorPulse: (enabled: boolean) => {
     set({ ancestorPulse: enabled });

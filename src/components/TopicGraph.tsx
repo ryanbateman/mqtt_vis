@@ -3,6 +3,7 @@ import { useTopicStore } from "../stores/topicStore";
 import { GraphRenderer } from "./GraphRenderer";
 import { NodeTooltip } from "./NodeTooltip";
 import { findNode } from "../utils/topicParser";
+import { TAG_REGISTRY } from "../utils/tagRegistry";
 import type { TooltipData } from "../types";
 
 /**
@@ -35,8 +36,13 @@ export function TopicGraph() {
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
   const highlightedNodes = useTopicStore((s) => s.highlightedNodes);
-  const showGeoIndicators = useTopicStore((s) => s.showGeoIndicators);
-  const showImageIndicators = useTopicStore((s) => s.showImageIndicators);
+  // Joined ids of enabled insight tags — a primitive selector result, so the
+  // component only re-renders when the enabled set actually changes.
+  const enabledTagIds = useTopicStore((s) =>
+    TAG_REGISTRY.filter((def) => s[def.settingsKey])
+      .map((def) => def.id)
+      .join(",")
+  );
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
@@ -218,19 +224,19 @@ export function TopicGraph() {
     }
   }, [highlightedNodes]);
 
-  // Sync insight ring settings to the renderer
+  // Sync insight ring settings to the renderer (colours from the tag registry)
   useEffect(() => {
     if (rendererRef.current) {
       const tags = new Map<string, string>();
-      if (showGeoIndicators) {
-        tags.set("geo", "#00ffff");
-      }
-      if (showImageIndicators) {
-        tags.set("image", "#a855f7");
+      const enabled = new Set(enabledTagIds.split(","));
+      for (const def of TAG_REGISTRY) {
+        if (enabled.has(def.id)) {
+          tags.set(def.id, def.ringColor);
+        }
       }
       rendererRef.current.setEnabledInsightTags(tags);
     }
-  }, [showGeoIndicators, showImageIndicators]);
+  }, [enabledTagIds]);
 
   // Escape key deselects the current node
   useEffect(() => {

@@ -4,10 +4,10 @@ import "leaflet/dist/leaflet.css";
 import { useTopicStore } from "../stores/topicStore";
 import { findNode } from "../utils/topicParser";
 import { formatTimestamp } from "../utils/formatters";
+import { getTag, type InsightsTab } from "../utils/tagRegistry";
 import type { GeoMetadata, GeoNode, TrailPoint } from "../types/payloadTags";
 
-/** Which content tab is active in the Insights Drawer. */
-export type InsightsTab = "map" | "image";
+export type { InsightsTab };
 
 /** Maximum number of trail points per topic before oldest are discarded. */
 const MAX_TRAIL_POINTS = 50;
@@ -68,8 +68,7 @@ function getGeoForTopic(topicPath: string): GeoMetadata | null {
   const root = useTopicStore.getState().root;
   const segments = topicPath === "" ? [] : topicPath.split("/");
   const node = findNode(root, segments);
-  const tag = node?.payloadTags?.find((t) => t.tag === "geo");
-  return tag ? (tag.metadata as GeoMetadata) : null;
+  return getTag(node?.payloadTags, "geo")?.metadata ?? null;
 }
 
 /**

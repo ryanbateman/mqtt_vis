@@ -1,5 +1,6 @@
 import type { TopicNode } from "../types";
-import type { GeoMetadata, GeoNode } from "../types/payloadTags";
+import type { GeoNode } from "../types/payloadTags";
+import { getTag } from "./tagRegistry";
 
 /** Split an MQTT topic string into its segments. */
 export function parseTopicSegments(topic: string): string[] {
@@ -134,11 +135,11 @@ export function collectAllNodes(root: TopicNode): TopicNode[] {
 export function collectGeoNodes(root: TopicNode): GeoNode[] {
   const results: GeoNode[] = [];
   for (const node of collectAllNodes(root)) {
-    const tag = node.payloadTags?.find((t) => t.tag === "geo");
+    const tag = getTag(node.payloadTags, "geo");
     if (tag) {
       results.push({
         topicPath: node.id,
-        geo: tag.metadata as GeoMetadata,
+        geo: tag.metadata,
       });
     }
   }

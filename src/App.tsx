@@ -10,10 +10,8 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { getConfig } from "./utils/config";
 import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
+import { getTag, type InsightsTab } from "./utils/tagRegistry";
 import type { GeoMetadata, GeoNode } from "./types/payloadTags";
-
-/** Which content tab is active in the Insights Drawer. */
-type InsightsTab = "map" | "image";
 
 /** State for the Insights Drawer — tracks which topic is shown and what content is available. */
 interface InsightsState {
@@ -65,10 +63,9 @@ function App() {
     const root = useTopicStore.getState().root;
     const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
     const node = findNode(root, segments);
-    const geoTag = node?.payloadTags?.find((t) => t.tag === "geo");
     setInsightsState({
       topicPath: selectedNodeId,
-      geo: geoTag ? (geoTag.metadata as GeoMetadata) : null,
+      geo: getTag(node?.payloadTags, "geo")?.metadata ?? null,
       imageBlobUrl,
       activeTab: "image",
     });
@@ -151,8 +148,7 @@ function App() {
     const root = useTopicStore.getState().root;
     const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
     const node = findNode(root, segments);
-    const geoTag = node?.payloadTags?.find((t) => t.tag === "geo");
-    const newGeo = geoTag ? (geoTag.metadata as GeoMetadata) : null;
+    const newGeo = getTag(node?.payloadTags, "geo")?.metadata ?? null;
     const newImage = node?.lastImageBlobUrl ?? null;
 
     if (newGeo || newImage) {

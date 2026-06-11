@@ -3,8 +3,32 @@ import { createPortal } from "react-dom";
 import { useTopicStore } from "../stores/topicStore";
 import { getConfig } from "../utils/config";
 import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
+import { TAG_REGISTRY, type TagDefinition } from "../utils/tagRegistry";
 
 type SettingsTab = "visual" | "labels" | "simulation";
+
+/** Checkbox row for one payload tag's indicator setting (registry-driven). */
+function IndicatorCheckbox({ def }: { def: TagDefinition }) {
+  const enabled = useTopicStore((s) => s[def.settingsKey]);
+  const setIndicatorEnabled = useTopicStore((s) => s.setIndicatorEnabled);
+
+  return (
+    <div className="flex items-center justify-between mt-1.5 first:mt-0">
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs font-medium text-gray-400">
+          {def.settingsLabel}
+        </label>
+        <InfoTooltip text={def.settingsTooltip} />
+      </div>
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(e) => setIndicatorEnabled(def.settingsKey, e.target.checked)}
+        className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+      />
+    </div>
+  );
+}
 
 /** Small info icon with hover tooltip rendered via portal to avoid clipping. */
 export function InfoTooltip({ text }: { text: string }) {
@@ -176,10 +200,6 @@ export function SettingsPanel() {
   const setScaleTextByDepth = useTopicStore((s) => s.setScaleTextByDepth);
   const showTooltips = useTopicStore((s) => s.showTooltips);
   const setShowTooltips = useTopicStore((s) => s.setShowTooltips);
-  const showGeoIndicators = useTopicStore((s) => s.showGeoIndicators);
-  const setShowGeoIndicators = useTopicStore((s) => s.setShowGeoIndicators);
-  const showImageIndicators = useTopicStore((s) => s.showImageIndicators);
-  const setShowImageIndicators = useTopicStore((s) => s.setShowImageIndicators);
   const nodeScale = useTopicStore((s) => s.nodeScale);
   const setNodeScale = useTopicStore((s) => s.setNodeScale);
   const scaleNodeSizeByDepth = useTopicStore((s) => s.scaleNodeSizeByDepth);
@@ -317,37 +337,12 @@ export function SettingsPanel() {
                 />
               </div>
 
-              {/* Data Insights */}
+              {/* Data Insights — checkboxes generated from the tag registry */}
               <div className="border-t border-gray-700 pt-2 mt-2">
                 <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Data Insights</div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-xs font-medium text-gray-400">
-                      Geo Indicators
-                    </label>
-                    <InfoTooltip text="Show a coloured ring around nodes whose payload contains geographic coordinates (lat/lon)" />
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={showGeoIndicators}
-                    onChange={(e) => setShowGeoIndicators(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-xs font-medium text-gray-400">
-                      Image Indicators
-                    </label>
-                    <InfoTooltip text="Show a coloured ring around nodes whose payload contains image data (JPEG, PNG)" />
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={showImageIndicators}
-                    onChange={(e) => setShowImageIndicators(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
-                  />
-                </div>
+                {TAG_REGISTRY.map((def) => (
+                  <IndicatorCheckbox key={def.id} def={def} />
+                ))}
               </div>
             </>
           )}

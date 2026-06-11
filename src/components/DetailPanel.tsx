@@ -1,7 +1,8 @@
 import { useState, Fragment } from "react";
 import type { TopicNode, GraphNode } from "../types";
-import type { GeoMetadata, ImageMetadata } from "../types/payloadTags";
+import type { GeoMetadata } from "../types/payloadTags";
 import { formatRate, formatTimestamp, formatPayloadSize } from "../utils/formatters";
+import { getTag } from "../utils/tagRegistry";
 
 /**
  * Session-scoped pretty-print preference. Persists across node selections so
@@ -74,13 +75,9 @@ export function DetailPanel({
 
   const childCount = topicNode.children.size;
 
-  // Extract first geo detection result (if any) for the map button
-  const geoTag = topicNode.payloadTags?.find((t) => t.tag === "geo");
-  const geoMetadata = geoTag ? (geoTag.metadata as GeoMetadata) : null;
-
-  // Extract first image detection result (if any)
-  const imageTag = topicNode.payloadTags?.find((t) => t.tag === "image");
-  const imageMetadata = imageTag ? (imageTag.metadata as ImageMetadata) : null;
+  // Extract first geo/image detection results (if any)
+  const geoMetadata = getTag(topicNode.payloadTags, "geo")?.metadata ?? null;
+  const imageMetadata = getTag(topicNode.payloadTags, "image")?.metadata ?? null;
 
   return (
     <div className="bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl w-80 flex flex-col overflow-hidden">
