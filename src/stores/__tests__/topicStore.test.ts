@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { useTopicStore } from "../topicStore";
+import { useTopicStore, TOPIC_NODE_CAP } from "../topicStore";
 import { MIN_RADIUS } from "../../utils/sizeCalculator";
 import {
   persistSettings,
@@ -2329,5 +2329,71 @@ describe("topicStore — wouldDropRetained", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Topic node cap
+// ---------------------------------------------------------------------------
+
+describe("topicStore — topic node cap", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setTopicFilter("#");
+  });
+
+  /** Fill the tree to exactly the cap using single-segment topics. */
+  function fillToCap() {
+    for (let i = 0; i < TOPIC_NODE_CAP; i++) {
+      state().handleMessage(`t${i}`, "x", 0);
+    }
+    state().rebuildGraph();
+  }
+
+  it("drops messages for new topics at the cap, keeps updating existing ones", () => {
+    fillToCap();
+    expect(state().nodeCapReached).toBe(true);
+
+    // New topic — dropped, no node created
+    state().handleMessage("overflow/topic", "x", 0);
+    state().rebuildGraph();
+    expect(findTopicNode("overflow")).toBeUndefined();
+
+    // Existing topic — still processed
+    const before = findTopicNode("t0")!.messageCount;
+    handleMessageAndFlush("t0", "again");
+    expect(findTopicNode("t0")!.messageCount).toBe(before + 1);
+  });
+
+  it("does not set the flag below the cap", () => {
+    handleMessageAndFlush("a/b", "x");
+    expect(state().nodeCapReached).toBe(false);
+  });
+
+  it("pruning frees capacity and clears the banner flag", () => {
+    fillToCap();
+    expect(state().nodeCapReached).toBe(true);
+
+    // Make half the topics stale and prune them
+    state().setPruneTimeout(60_000);
+    for (let i = 0; i < 1000; i++) {
+      findTopicNode(`t${i}`)!.lastTimestamp = Date.now() - 120_000;
+    }
+    state().decayTick();
+    state().rebuildGraph();
+
+    expect(state().nodeCapReached).toBe(false);
+    // New topics are accepted again
+    handleMessageAndFlush("fresh/topic", "x");
+    expect(findTopicNode("fresh/topic")).toBeDefined();
+  });
+
+  it("reset clears the counter and flag", () => {
+    fillToCap();
+    state().reset();
+    state().rebuildGraph();
+    expect(state().nodeCapReached).toBe(false);
+    handleMessageAndFlush("a/b", "x");
+    expect(findTopicNode("a/b")).toBeDefined();
   });
 });

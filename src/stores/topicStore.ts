@@ -137,6 +137,11 @@ interface TopicStoreState {
   sparkplugDevices: Map<string, SparkplugDeviceState>;
   /** Incremented whenever sparkplugDevices content changes. */
   sparkplugVersion: number;
+  /**
+   * True while the topic tree is at TOPIC_NODE_CAP — new topics are being
+   * dropped. Recomputed on each batched flush; clears when pruning frees space.
+   */
+  nodeCapReached: boolean;
   /** ID of the currently selected/pinned node, or null if nothing is selected. */
   selectedNodeId: string | null;
   /**
@@ -356,6 +361,21 @@ function mergeNodeTag(node: TopicNode, result: DetectorResult): void {
 const SPARKPLUG_DEVICES_CAP = 1000;
 
 /**
+ * Maximum topic tree nodes. Beyond this, messages for NEW topics are dropped
+ * (existing topics keep updating) and a banner tells the user to narrow the
+ * filter. Protective: the SVG/force-simulation pipeline degrades hard past
+ * ~1000 nodes (d3 tick ~87 ms at ~9000), so growing further only deepens an
+ * already-unusable graph. Pruning frees capacity again.
+ */
+export const TOPIC_NODE_CAP = 2000;
+
+/**
+ * Live count of non-root tree nodes. Maintained incrementally (O(1) per
+ * message) because totalTopics is cumulative and never decremented by prune.
+ */
+let _treeNodeCount = 0;
+
+/**
  * Sparkplug version-bump batching. Per-message zustand set() calls bypass the
  * store's rAF batching and were the primary cause of retained-burst slowdown:
  * each bump re-runs the TopicGraph offline-set effect and renderer restyle.
@@ -523,6 +543,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   exportRequested: 0,
   sparkplugDevices: new Map<string, SparkplugDeviceState>(),
   sparkplugVersion: 0,
+  nodeCapReached: false,
   selectedNodeId: null,
   highlightedNodes: new Map<string, string>(),
   burstWindowActive: false,
@@ -543,7 +564,20 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     }
 
     const root = state.root;
+
+    // Topic node cap: when the tree is full, drop messages for topics that
+    // would create new nodes. Existing topics keep updating normally, and
+    // pruning frees capacity again. The banner flag is recomputed on flush.
+    if (_treeNodeCount >= TOPIC_NODE_CAP) {
+      const segments = topic === "" ? [] : topic.split("/");
+      if (!findNode(root, segments)) {
+        if (imageBlobUrl) URL.revokeObjectURL(imageBlobUrl);
+        return;
+      }
+    }
+
     const { node, newNodes } = ensureTopicPathTracked(root, topic);
+    _treeNodeCount += newNodes;
 
     node.messageCount += 1;
     node.lastTimestamp = Date.now();
@@ -785,6 +819,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
             }
             _payloadLru.delete(child.id);
             node.children.delete(segment);
+            _treeNodeCount -= 1;
           }
         }
         // Never prune the root or the currently selected node
@@ -863,6 +898,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       sparkplugVersion: sparkplugWasDirty
         ? state.sparkplugVersion + 1
         : state.sparkplugVersion,
+      nodeCapReached: _treeNodeCount >= TOPIC_NODE_CAP,
     });
   },
 
@@ -931,6 +967,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           sparkplugVersion: sparkplugWasDirty
             ? s.sparkplugVersion + 1
             : s.sparkplugVersion,
+          nodeCapReached: _treeNodeCount >= TOPIC_NODE_CAP,
         });
 
         if (wasStructural) {
@@ -974,6 +1011,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _sparkplugDirty = false;
     _lastSparkplugVersionBump = 0;
     _sparkplugCapWarned = false;
+    _treeNodeCount = 0;
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
     const savedForReset = loadSavedSettings();
@@ -987,6 +1025,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       errorMessage: null,
       graphStructureVersion: 0,
       sparkplugVersion: 0,
+      nodeCapReached: false,
       nodeScale: savedForReset.nodeScale ?? cfg.nodeScale ?? 1.0,
       scaleNodeSizeByDepth: savedForReset.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
       selectedNodeId: null,
