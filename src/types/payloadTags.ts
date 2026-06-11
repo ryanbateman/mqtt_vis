@@ -1,5 +1,7 @@
+import type { SparkplugMetadata } from "./sparkplug";
+
 /** Supported payload tag types. Extensible as new detectors are added. */
-export type PayloadTagType = "geo" | "image";
+export type PayloadTagType = "geo" | "image" | "sparkplug";
 
 /** Detected geo coordinates extracted from a JSON payload. */
 export interface GeoMetadata {
@@ -27,6 +29,7 @@ export interface ImageMetadata {
 export interface TagMetadataMap {
   geo: GeoMetadata;
   image: ImageMetadata;
+  sparkplug: SparkplugMetadata;
 }
 
 /** A single detection result from a payload analyzer detector. */
