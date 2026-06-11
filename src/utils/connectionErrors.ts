@@ -56,6 +56,18 @@ export function diagnoseConnectionError(
     return "Hostname not found — check the broker URL for typos.";
   }
 
+  // CONNACK timeout: the WebSocket never carried a broker reply. In browsers
+  // this usually means the WebSocket upgrade itself is failing (the browser
+  // reports no detail to JS), not that the broker is slow.
+  if (msg.includes("connack") && msg.includes("timeout")) {
+    return (
+      "The broker never answered the MQTT handshake (CONNACK timeout). " +
+      "Common causes: a proxy, VPN, firewall, or browser extension blocking " +
+      "WebSocket connections on this port, or the URL pointing at a " +
+      "non-WebSocket listener — verify the port and path (some brokers need /mqtt)."
+    );
+  }
+
   // Network timeout: host is reachable but not responding.
   if (code === "ETIMEDOUT" || code === "ECONNABORTED" || msg.includes("timeout") || msg.includes("etimedout")) {
     return (

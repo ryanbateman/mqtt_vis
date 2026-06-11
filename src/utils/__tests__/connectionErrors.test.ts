@@ -95,6 +95,18 @@ describe("diagnoseConnectionError — timeout", () => {
   });
 });
 
+describe("diagnoseConnectionError — CONNACK timeout", () => {
+  it("maps 'connack timeout' to the handshake-specific message", () => {
+    const result = diagnose({ rawMessage: "connack timeout" });
+    expect(result).toMatch(/connack timeout/i);
+    expect(result).toMatch(/proxy|firewall/i);
+  });
+
+  it("does not treat CONNACK rc5 as a handshake timeout", () => {
+    expect(diagnose({ rawMessage: "CONNACK code 5" })).toMatch(/authentication rejected/i);
+  });
+});
+
 describe("diagnoseConnectionError — TLS", () => {
   it("detects CERT_HAS_EXPIRED", () => {
     expect(diagnose({ errorCode: "CERT_HAS_EXPIRED" })).toMatch(/tls/i);

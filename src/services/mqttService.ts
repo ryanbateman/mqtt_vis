@@ -78,6 +78,17 @@ export class MqttService {
     this._log.push({ timestamp: Date.now(), message });
   }
 
+  /**
+   * Detach a client and stop it. mqtt.js timers (e.g. the connack timeout)
+   * can still fire after end(), emitting "error" — with no listener attached
+   * that becomes an uncaught exception, so keep a swallow-all handler on.
+   */
+  private teardownClient(client: MqttClient): void {
+    client.removeAllListeners();
+    client.on("error", () => {});
+    client.end(true);
+  }
+
   /** Connect to an MQTT broker and subscribe to the given topic filter. */
   connect(params: ConnectionParams): void {
     this.disconnect();
@@ -145,8 +156,7 @@ export class MqttService {
         this.log(`Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached — giving up`);
         // Remove listeners before end() to prevent the "close" event from
         // re-emitting "disconnected" after we've already emitted "error".
-        this.client?.removeAllListeners();
-        this.client?.end(true);
+        if (this.client) this.teardownClient(this.client);
         this.client = null;
         this.onStatus?.("error", {
           message: `Could not connect after ${MAX_RECONNECT_ATTEMPTS} attempts. Check the broker URL and try again.`,
@@ -166,8 +176,7 @@ export class MqttService {
   /** Disconnect from the broker and clean up. Clears the log. */
   disconnect(): void {
     if (this.client) {
-      this.client.removeAllListeners();
-      this.client.end(true);
+      this.teardownClient(this.client);
       this.client = null;
     }
     this._reconnectAttempts = 0;
