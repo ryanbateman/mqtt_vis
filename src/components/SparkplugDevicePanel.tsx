@@ -24,7 +24,10 @@ const NON_SPARKABLE = new Set([
 
 /**
  * Inline sparkline for one metric's recent samples. Numeric metrics render
- * a min/max-normalised polyline; booleans render a step line (on/off).
+ * a min/max-normalised polyline. Booleans render as a digital-trace band
+ * strip — one filled rectangle per run of equal value (emerald = true,
+ * dim = false) — which stays legible at any toggle density, unlike an
+ * outline square wave that degrades into a hairline comb.
  * History records only while the panel is open, so this starts empty and
  * fills as DATA arrives. Needs two samples to draw anything.
  */
@@ -36,6 +39,46 @@ function Sparkline({ samples, isBoolean }: { samples: readonly MetricSample[]; i
   const t0 = samples[0].t;
   const t1 = samples[samples.length - 1].t;
   const tSpan = Math.max(t1 - t0, 1);
+  const x = (t: number) => SPARK_PAD + ((t - t0) / tSpan) * (SPARK_W - 2 * SPARK_PAD);
+
+  if (isBoolean) {
+    // Build runs of consecutive equal values; each value holds until the
+    // next sample (report-by-exception semantics), so a run spans from its
+    // first sample to the start of the next run.
+    const bandY = 3;
+    const bandH = SPARK_H - 6;
+    const rects: { x0: number; x1: number; v: number }[] = [];
+    let runStart = samples[0];
+    for (let i = 1; i <= samples.length; i++) {
+      const s = samples[i];
+      if (s === undefined || s.v !== runStart.v) {
+        const end = s ?? samples[samples.length - 1];
+        rects.push({ x0: x(runStart.t), x1: x(end.t), v: runStart.v });
+        if (s) runStart = s;
+      }
+    }
+    return (
+      <svg
+        width={SPARK_W}
+        height={SPARK_H}
+        className="block"
+        aria-label={`History of last ${samples.length} samples`}
+      >
+        {rects.map((r, i) => (
+          <rect
+            key={i}
+            x={r.x0}
+            y={r.v ? bandY : SPARK_H / 2 - 1}
+            width={Math.max(r.x1 - r.x0, 1)}
+            height={r.v ? bandH : 2}
+            fill={r.v ? "#34d399" : "#4b5563"}
+            fillOpacity={r.v ? 0.8 : 0.9}
+          />
+        ))}
+      </svg>
+    );
+  }
+
   let vMin = Infinity;
   let vMax = -Infinity;
   for (const s of samples) {
@@ -43,23 +86,15 @@ function Sparkline({ samples, isBoolean }: { samples: readonly MetricSample[]; i
     if (s.v > vMax) vMax = s.v;
   }
   const vSpan = vMax - vMin;
-  const x = (t: number) => SPARK_PAD + ((t - t0) / tSpan) * (SPARK_W - 2 * SPARK_PAD);
-  // Flat series (or constant boolean) draw as a centred line
+  // Flat series draw as a centred line
   const y = (v: number) =>
     vSpan === 0
       ? SPARK_H / 2
       : SPARK_H - SPARK_PAD - ((v - vMin) / vSpan) * (SPARK_H - 2 * SPARK_PAD);
 
-  // Booleans (and report-by-exception data generally) hold their value until
-  // the next sample — step interpolation renders that honestly.
-  const points: string[] = [];
-  for (let i = 0; i < samples.length; i++) {
-    const s = samples[i];
-    if (isBoolean && i > 0) {
-      points.push(`${x(s.t).toFixed(1)},${y(samples[i - 1].v).toFixed(1)}`);
-    }
-    points.push(`${x(s.t).toFixed(1)},${y(s.v).toFixed(1)}`);
-  }
+  const points = samples
+    .map((s) => `${x(s.t).toFixed(1)},${y(s.v).toFixed(1)}`)
+    .join(" ");
 
   return (
     <svg
@@ -69,7 +104,7 @@ function Sparkline({ samples, isBoolean }: { samples: readonly MetricSample[]; i
       aria-label={`History of last ${samples.length} samples`}
     >
       <polyline
-        points={points.join(" ")}
+        points={points}
         fill="none"
         stroke="#34d399"
         strokeWidth={1}
