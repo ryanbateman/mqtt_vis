@@ -2397,3 +2397,68 @@ describe("topicStore — topic node cap", () => {
     expect(findTopicNode("a/b")).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sparkplug metric history (panel-open sparklines)
+// ---------------------------------------------------------------------------
+
+describe("topicStore — sparkplug metric history", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setTopicFilter("#");
+  });
+
+  function pushMetrics(deviceKey: string, nodeId: string, value: number, ts: number) {
+    state().setPayloadTags(nodeId, [{
+      tag: "sparkplug",
+      confidence: 1,
+      fieldPath: "",
+      metadata: {
+        deviceKey, role: "edge-node", messageType: "NDATA",
+        online: true, metricCount: 1, seq: null, payloadTimestamp: ts,
+        metrics: [{ name: "Temp", alias: 1, datatype: 10, datatypeName: "Double", value, timestamp: null, isNull: false }],
+      },
+    }]);
+  }
+
+  it("records samples only for the watched device while history is started", () => {
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x");
+    handleMessageAndFlush("spBv1.0/g/NDATA/other", "x");
+
+    // Not started — nothing recorded
+    pushMetrics("g/e", "spBv1.0/g/NDATA/e", 20, 1000);
+    expect(state().getSparkplugHistory("Temp")).toBeUndefined();
+
+    state().startSparkplugHistory("g/e");
+    pushMetrics("g/e", "spBv1.0/g/NDATA/e", 21, 2000);
+    pushMetrics("g/e", "spBv1.0/g/NDATA/e", 22, 3000);
+    // A different device's metrics are ignored
+    pushMetrics("g/other", "spBv1.0/g/NDATA/other", 99, 2500);
+
+    expect(state().getSparkplugHistory("Temp")).toEqual([
+      { t: 2000, v: 21 },
+      { t: 3000, v: 22 },
+    ]);
+  });
+
+  it("stop discards samples; restart begins empty", () => {
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x");
+    state().startSparkplugHistory("g/e");
+    pushMetrics("g/e", "spBv1.0/g/NDATA/e", 21, 1000);
+    expect(state().getSparkplugHistory("Temp")).toHaveLength(1);
+
+    state().stopSparkplugHistory();
+    expect(state().getSparkplugHistory("Temp")).toBeUndefined();
+
+    state().startSparkplugHistory("g/e");
+    expect(state().getSparkplugHistory("Temp")).toBeUndefined();
+  });
+
+  it("reset clears history recording", () => {
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x");
+    state().startSparkplugHistory("g/e");
+    pushMetrics("g/e", "spBv1.0/g/NDATA/e", 21, 1000);
+    state().reset();
+    expect(state().getSparkplugHistory("Temp")).toBeUndefined();
+  });
+});

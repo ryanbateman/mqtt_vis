@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { useTopicStore } from "../stores/topicStore";
 import { formatTimestamp } from "../utils/formatters";
+import type { MetricSample } from "../utils/sparkplug/lifecycle";
 import type { SparkplugMetric } from "../types/sparkplug";
 
 /** Render a metric value for the table. */
@@ -11,6 +13,73 @@ function formatMetricValue(metric: SparkplugMetric): string {
   return String(metric.value);
 }
 
+const SPARK_W = 72;
+const SPARK_H = 16;
+const SPARK_PAD = 1.5;
+
+/** Datatypes with no numeric sparkline representation. */
+const NON_SPARKABLE = new Set([
+  "String", "Text", "UUID", "Bytes", "File", "DataSet", "Template", "Unknown",
+]);
+
+/**
+ * Inline sparkline for one metric's recent samples. Numeric metrics render
+ * a min/max-normalised polyline; booleans render a step line (on/off).
+ * History records only while the panel is open, so this starts empty and
+ * fills as DATA arrives. Needs two samples to draw anything.
+ */
+function Sparkline({ samples, isBoolean }: { samples: readonly MetricSample[]; isBoolean: boolean }) {
+  if (samples.length < 2) {
+    return <span className="text-[9px] text-gray-600">…</span>;
+  }
+
+  const t0 = samples[0].t;
+  const t1 = samples[samples.length - 1].t;
+  const tSpan = Math.max(t1 - t0, 1);
+  let vMin = Infinity;
+  let vMax = -Infinity;
+  for (const s of samples) {
+    if (s.v < vMin) vMin = s.v;
+    if (s.v > vMax) vMax = s.v;
+  }
+  const vSpan = vMax - vMin;
+  const x = (t: number) => SPARK_PAD + ((t - t0) / tSpan) * (SPARK_W - 2 * SPARK_PAD);
+  // Flat series (or constant boolean) draw as a centred line
+  const y = (v: number) =>
+    vSpan === 0
+      ? SPARK_H / 2
+      : SPARK_H - SPARK_PAD - ((v - vMin) / vSpan) * (SPARK_H - 2 * SPARK_PAD);
+
+  // Booleans (and report-by-exception data generally) hold their value until
+  // the next sample — step interpolation renders that honestly.
+  const points: string[] = [];
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
+    if (isBoolean && i > 0) {
+      points.push(`${x(s.t).toFixed(1)},${y(samples[i - 1].v).toFixed(1)}`);
+    }
+    points.push(`${x(s.t).toFixed(1)},${y(s.v).toFixed(1)}`);
+  }
+
+  return (
+    <svg
+      width={SPARK_W}
+      height={SPARK_H}
+      className="block"
+      aria-label={`History of last ${samples.length} samples`}
+    >
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke="#34d399"
+        strokeWidth={1}
+        strokeOpacity={0.9}
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /**
  * Insights Drawer content for a Sparkplug B edge node or device: lifecycle
  * status plus a live metric table. Subscribes to sparkplugVersion, so it
@@ -19,6 +88,16 @@ function formatMetricValue(metric: SparkplugMetric): string {
 export function SparkplugDevicePanel({ deviceKey }: { deviceKey: string }) {
   // Version subscription drives re-renders; the Map itself is mutated in place.
   useTopicStore((s) => s.sparkplugVersion);
+  const startSparkplugHistory = useTopicStore((s) => s.startSparkplugHistory);
+  const stopSparkplugHistory = useTopicStore((s) => s.stopSparkplugHistory);
+  const getSparkplugHistory = useTopicStore((s) => s.getSparkplugHistory);
+
+  // Record metric history only while this panel is open (starts empty).
+  useEffect(() => {
+    startSparkplugHistory(deviceKey);
+    return () => stopSparkplugHistory();
+  }, [deviceKey, startSparkplugHistory, stopSparkplugHistory]);
+
   const devices = useTopicStore.getState().sparkplugDevices;
   const device = devices.get(deviceKey);
   // seq is tracked per edge node (shared counter across its messages)
@@ -79,6 +158,7 @@ export function SparkplugDevicePanel({ deviceKey }: { deviceKey: string }) {
               <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500">
                 <th className="px-3 py-1.5 font-medium">Metric</th>
                 <th className="px-2 py-1.5 font-medium">Type</th>
+                <th className="px-2 py-1.5 font-medium" aria-label="History sparkline" />
                 <th className="px-3 py-1.5 font-medium text-right">Value</th>
               </tr>
             </thead>
@@ -87,6 +167,14 @@ export function SparkplugDevicePanel({ deviceKey }: { deviceKey: string }) {
                 <tr key={m.name} className="border-t border-gray-800/60">
                   <td className="px-3 py-1 font-mono text-gray-300 break-all">{m.name}</td>
                   <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{m.datatypeName}</td>
+                  <td className="px-2 py-1 align-middle">
+                    {!NON_SPARKABLE.has(m.datatypeName) && (
+                      <Sparkline
+                        samples={getSparkplugHistory(m.name ?? "") ?? []}
+                        isBoolean={m.datatypeName === "Boolean"}
+                      />
+                    )}
+                  </td>
                   <td
                     className="px-3 py-1 font-mono text-gray-100 text-right break-all"
                     title={m.timestamp !== null ? formatTimestamp(m.timestamp) : undefined}

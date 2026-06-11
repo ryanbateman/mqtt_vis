@@ -6,6 +6,8 @@ import {
   cascadeEdgeDeath,
   SPARKPLUG_METRICS_CAP,
   SPARKPLUG_TOPIC_NODE_IDS_CAP,
+  SPARKPLUG_HISTORY_CAP,
+  appendMetricHistory,
 } from "../lifecycle";
 import { recordAliases, resolveAliases, type AliasMap } from "../aliases";
 import { parseSparkplugTopic } from "../topic";
@@ -267,5 +269,58 @@ describe("alias map", () => {
     const m: SparkplugMetric[] = [metric("Explicit", 5, 1)];
     resolveAliases(map, m);
     expect(m[0].name).toBe("Explicit");
+  });
+});
+
+describe("appendMetricHistory", () => {
+  function decoded(metrics: Partial<SparkplugMetric>[], timestamp: number | null = null) {
+    return {
+      timestamp,
+      seq: null,
+      metrics: metrics.map((m) => ({
+        name: null, alias: null, datatype: 10, datatypeName: "Double",
+        value: null, timestamp: null, isNull: false, ...m,
+      })),
+    };
+  }
+
+  it("appends numeric samples with metric timestamp preferred", () => {
+    const history = new Map();
+    appendMetricHistory(history, decoded([{ name: "Temp", value: 21.5, timestamp: 111 }], 222), 333);
+    appendMetricHistory(history, decoded([{ name: "Temp", value: 22.0 }], 222), 333);
+    appendMetricHistory(history, decoded([{ name: "Temp", value: 22.5 }]), 333);
+    expect(history.get("Temp")).toEqual([
+      { t: 111, v: 21.5 }, // metric timestamp
+      { t: 222, v: 22.0 }, // payload timestamp fallback
+      { t: 333, v: 22.5 }, // now fallback
+    ]);
+  });
+
+  it("stores booleans as 0/1", () => {
+    const history = new Map();
+    appendMetricHistory(history, decoded([{ name: "On", value: true }]), 1);
+    appendMetricHistory(history, decoded([{ name: "On", value: false }]), 2);
+    expect(history.get("On")).toEqual([{ t: 1, v: 1 }, { t: 2, v: 0 }]);
+  });
+
+  it("skips strings, nulls, and unnamed metrics", () => {
+    const history = new Map();
+    appendMetricHistory(history, decoded([
+      { name: "Mode", value: "AUTO" },
+      { name: "Null", value: null },
+      { name: null, value: 5 },
+    ]), 1);
+    expect(history.size).toBe(0);
+  });
+
+  it("caps each metric's buffer at SPARKPLUG_HISTORY_CAP (oldest dropped)", () => {
+    const history = new Map();
+    for (let i = 0; i < SPARKPLUG_HISTORY_CAP + 10; i++) {
+      appendMetricHistory(history, decoded([{ name: "T", value: i }]), i);
+    }
+    const samples = history.get("T")!;
+    expect(samples.length).toBe(SPARKPLUG_HISTORY_CAP);
+    expect(samples[0].v).toBe(10); // oldest 10 dropped
+    expect(samples[samples.length - 1].v).toBe(SPARKPLUG_HISTORY_CAP + 9);
   });
 });

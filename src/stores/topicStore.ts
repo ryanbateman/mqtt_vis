@@ -21,7 +21,9 @@ import {
   applySparkplugLifecycle,
   applySparkplugMetrics,
   applySparkplugSeq,
+  appendMetricHistory,
   cascadeEdgeDeath,
+  type MetricSample,
 } from "../utils/sparkplug/lifecycle";
 import { payloadAnalyzer } from "../services/payloadAnalyzerService";
 import {
@@ -171,6 +173,12 @@ interface TopicStoreState {
    * immediately discard.
    */
   wouldDropRetained: () => boolean;
+  /** Begin recording metric history for one device (panel opened). Clears prior history. */
+  startSparkplugHistory: (deviceKey: string) => void;
+  /** Stop recording metric history and discard samples (panel closed). */
+  stopSparkplugHistory: () => void;
+  /** Samples for one metric of the currently watched device (oldest first). */
+  getSparkplugHistory: (metricName: string) => readonly MetricSample[] | undefined;
   /** Update connection status. */
   setConnectionStatus: (status: ConnectionStatus, error?: string) => void;
   /** Run one decay tick — called periodically. */
@@ -393,6 +401,15 @@ let _sparkplugCapWarned = false;
  * the version 60x/s.
  */
 const SPARKPLUG_HEARTBEAT_MS = 1000;
+
+/**
+ * Metric history for sparklines — recorded ONLY while a device panel is open
+ * (zero ambient cost; the sparkline starts empty on open). One device at a
+ * time; module-level because samples arrive between version bumps and the
+ * panel reads them on its batched re-renders.
+ */
+let _sparkplugHistoryDevice: string | null = null;
+const _sparkplugHistory = new Map<string, MetricSample[]>();
 
 /**
  * Apply a Sparkplug message's lifecycle effect: update the device state
@@ -715,6 +732,20 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     );
   },
 
+  startSparkplugHistory: (deviceKey: string) => {
+    _sparkplugHistoryDevice = deviceKey;
+    _sparkplugHistory.clear();
+  },
+
+  stopSparkplugHistory: () => {
+    _sparkplugHistoryDevice = null;
+    _sparkplugHistory.clear();
+  },
+
+  getSparkplugHistory: (metricName: string) => {
+    return _sparkplugHistory.get(metricName);
+  },
+
   setConnectionStatus: (status: ConnectionStatus, error?: string) => {
     // Start burst throttle window on successful connection.
     // The first ~10 s of retained messages will have structural rebuilds
@@ -1012,6 +1043,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _lastSparkplugVersionBump = 0;
     _sparkplugCapWarned = false;
     _treeNodeCount = 0;
+    _sparkplugHistoryDevice = null;
+    _sparkplugHistory.clear();
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
     const savedForReset = loadSavedSettings();
@@ -1219,11 +1252,16 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         const devices = get().sparkplugDevices;
         const device = devices.get(meta.deviceKey);
         if (device && meta.metrics) {
-          applySparkplugMetrics(device, {
+          const decoded = {
             timestamp: meta.payloadTimestamp ?? null,
             seq: meta.seq ?? null,
             metrics: meta.metrics,
-          });
+          };
+          applySparkplugMetrics(device, decoded);
+          // Sparkline history — recorded only for the device whose panel is open
+          if (meta.deviceKey === _sparkplugHistoryDevice) {
+            appendMetricHistory(_sparkplugHistory, decoded, Date.now());
+          }
           // seq is a per-EDGE counter shared across node and device messages,
           // so it tracks on the edge entry (fall back to the device entry
           // when no edge-level message has been seen yet).

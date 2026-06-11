@@ -30,7 +30,12 @@ interface PendingAnalysis {
  * Service that manages the payload analyzer Web Worker lifecycle.
  *
  * - Lazily creates the worker on first `analyze()` call.
- * - Debounces analysis requests per node ID (500ms), unless `immediate`.
+ * - Throttles analysis per node ID (max one post per THROTTLE_MS, leading +
+ *   trailing edge), unless `immediate`. NOTE: this is a throttle, not a
+ *   restarting debounce — a topic publishing faster than the window still
+ *   produces a steady stream of analyses (latest payload wins). The old
+ *   restarting debounce starved fast publishers entirely, which froze
+ *   "latest value" displays and would have made metric history impossible.
  * - Skips re-analysis when a node's payload is unchanged since the last
  *   submission (length + FNV-1a fingerprint).
  * - Routes worker results back to a registered callback (typically the store).
@@ -41,11 +46,17 @@ class PayloadAnalyzerService {
   private callback: ResultCallback | null = null;
 
   /**
-   * Map of nodeId -> pending debounced submission. Prevents flooding the
-   * worker when the same node receives many messages in quick succession;
-   * the latest payload always wins.
+   * Map of nodeId -> pending trailing-edge submission. While a node is inside
+   * its throttle window, new payloads REPLACE the pending one (latest wins)
+   * without extending the timer.
    */
   private pending = new Map<string, PendingAnalysis>();
+
+  /**
+   * Map of nodeId -> wall-clock ms of the last post to the worker.
+   * Capped alongside lastFingerprint to bound memory on huge topic trees.
+   */
+  private lastPostTime = new Map<string, number>();
 
   /**
    * Map of nodeId -> fingerprint of the last payload actually posted.
@@ -54,8 +65,8 @@ class PayloadAnalyzerService {
    */
   private lastFingerprint = new Map<string, number>();
 
-  /** Debounce window in milliseconds. */
-  private readonly DEBOUNCE_MS = 500;
+  /** Throttle window in milliseconds (max one post per node per window). */
+  private readonly THROTTLE_MS = 500;
 
   /** Maximum fingerprint entries before the map is cleared wholesale. */
   private readonly FINGERPRINT_CAP = 2000;
@@ -66,28 +77,47 @@ class PayloadAnalyzerService {
   }
 
   /**
-   * Submit a payload for analysis. Debounced per nodeId — if the same node
-   * is submitted again within DEBOUNCE_MS, the earlier request is cancelled
-   * and replaced. `opts.immediate` bypasses the debounce (and flushes any
-   * pending submission for the node, which the immediate payload supersedes).
+   * Submit a payload for analysis. Throttled per nodeId: the first payload
+   * in a window posts immediately (leading edge); payloads arriving inside
+   * the window replace the pending trailing-edge submission (latest wins)
+   * WITHOUT extending the timer, so fast publishers post at a steady
+   * 1/THROTTLE_MS rate instead of starving. `opts.immediate` bypasses the
+   * throttle (and supersedes any pending submission for the node).
    */
   analyze(nodeId: string, topic: string, payload: string, opts?: AnalyzeOptions): void {
-    // Clear any pending debounce for this node
-    const existing = this.pending.get(nodeId);
-    if (existing !== undefined) {
-      clearTimeout(existing.timer);
-      this.pending.delete(nodeId);
-    }
-
     if (opts?.immediate) {
-      this.postToWorker(nodeId, topic, payload, opts.rawBytes);
+      const existing = this.pending.get(nodeId);
+      if (existing !== undefined) {
+        clearTimeout(existing.timer);
+        this.pending.delete(nodeId);
+      }
+      this.post(nodeId, topic, payload, opts.rawBytes);
       return;
     }
 
+    // Inside the window with a trailing post already scheduled — replace its
+    // payload (latest wins) and let the existing timer deliver it.
+    const existing = this.pending.get(nodeId);
+    if (existing !== undefined) {
+      existing.topic = topic;
+      existing.payload = payload;
+      existing.rawBytes = opts?.rawBytes;
+      return;
+    }
+
+    const elapsed = Date.now() - (this.lastPostTime.get(nodeId) ?? 0);
+    if (elapsed >= this.THROTTLE_MS) {
+      // Leading edge — post immediately
+      this.post(nodeId, topic, payload, opts?.rawBytes);
+      return;
+    }
+
+    // Schedule the trailing edge for the remainder of the window
     const timer = setTimeout(() => {
+      const p = this.pending.get(nodeId);
       this.pending.delete(nodeId);
-      this.postToWorker(nodeId, topic, payload, opts?.rawBytes);
-    }, this.DEBOUNCE_MS);
+      if (p) this.post(nodeId, p.topic, p.payload, p.rawBytes);
+    }, this.THROTTLE_MS - elapsed);
 
     this.pending.set(nodeId, { timer, topic, payload, rawBytes: opts?.rawBytes });
   }
@@ -99,6 +129,7 @@ class PayloadAnalyzerService {
     }
     this.pending.clear();
     this.lastFingerprint.clear();
+    this.lastPostTime.clear();
     this.worker?.postMessage({ type: "reset" });
   }
 
@@ -113,7 +144,17 @@ class PayloadAnalyzerService {
     }
     this.pending.clear();
     this.lastFingerprint.clear();
+    this.lastPostTime.clear();
     this.callback = null;
+  }
+
+  /** Record the post time for throttle accounting, then post to the worker. */
+  private post(nodeId: string, topic: string, payload: string, rawBytes?: ArrayBuffer): void {
+    if (this.lastPostTime.size >= this.FINGERPRINT_CAP) {
+      this.lastPostTime.clear();
+    }
+    this.lastPostTime.set(nodeId, Date.now());
+    this.postToWorker(nodeId, topic, payload, rawBytes);
   }
 
   // --- Private ---

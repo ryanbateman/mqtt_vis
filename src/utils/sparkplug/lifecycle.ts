@@ -137,6 +137,50 @@ export function applySparkplugMetrics(
   }
 }
 
+/** Maximum samples retained per metric in the panel-open history buffer. */
+export const SPARKPLUG_HISTORY_CAP = 60;
+
+/** One sparkline sample: timestamp (ms) and numeric value (booleans as 0/1). */
+export interface MetricSample {
+  t: number;
+  v: number;
+}
+
+/**
+ * Append numeric/boolean metric values to a history map (metric name →
+ * sample ring buffer, oldest first, capped at SPARKPLUG_HISTORY_CAP).
+ * Strings, nulls, and unnamed metrics are skipped. Sample timestamps prefer
+ * the metric's own timestamp, then the payload timestamp, then `now`.
+ * Used only while a device panel is open — see topicStore's history hooks.
+ */
+export function appendMetricHistory(
+  history: Map<string, MetricSample[]>,
+  decoded: SparkplugDecodedPayload,
+  now: number,
+): void {
+  for (const metric of decoded.metrics) {
+    if (metric.name === null) continue;
+    let v: number;
+    if (typeof metric.value === "number") {
+      v = metric.value;
+    } else if (typeof metric.value === "boolean") {
+      v = metric.value ? 1 : 0;
+    } else {
+      continue; // strings/nulls/bytes have no sparkline representation
+    }
+    const t = metric.timestamp ?? decoded.timestamp ?? now;
+    let samples = history.get(metric.name);
+    if (!samples) {
+      samples = [];
+      history.set(metric.name, samples);
+    }
+    samples.push({ t, v });
+    if (samples.length > SPARKPLUG_HISTORY_CAP) {
+      samples.splice(0, samples.length - SPARKPLUG_HISTORY_CAP);
+    }
+  }
+}
+
 /**
  * Track a payload seq number (in place). Per the Sparkplug spec, seq is a
  * single 0-255 wraparound counter PER EDGE NODE shared across all its node
