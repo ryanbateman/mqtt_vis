@@ -36,9 +36,14 @@ import { recordAliases, resolveAliases, type AliasMap } from "../utils/sparkplug
 /**
  * Per-edge-node alias maps for Sparkplug DATA decoding ("group/edge" keyed).
  * BIRTH messages define alias→name; DATA messages may carry aliases only.
- * Cleared by the "reset" message on disconnect/store reset.
+ * Cleared by the "reset" message on disconnect/store reset, and wholesale
+ * when the edge cap is hit (same pattern as the service's fingerprint map) —
+ * affected metrics fall back to "alias:N" labels until the next BIRTH.
  */
 const sparkplugAliasMaps = new Map<string, AliasMap>();
+
+/** Maximum edge nodes with tracked alias maps before a wholesale clear. */
+const SPARKPLUG_ALIAS_EDGE_CAP = 500;
 
 /**
  * Sparkplug B detector — matches on topic shape, decodes the protobuf
@@ -67,6 +72,9 @@ function detectSparkplug(
     const edgeKey = `${info.groupId}/${info.edgeNodeId}`;
     let aliasMap = sparkplugAliasMaps.get(edgeKey);
     if (!aliasMap) {
+      if (sparkplugAliasMaps.size >= SPARKPLUG_ALIAS_EDGE_CAP) {
+        sparkplugAliasMaps.clear();
+      }
       aliasMap = new Map();
       sparkplugAliasMaps.set(edgeKey, aliasMap);
     }

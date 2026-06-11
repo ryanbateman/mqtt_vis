@@ -34,6 +34,7 @@ function parseArgs(argv: string[]): {
   appUrl: string;
   output: string | null;
   headed: boolean;
+  noDropRetained: boolean;
   help: boolean;
 } {
   const args = argv.slice(2); // drop "node" and script path
@@ -44,6 +45,7 @@ function parseArgs(argv: string[]): {
     appUrl: "http://localhost:5173",
     output: null as string | null,
     headed: false,
+    noDropRetained: false,
     help: false,
   };
 
@@ -55,6 +57,7 @@ function parseArgs(argv: string[]): {
       case "--url":      result.appUrl  = args[++i] ?? result.appUrl; break;
       case "--output":   result.output  = args[++i] ?? null; break;
       case "--headed":   result.headed  = true; break;
+      case "--no-drop-retained": result.noDropRetained = true; break;
       case "--help":     result.help    = true; break;
     }
   }
@@ -168,7 +171,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { broker, topic, duration, appUrl, output, headed } = args;
+  const { broker, topic, duration, appUrl, output, headed, noDropRetained } = args;
 
   console.error(`[perf] Connecting to app at ${appUrl}`);
   console.error(`[perf] Broker: ${broker}`);
@@ -183,6 +186,17 @@ async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: !headed });
   const context = await browser.newContext();
   const page = await context.newPage();
+
+  // Pre-seed mqtt_settings before the app loads so worst-case profiling can
+  // disable the retained-burst drop (the burst is then fully processed).
+  if (noDropRetained) {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        "mqtt_settings",
+        JSON.stringify({ _version: 1, dropRetainedBurst: false }),
+      );
+    });
+  }
 
   // Intercept console messages from the app
   page.on("console", (msg) => {

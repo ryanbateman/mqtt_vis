@@ -5,6 +5,7 @@ import {
   applySparkplugSeq,
   cascadeEdgeDeath,
   SPARKPLUG_METRICS_CAP,
+  SPARKPLUG_TOPIC_NODE_IDS_CAP,
 } from "../lifecycle";
 import { recordAliases, resolveAliases, type AliasMap } from "../aliases";
 import { parseSparkplugTopic } from "../topic";
@@ -12,7 +13,8 @@ import type { SparkplugDeviceState, SparkplugMetric } from "../../../types/spark
 
 const NOW = 1_750_000_000_000;
 
-function apply(
+/** Apply a message and return the full {state, changed} result (or null). */
+function applyFull(
   prev: SparkplugDeviceState | undefined,
   topic: string,
   nodeId = topic,
@@ -21,6 +23,16 @@ function apply(
   const info = parseSparkplugTopic(topic);
   expect(info).not.toBeNull();
   return applySparkplugLifecycle(prev, info!, nodeId, now);
+}
+
+/** Apply a message and return just the device state (or null). */
+function apply(
+  prev: SparkplugDeviceState | undefined,
+  topic: string,
+  nodeId = topic,
+  now = NOW,
+) {
+  return applyFull(prev, topic, nodeId, now)?.state ?? null;
 }
 
 function metric(name: string, value: number, alias?: number): SparkplugMetric {
@@ -100,6 +112,40 @@ describe("applySparkplugLifecycle", () => {
       "spBv1.0/g/NDATA/e",
       "spBv1.0/g/NDEATH/e",
     ]);
+  });
+
+  it("reports changed on create, online flip, and new topic node", () => {
+    // create
+    const first = applyFull(undefined, "spBv1.0/g/NBIRTH/e")!;
+    expect(first.changed).toBe(true);
+
+    // repeat NDATA on a known node, already online — NOT changed
+    let r = applyFull(first.state, "spBv1.0/g/NDATA/e")!;
+    expect(r.changed).toBe(true); // first NDATA arrives on a NEW topic node
+    r = applyFull(r.state, "spBv1.0/g/NDATA/e")!;
+    expect(r.changed).toBe(false); // same node, still online — steady state
+    expect(r.state.lastDataTimestamp).toBe(NOW); // timestamps still update
+
+    // online flip via DEATH — changed
+    r = applyFull(r.state, "spBv1.0/g/NDEATH/e")!;
+    expect(r.changed).toBe(true);
+
+    // CMD on a known node while offline — not changed
+    r = applyFull(r.state, "spBv1.0/g/NDEATH/e")!;
+    expect(r.changed).toBe(false); // repeat DEATH, already offline, known node
+
+    // revival via DATA — changed (online flips)
+    r = applyFull(r.state, "spBv1.0/g/NDATA/e")!;
+    expect(r.changed).toBe(true);
+  });
+
+  it("caps topicNodeIds and stops reporting changed beyond the cap", () => {
+    let r = applyFull(undefined, "spBv1.0/g/NBIRTH/e", "node-0")!;
+    for (let i = 1; i < SPARKPLUG_TOPIC_NODE_IDS_CAP + 10; i++) {
+      r = applyFull(r.state, "spBv1.0/g/NDATA/e", `node-${i}`)!;
+    }
+    expect(r.state.topicNodeIds.size).toBe(SPARKPLUG_TOPIC_NODE_IDS_CAP);
+    expect(r.changed).toBe(false); // over-cap node additions are not changes
   });
 
   it("a new BIRTH resets seq tracking", () => {

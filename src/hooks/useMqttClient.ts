@@ -19,6 +19,13 @@ export function useMqttClient() {
   // Set up message and status handlers
   useEffect(() => {
     mqttService.setMessageHandler((topic, payload, qos, retain, userProperties) => {
+      // Messages the store will immediately discard (retained burst drop)
+      // skip ALL per-message work: blob creation, sparkplug byte copies,
+      // and the UTF-8 decode. The store keeps its own drop branch too.
+      if (retain && useTopicStore.getState().wouldDropRetained()) {
+        return;
+      }
+
       // Detect image payloads from raw binary before UTF-8 decoding mangles them.
       // Buffer extends Uint8Array so we can check magic bytes directly.
       let imageBlobUrl: string | undefined;

@@ -2202,3 +2202,132 @@ describe("topicStore — sparkplug lifecycle", () => {
     expect(state().sparkplugVersion).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sparkplug version batching (performance)
+// ---------------------------------------------------------------------------
+
+describe("topicStore — sparkplug version batching", () => {
+  beforeEach(() => {
+    state().reset();
+    state().setTopicFilter("#");
+  });
+
+  it("does not bump sparkplugVersion until the batched flush", () => {
+    const before = state().sparkplugVersion;
+    state().handleMessage("spBv1.0/g/NBIRTH/e1", "x", 0);
+    state().handleMessage("spBv1.0/g/NBIRTH/e2", "x", 0);
+    state().handleMessage("spBv1.0/g/NBIRTH/e3", "x", 0);
+    // No flush yet — version unchanged despite three material messages
+    expect(state().sparkplugVersion).toBe(before);
+    state().rebuildGraph();
+    // One batched bump for the whole batch
+    expect(state().sparkplugVersion).toBe(before + 1);
+  });
+
+  it("steady-state NDATA does not bump the version (heartbeat not elapsed)", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/e", "x");
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x"); // new topic node — material
+    const after = state().sparkplugVersion;
+
+    // Same node, already online, heartbeat window not elapsed
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x");
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x");
+    expect(state().sparkplugVersion).toBe(after);
+    // The device state itself still updates (timestamps stay correct)
+    expect(state().sparkplugDevices.get("g/e")!.lastDataTimestamp).not.toBeNull();
+  });
+
+  it("NDEATH then NDATA revival bumps (online flip is material)", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/e", "x");
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x");
+    const v1 = state().sparkplugVersion;
+
+    handleMessageAndFlush("spBv1.0/g/NDEATH/e", "x"); // offline flip
+    const v2 = state().sparkplugVersion;
+    expect(v2).toBeGreaterThan(v1);
+
+    handleMessageAndFlush("spBv1.0/g/NDATA/e", "x"); // revival flip
+    expect(state().sparkplugVersion).toBeGreaterThan(v2);
+  });
+
+  it("setPayloadTags with metrics bumps only after flush", () => {
+    handleMessageAndFlush("spBv1.0/g/NBIRTH/e", "x");
+    const before = state().sparkplugVersion;
+
+    state().setPayloadTags("spBv1.0/g/NBIRTH/e", [{
+      tag: "sparkplug",
+      confidence: 1,
+      fieldPath: "",
+      metadata: {
+        deviceKey: "g/e", role: "edge-node", messageType: "NBIRTH",
+        online: true, metricCount: 1, seq: 0, payloadTimestamp: 1,
+        metrics: [{ name: "T", alias: 1, datatype: 10, datatypeName: "Double", value: 1, timestamp: null, isNull: false }],
+      },
+    }]);
+    expect(state().sparkplugVersion).toBe(before); // not yet flushed
+    state().rebuildGraph();
+    expect(state().sparkplugVersion).toBe(before + 1);
+    expect(state().sparkplugDevices.get("g/e")!.metrics.get("T")?.value).toBe(1);
+  });
+
+  it("caps tracked devices at 1000 with a single warning", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (let i = 0; i < 1005; i++) {
+        state().handleMessage(`spBv1.0/g/NDATA/edge${i}`, "x", 0);
+      }
+      state().rebuildGraph();
+      expect(state().sparkplugDevices.size).toBe(1000);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("reset clears the pending dirty flag", () => {
+    state().handleMessage("spBv1.0/g/NBIRTH/e", "x", 0); // dirties, no flush
+    state().reset();
+    state().rebuildGraph();
+    expect(state().sparkplugVersion).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// wouldDropRetained predicate
+// ---------------------------------------------------------------------------
+
+describe("topicStore — wouldDropRetained", () => {
+  beforeEach(() => {
+    state().reset();
+  });
+
+  it("is true inside the burst window when drop is enabled", () => {
+    state().setDropRetainedBurst(true);
+    state().setConnectionStatus("connected"); // starts the burst window
+    expect(state().wouldDropRetained()).toBe(true);
+  });
+
+  it("is false when drop is disabled", () => {
+    state().setDropRetainedBurst(false);
+    state().setConnectionStatus("connected");
+    expect(state().wouldDropRetained()).toBe(false);
+  });
+
+  it("is false before any connection (no burst window)", () => {
+    state().setDropRetainedBurst(true);
+    expect(state().wouldDropRetained()).toBe(false);
+  });
+
+  it("is false after the burst window expires", () => {
+    vi.useFakeTimers();
+    try {
+      state().setDropRetainedBurst(true);
+      state().setConnectionStatus("connected");
+      vi.advanceTimersByTime(state().burstWindowDuration + 1000);
+      expect(state().wouldDropRetained()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -996,10 +996,32 @@ export class GraphRenderer {
    * Set the node ids whose sparkplug entity is currently offline.
    * Their sparkplug rings render red and dashed instead of the tag colour.
    * Node fill stays untouched — it belongs to the heat-map/pulse pipeline.
+   *
+   * Offline status only affects stroke styling, never ring MEMBERSHIP
+   * (which is a function of payloadTags), so no D3 data join is needed:
+   * unchanged sets return early and changed sets restyle in place.
    */
   setSparkplugOfflineNodes(ids: Set<string>): void {
+    const prev = this.sparkplugOfflineNodes;
+    if (ids.size === prev.size) {
+      let identical = true;
+      for (const id of ids) {
+        if (!prev.has(id)) {
+          identical = false;
+          break;
+        }
+      }
+      if (identical) return;
+    }
+
     this.sparkplugOfflineNodes = ids;
-    this.refreshInsightRings();
+    this.insightRingElements
+      .attr("stroke", (d) =>
+        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "#ef4444" : d.color
+      )
+      .attr("stroke-dasharray", (d) =>
+        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "4 2" : null
+      );
   }
 
   /**

@@ -9,6 +9,25 @@ import { isBirth, isDeath, sparkplugDeviceKey } from "./topic";
 export const SPARKPLUG_METRICS_CAP = 500;
 
 /**
+ * Maximum topic node IDs tracked per device. The family spans one node per
+ * message-type branch (8 types), so 50 is generous headroom; the cap bounds
+ * memory against pathological topic churn.
+ */
+export const SPARKPLUG_TOPIC_NODE_IDS_CAP = 50;
+
+/** Result of applying one message's lifecycle effect. */
+export interface SparkplugLifecycleResult {
+  state: SparkplugDeviceState;
+  /**
+   * True when something RENDER-RELEVANT changed: the device was created,
+   * its online state flipped, or a new topic node joined its family.
+   * Steady-state DATA on a known-online device reports false — callers use
+   * this to skip version bumps (and the renderer work they trigger).
+   */
+  changed: boolean;
+}
+
+/**
  * Apply a Sparkplug message's lifecycle effect to a device state.
  * Creates the state when `prev` is undefined; otherwise updates it in place
  * and returns it (matching the store's mutate-then-bump-version pattern).
@@ -29,10 +48,11 @@ export function applySparkplugLifecycle(
   info: SparkplugTopicInfo,
   nodeId: string,
   now: number,
-): SparkplugDeviceState | null {
+): SparkplugLifecycleResult | null {
   const deviceKey = sparkplugDeviceKey(info);
   if (deviceKey === null) return null;
 
+  const created = prev === undefined;
   const state: SparkplugDeviceState = prev ?? {
     deviceKey,
     role: info.deviceId !== null ? "device" : "edge-node",
@@ -48,9 +68,14 @@ export function applySparkplugLifecycle(
     metrics: new Map(),
     topicNodeIds: new Set(),
   };
+  const wasOnline = state.online;
 
   state.lastMessageType = info.messageType;
-  state.topicNodeIds.add(nodeId);
+  let nodeAdded = false;
+  if (!state.topicNodeIds.has(nodeId) && state.topicNodeIds.size < SPARKPLUG_TOPIC_NODE_IDS_CAP) {
+    state.topicNodeIds.add(nodeId);
+    nodeAdded = true;
+  }
 
   if (isBirth(info.messageType)) {
     state.online = true;
@@ -65,7 +90,10 @@ export function applySparkplugLifecycle(
   }
   // NCMD/DCMD: lastMessageType recorded above, no state change
 
-  return state;
+  return {
+    state,
+    changed: created || nodeAdded || state.online !== wasOnline,
+  };
 }
 
 /**

@@ -159,6 +159,13 @@ interface TopicStoreState {
 
   /** Process an incoming MQTT message. retain defaults to false for backward compatibility. */
   handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, userProperties?: MqttUserProperties, imageBlobUrl?: string, rawPayload?: ArrayBuffer) => void;
+  /**
+   * True when a retained message arriving NOW would be dropped by the burst
+   * window. Lets the MQTT message handler skip per-message work (blob
+   * creation, byte copies, UTF-8 decode) for messages the store would
+   * immediately discard.
+   */
+  wouldDropRetained: () => boolean;
   /** Update connection status. */
   setConnectionStatus: (status: ConnectionStatus, error?: string) => void;
   /** Run one decay tick — called periodically. */
@@ -345,15 +352,39 @@ function mergeNodeTag(node: TopicNode, result: DetectorResult): void {
   node.payloadTags = [...preserved, result];
 }
 
+/** Maximum tracked sparkplug devices — matches the documented SVG node ceiling. */
+const SPARKPLUG_DEVICES_CAP = 1000;
+
+/**
+ * Sparkplug version-bump batching. Per-message zustand set() calls bypass the
+ * store's rAF batching and were the primary cause of retained-burst slowdown:
+ * each bump re-runs the TopicGraph offline-set effect and renderer restyle.
+ * Instead, mutations mark this flag and the next rAF flush (or rebuildGraph()
+ * in tests) bumps sparkplugVersion once for the whole batch.
+ */
+let _sparkplugDirty = false;
+/** Wall-clock ms of the last sparkplugVersion bump (heartbeat gating). */
+let _lastSparkplugVersionBump = 0;
+/** One-time warning latch for the device cap. */
+let _sparkplugCapWarned = false;
+/**
+ * Heartbeat interval for non-material sparkplug updates (steady-state DATA):
+ * keeps SparkplugDevicePanel timestamps visibly live (~1 Hz) without bumping
+ * the version 60x/s.
+ */
+const SPARKPLUG_HEARTBEAT_MS = 1000;
+
 /**
  * Apply a Sparkplug message's lifecycle effect: update the device state
- * slice, cascade NDEATH to the edge's devices, bump sparkplugVersion, and
- * synchronously attach a slim sparkplug tag to the topic node (instant
- * indicator ring — no worker round-trip needed).
+ * slice, cascade NDEATH to the edge's devices, and synchronously attach a
+ * slim sparkplug tag to the topic node (instant indicator ring — no worker
+ * round-trip needed). Version bumps are BATCHED: material changes (device
+ * created, online flipped, family node added, death cascade) mark the dirty
+ * flag for the next rAF flush; steady-state DATA only dirties on the
+ * heartbeat so its timestamps still reach the UI at ~1 Hz.
  */
 function recordSparkplugMessage(
   get: () => TopicStoreState,
-  set: (partial: Partial<TopicStoreState>) => void,
   node: TopicNode,
   info: SparkplugTopicInfo,
 ): void {
@@ -361,14 +392,27 @@ function recordSparkplugMessage(
   const key = sparkplugDeviceKey(info);
   if (key === null) return;
 
-  const deviceState = applySparkplugLifecycle(devices.get(key), info, node.id, Date.now());
-  if (!deviceState) return;
+  // Cap tracked devices — beyond this the graph itself is unusable anyway.
+  if (!devices.has(key) && devices.size >= SPARKPLUG_DEVICES_CAP) {
+    if (!_sparkplugCapWarned) {
+      _sparkplugCapWarned = true;
+      console.warn(
+        `[sparkplug] Device cap (${SPARKPLUG_DEVICES_CAP}) reached — new devices are no longer tracked.`,
+      );
+    }
+    return;
+  }
+
+  const result = applySparkplugLifecycle(devices.get(key), info, node.id, Date.now());
+  if (!result) return;
+  const { state: deviceState, changed } = result;
   devices.set(key, deviceState);
 
   // An edge node's death takes all its devices down with it (their MQTT
   // session died together — Sparkplug spec semantics).
+  let cascaded = false;
   if (info.messageType === "NDEATH") {
-    cascadeEdgeDeath(devices, info.groupId, info.edgeNodeId);
+    cascaded = cascadeEdgeDeath(devices, info.groupId, info.edgeNodeId).length > 0;
   }
 
   mergeNodeTag(node, {
@@ -384,7 +428,13 @@ function recordSparkplugMessage(
     } satisfies SparkplugMetadata,
   });
 
-  set({ sparkplugVersion: get().sparkplugVersion + 1 });
+  if (
+    changed ||
+    cascaded ||
+    Date.now() - _lastSparkplugVersionBump > SPARKPLUG_HEARTBEAT_MS
+  ) {
+    _sparkplugDirty = true;
+  }
 }
 
 /** Walk the topic tree and revoke all image blob URLs. Called on reset/disconnect. */
@@ -553,7 +603,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // Metric decoding still happens in the worker (rawPayload below).
     const spInfo = isSparkplugTopic(topic) ? parseSparkplugTopic(topic) : null;
     if (spInfo && spInfo.messageType !== "STATE") {
-      recordSparkplugMessage(get, set, node, spInfo);
+      recordSparkplugMessage(get, node, spInfo);
     }
 
     // Submit payload for off-thread analysis (geo detection, image detection,
@@ -561,12 +611,18 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // debounce in payloadAnalyzerService prevents flooding the worker on
     // high-frequency topics.  Results are merged (not replaced) in
     // setPayloadTags, so tags from different payload types coexist.
-    // Sparkplug BIRTH/DEATH bypass the debounce: their decode populates the
-    // worker's alias maps, which a coalescing debounce could silently drop.
+    // Sparkplug BIRTH/DEATH bypass the debounce so the worker's alias maps
+    // stay warm — EXCEPT during the retained-burst window, where thousands of
+    // retained BIRTHs would each post synchronously. Debouncing them is safe:
+    // BIRTH and DATA arrive on different topic nodes, so the per-node debounce
+    // can only coalesce BIRTH-over-BIRTH (latest wins, which is correct).
     if (payload.length > 0 || rawPayload) {
       payloadAnalyzer.analyze(node.id, topic, payload, {
         rawBytes: rawPayload,
-        immediate: spInfo !== null && (isBirth(spInfo.messageType) || isDeath(spInfo.messageType)),
+        immediate:
+          spInfo !== null &&
+          (isBirth(spInfo.messageType) || isDeath(spInfo.messageType)) &&
+          !inBurstWindow,
       });
     }
 
@@ -614,6 +670,15 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
 
     perfMark("handle-msg-end");
     perfMeasure("handle-message", "handle-msg-start", "handle-msg-end");
+  },
+
+  wouldDropRetained: () => {
+    const state = get();
+    return (
+      state.dropRetainedBurst &&
+      _burstWindowStart > 0 &&
+      Date.now() - _burstWindowStart < state.burstWindowDuration
+    );
   },
 
   setConnectionStatus: (status: ConnectionStatus, error?: string) => {
@@ -783,6 +848,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const pendingTopics = _pendingNewTopics;
     _pendingMessages = 0;
     _pendingNewTopics = 0;
+    // Drain the batched sparkplug version bump (mirrors the rAF callback).
+    const sparkplugWasDirty = _sparkplugDirty;
+    _sparkplugDirty = false;
+    if (sparkplugWasDirty) _lastSparkplugVersionBump = Date.now();
     set({
       graphNodes,
       graphLinks,
@@ -791,6 +860,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         : {}),
       totalMessages: state.totalMessages + pendingMsgs,
       totalTopics: state.totalTopics + pendingTopics,
+      sparkplugVersion: sparkplugWasDirty
+        ? state.sparkplugVersion + 1
+        : state.sparkplugVersion,
     });
   },
 
@@ -842,6 +914,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         const pendingTopics = _pendingNewTopics;
         _pendingMessages = 0;
         _pendingNewTopics = 0;
+        // Drain the batched sparkplug version bump (keep in sync with rebuildGraph()).
+        const sparkplugWasDirty = _sparkplugDirty;
+        _sparkplugDirty = false;
+        if (sparkplugWasDirty) _lastSparkplugVersionBump = Date.now();
 
         set({
           graphNodes,
@@ -852,6 +928,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
             : s.graphStructureVersion,
           totalMessages: s.totalMessages + pendingMsgs,
           totalTopics: s.totalTopics + pendingTopics,
+          sparkplugVersion: sparkplugWasDirty
+            ? s.sparkplugVersion + 1
+            : s.sparkplugVersion,
         });
 
         if (wasStructural) {
@@ -892,6 +971,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // Clear analyzer state (pending debounces, fingerprints, worker-held maps)
     payloadAnalyzer.reset();
     get().sparkplugDevices.clear();
+    _sparkplugDirty = false;
+    _lastSparkplugVersionBump = 0;
+    _sparkplugCapWarned = false;
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
     const savedForReset = loadSavedSettings();
@@ -1108,7 +1190,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           // when no edge-level message has been seen yet).
           const edgeEntry = devices.get(`${device.groupId}/${device.edgeNodeId}`) ?? device;
           applySparkplugSeq(edgeEntry, meta.seq ?? null);
-          set({ sparkplugVersion: get().sparkplugVersion + 1 });
+          // Batched — drained by the rAF flush (scheduleRebuild below).
+          _sparkplugDirty = true;
         }
         const slim: SparkplugMetadata = {
           deviceKey: meta.deviceKey,
