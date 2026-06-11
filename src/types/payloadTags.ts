@@ -68,8 +68,23 @@ export interface AnalyzeRequest {
   type: "analyze";
   /** The topic node ID to associate results with. */
   nodeId: string;
-  /** The raw payload string to analyze. */
+  /** The full MQTT topic the payload arrived on (for topic-aware detectors). */
+  topic: string;
+  /** The payload string to analyze, sliced to ANALYSIS_MAX_CHARS. */
   payload: string;
+  /** True when the payload was truncated — JSON detectors are skipped. */
+  truncated: boolean;
+  /**
+   * Raw payload bytes for binary-format detectors (e.g. protobuf).
+   * Sent as a transferable, so only populated when a topic-aware detector
+   * needs it (currently sparkplug topics only).
+   */
+  rawBytes?: ArrayBuffer;
+}
+
+/** Clears all worker-held analysis state (e.g. on disconnect/reset). */
+export interface ResetRequest {
+  type: "reset";
 }
 
 /** Message sent from the payload analyzer worker back to the main thread. */
@@ -82,7 +97,7 @@ export interface AnalyzeResponse {
 }
 
 /** Union of all worker message types (main -> worker). */
-export type WorkerRequest = AnalyzeRequest;
+export type WorkerRequest = AnalyzeRequest | ResetRequest;
 
 /** Union of all worker message types (worker -> main). */
 export type WorkerResponse = AnalyzeResponse;

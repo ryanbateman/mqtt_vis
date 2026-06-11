@@ -1591,6 +1591,28 @@ describe("topicStore — node pruning", () => {
     expect(findTopicNode("a")).toBeDefined();
   });
 
+  it("revokes a pruned node's image blob URL and frees its LRU slot", () => {
+    const revoked: string[] = [];
+    vi.stubGlobal("URL", {
+      ...URL,
+      revokeObjectURL: (url: string) => revoked.push(url),
+      createObjectURL: () => "blob:unused",
+    });
+    try {
+      state().setShowTooltips(true); // enables payload (LRU) storage
+      state().handleMessage("a/cam", "img-bytes", 0, false, undefined, "blob:pruned-cam");
+      state().rebuildGraph();
+      state().setPruneTimeout(60_000);
+      findTopicNode("a/cam")!.lastTimestamp = Date.now() - 120_000;
+      state().decayTick();
+      state().rebuildGraph();
+      expect(findTopicNode("a/cam")).toBeUndefined();
+      expect(revoked).toContain("blob:pruned-cam");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("setPruneTimeout persists to localStorage", () => {
     state().setPruneTimeout(180_000);
     const saved = loadSavedSettings();

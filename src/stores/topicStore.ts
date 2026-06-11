@@ -475,7 +475,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // high-frequency topics.  Results are merged (not replaced) in
     // setPayloadTags, so tags from different payload types coexist.
     if (payload.length > 0) {
-      payloadAnalyzer.analyze(node.id, payload);
+      payloadAnalyzer.analyze(node.id, topic, payload);
     }
 
     // Instant rate spike: add 1 message worth of rate contribution
@@ -619,6 +619,14 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         // Recurse children first — deepest nodes pruned before parents
         for (const [segment, child] of node.children) {
           if (pruneNode(child)) {
+            // Release per-node resources before dropping the reference:
+            // blob URLs leak otherwise, and stale LRU entries would count
+            // against the payload cap forever.
+            if (child.lastImageBlobUrl) {
+              URL.revokeObjectURL(child.lastImageBlobUrl);
+              child.lastImageBlobUrl = null;
+            }
+            _payloadLru.delete(child.id);
             node.children.delete(segment);
           }
         }
@@ -789,6 +797,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _payloadLru.clear();
     _pendingMessages = 0;
     _pendingNewTopics = 0;
+    // Clear analyzer state (pending debounces, fingerprints, worker-held maps)
+    payloadAnalyzer.reset();
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
     const savedForReset = loadSavedSettings();

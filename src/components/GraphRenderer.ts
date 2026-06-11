@@ -24,6 +24,18 @@ const IS_TOUCH_ONLY =
   typeof window !== "undefined" &&
   window.matchMedia("(hover: none)").matches;
 
+/** One insight ring: a (node × enabled tag) pair, drawn concentrically. */
+interface InsightRingDatum {
+  /** Node id the ring belongs to. */
+  id: string;
+  /** The payload tag this ring represents. */
+  tag: string;
+  /** Ring stroke colour. */
+  color: string;
+  /** Concentric position (0 = innermost). */
+  ringIndex: number;
+}
+
 /** Base blur stdDeviation for the glow SVG filter (at zoom scale 1.0). */
 const BASE_GLOW_STD_DEV = 4;
 
@@ -119,7 +131,7 @@ export class GraphRenderer {
 
   // Insight ring elements — one <circle> per node with a detected payload tag.
   private insightRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
-  private insightRingElements!: d3.Selection<SVGCircleElement, { id: string; color: string }, SVGGElement, unknown>;
+  private insightRingElements!: d3.Selection<SVGCircleElement, InsightRingDatum, SVGGElement, unknown>;
   private insightRingNodeIds = new Set<string>();
   // Which insight tag types are enabled for ring display.  Map of tag → colour.
   private enabledInsightTags = new Map<string, string>();
@@ -217,7 +229,7 @@ export class GraphRenderer {
     // Initialize empty selections
     this.linkElements = this.linkGroup.selectAll<SVGLineElement, GraphLink>("line");
     this.highlightRingElements = this.highlightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
-    this.insightRingElements = this.insightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
+    this.insightRingElements = this.insightRingGroup.selectAll<SVGCircleElement, InsightRingDatum>("circle");
     this.nodeElements = this.nodeGroup.selectAll<SVGCircleElement, GraphNode>("circle");
     this.labelElements = this.labelGroup.selectAll<SVGTextElement, GraphNode>("text");
     this.hitAreaElements = this.hitAreaGroup.selectAll<SVGCircleElement, GraphNode>("circle");
@@ -980,30 +992,32 @@ export class GraphRenderer {
 
   /**
    * Rebuild the insight ring layer from the current simulation nodes.
-   * Nodes whose payloadTags include an enabled tag type get a coloured ring.
+   * Nodes whose payloadTags include enabled tag types get one ring per
+   * matching tag, drawn concentrically (ringIndex offsets the radius).
+   * Ring order follows the enabled-tags Map insertion order (registry order).
    */
   private refreshInsightRings(): void {
-    const data: { id: string; color: string }[] = [];
+    const data: InsightRingDatum[] = [];
     this.insightRingNodeIds.clear();
 
     if (this.enabledInsightTags.size > 0) {
       this.simulation.nodes().forEach((n) => {
         if (!n.payloadTags || n.payloadTags.length === 0) return;
-        // Find the first enabled tag on this node
-        for (const tag of n.payloadTags) {
-          const color = this.enabledInsightTags.get(tag);
-          if (color) {
-            data.push({ id: n.id, color });
+        const nodeTags = new Set(n.payloadTags);
+        let ringIndex = 0;
+        for (const [tag, color] of this.enabledInsightTags) {
+          if (nodeTags.has(tag)) {
+            data.push({ id: n.id, tag, color, ringIndex });
             this.insightRingNodeIds.add(n.id);
-            break; // one ring per node
+            ringIndex++;
           }
         }
       });
     }
 
     this.insightRingElements = this.insightRingGroup
-      .selectAll<SVGCircleElement, { id: string; color: string }>("circle")
-      .data(data, (d) => d.id);
+      .selectAll<SVGCircleElement, InsightRingDatum>("circle")
+      .data(data, (d) => `${d.id}:${d.tag}`);
 
     this.insightRingElements.exit().remove();
 
@@ -1035,7 +1049,9 @@ export class GraphRenderer {
     this.insightRingElements
       .attr("cx", (d) => nodePositions.get(d.id)?.x ?? 0)
       .attr("cy", (d) => nodePositions.get(d.id)?.y ?? 0)
-      .attr("r", (d) => (nodePositions.get(d.id)?.r ?? 0) + 6 / this.currentZoomScale)
+      .attr("r", (d) =>
+        (nodePositions.get(d.id)?.r ?? 0) + (6 + d.ringIndex * 4) / this.currentZoomScale
+      )
       .attr("stroke-width", ringStrokeWidth);
   }
 
