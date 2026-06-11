@@ -69,7 +69,9 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
   {
     id: "sparkplug",
     label: "Sparkplug",
-    ringColor: "#f59e0b",
+    // Emerald — deliberately outside the node heat palette (slate/sky/orange/
+    // amber/yellow) and distinct from geo cyan and image purple.
+    ringColor: "#34d399",
     settingsKey: "showSparkplugIndicators",
     settingsLabel: "Sparkplug Indicators",
     settingsTooltip:

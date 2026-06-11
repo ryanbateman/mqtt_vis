@@ -745,7 +745,7 @@ export function InsightsDrawer({
               onClick={() => onSetTab("device")}
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
                 activeTab === "device"
-                  ? "text-amber-300 border-b-2 border-amber-400"
+                  ? "text-emerald-300 border-b-2 border-emerald-400"
                   : "text-gray-500 hover:text-gray-300"
               }`}
             >

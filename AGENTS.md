@@ -222,7 +222,7 @@ Image preview is independent of the image *detector*. The detector runs in the W
 Tagged nodes show optional insight rings in the graph (toggleable under Settings → Data Insights; colours/labels from the tag registry):
 - **Geo**: cyan (`#00ffff`) ring via `showGeoIndicators`
 - **Image**: bright purple (`#a855f7`) ring via `showImageIndicators`
-- **Sparkplug**: amber (`#f59e0b`) ring via `showSparkplugIndicators`; offline entities restyle red (`#ef4444`) + dashed
+- **Sparkplug**: emerald (`#34d399`) ring via `showSparkplugIndicators`; offline entities restyle red (`#ef4444`) + dashed
 
 The insight ring layer is rendered in `GraphRenderer.ts`. Multi-tag nodes get concentric rings — one per enabled tag, radius offset by ring index, ordered by registry order.
 
@@ -236,7 +236,7 @@ Eclipse Sparkplug B support: topic-shape detection, protobuf metric decoding, an
 - **Device state** lives in the `sparkplugDevices` store slice keyed by `group/edge[/device]`, NOT on topic nodes — the same device's BIRTH/DATA/DEATH arrive on sibling subtrees. Mutate-in-place + `sparkplugVersion` bump (matches the tree pattern). Topic nodes carry a slim `DetectorResult<"sparkplug">`; `setPayloadTags` strips worker-decoded metrics into the device state and defers `online` to the slice (authoritative).
 - **Lifecycle semantics**: BIRTH→online, DEATH→offline (NDEATH cascades to the edge's devices), DATA→online (deliberate deviation: late subscribers never see the non-retained BIRTH). `seq` is a per-EDGE 0-255 wraparound counter shared across node+device messages — tracked on the edge entry; gap counts are approximate (DATA is debounced).
 - **Alias maps** (BIRTH name↔alias → DATA alias-only resolution) live in worker module state per edge node; unknown aliases render as `alias:N` (late-subscriber case). Cleared by the worker `reset` message.
-- **UI**: amber ring (family-wide red/dashed when offline via `GraphRenderer.setSparkplugOfflineNodes`), DetailPanel "View Device" button, Insights Drawer "Device" tab (`SparkplugDevicePanel.tsx`: status, last birth/data, seq + gaps, live metric table).
+- **UI**: emerald ring (family-wide red/dashed when offline via `GraphRenderer.setSparkplugOfflineNodes`), DetailPanel "View Device" button, Insights Drawer "Device" tab (`SparkplugDevicePanel.tsx`: status, last birth/data, seq + gaps, live metric table).
 - **Testing**: `scripts/publish-sparkplug.ts` (tsx) simulates an edge node + device against any broker (NBIRTH/DBIRTH → looping alias-only DATA → NDEATH on Ctrl-C, with LWT). Decoder test fixtures are built with `src/utils/sparkplug/__tests__/encodeHelper.ts` (test/script-only protobuf encoder, never bundled).
 - **Future work**: canonical synthetic device nodes (today each message's arrival node is tagged; the family is grouped via `SparkplugDeviceState.topicNodeIds`).
 

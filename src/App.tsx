@@ -158,11 +158,14 @@ function App() {
     }
   }, [connectionStatus, insightsState]);
 
-  // When node selection changes while the drawer is open, either update
-  // it to show the new node's data or close it if the new node has nothing to show.
-  // When pinned or in all-geo mode, the drawer stays as-is regardless of selection.
+  // Selecting a node with detected insight content (geo, image, sparkplug)
+  // opens the drawer automatically on the appropriate tab — or updates it
+  // in place if already open. Nodes with no content close it. When pinned
+  // or in all-geo mode, the drawer stays as-is regardless of selection.
+  // Note: the image tab keys off lastImageBlobUrl, not the image tag — a
+  // node whose blob was evicted (LRU) won't auto-open until a new image
+  // message arrives.
   useEffect(() => {
-    if (!insightsState) return; // drawer already closed — nothing to do
     if (isInsightsPinned) return; // pinned — ignore node selection changes
     if (drawerMode === "all") return; // all-geo mode — ignore node selection changes
 
@@ -180,21 +183,19 @@ function App() {
     const newSparkplug = getTag(node?.payloadTags, "sparkplug")?.metadata ?? null;
 
     if (newGeo || newImage || newSparkplug) {
-      // New node has insights content — update the drawer in-place.
-      // If the currently active tab is no longer available, fall back to the
-      // first available tab (registry order).
-      const tab = resolveInsightsTab(insightsState.activeTab, {
-        geo: newGeo !== null,
-        image: newImage !== null,
-        sparkplug: newSparkplug !== null,
-      });
-      setInsightsState({
+      // Keep the current tab when it still has content; otherwise fall back
+      // to the first available tab (registry order).
+      setInsightsState((prev) => ({
         topicPath: selectedNodeId,
         geo: newGeo,
         imageBlobUrl: newImage,
         sparkplug: newSparkplug,
-        activeTab: tab,
-      });
+        activeTab: resolveInsightsTab(prev?.activeTab ?? "map", {
+          geo: newGeo !== null,
+          image: newImage !== null,
+          sparkplug: newSparkplug !== null,
+        }),
+      }));
     } else {
       // New node has no insight content — close the drawer
       setInsightsState(null);

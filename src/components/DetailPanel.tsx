@@ -226,7 +226,7 @@ export function DetailPanel({
         {sparkplugMetadata && onOpenInsightsDevice && (
           <button
             onClick={() => onOpenInsightsDevice(sparkplugMetadata)}
-            className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-amber-300 bg-amber-900/20 border border-amber-800/30 hover:bg-amber-900/40 transition-colors cursor-pointer"
+            className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-emerald-300 bg-emerald-900/20 border border-emerald-800/30 hover:bg-emerald-900/40 transition-colors cursor-pointer"
             title={`View device: ${sparkplugMetadata.deviceKey}`}
           >
             {/* CPU chip icon */}
@@ -239,7 +239,7 @@ export function DetailPanel({
                 {sparkplugMetadata.online ? "ONLINE" : "OFFLINE"}
               </span>
               {sparkplugMetadata.metricCount > 0 && (
-                <span className="text-amber-400/60 ml-1">
+                <span className="text-emerald-400/60 ml-1">
                   {sparkplugMetadata.metricCount} metric{sparkplugMetadata.metricCount === 1 ? "" : "s"}
                 </span>
               )}
