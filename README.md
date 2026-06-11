@@ -11,6 +11,7 @@ No backend required — it's a static SPA. Host it anywhere, and the MQTT connec
 - **Live topic graph** — topics appear as nodes in a force-directed layout, sized by message rate and coloured by activity
 - **Wildcard subscriptions** — subscribe with `#` or `+` and watch the tree grow in real-time
 - **Payload analysis** — automatic detection of geo coordinates and image payloads, with map view and image preview
+- **Sparkplug B support** — recognises Sparkplug edge nodes and devices from the topic namespace, decodes protobuf metrics, and tracks BIRTH/DEATH lifecycle with online/offline indicators and a live metric table
 - **Fully configurable** — tune the graph physics, labels, colours, and behaviour via the UI or a `config.json` file
 - **WebMCP support** — exposes tools for browser AI agents to query the topic tree (Chrome 146+)
 
@@ -42,7 +43,7 @@ See **[docs/configuration.md](docs/configuration.md)** for the full options refe
 | Layer | Choice |
 |---|---|
 | Framework | React 18 + TypeScript (strict) |
-| Build | Vite 5 |
+| Build | Vite 6 |
 | Styling | Tailwind CSS v3 |
 | Visualisation | D3.js v7 (force simulation, SVG) |
 | MQTT | mqtt.js v5 (browser WebSocket, MQTT v5 protocol) |

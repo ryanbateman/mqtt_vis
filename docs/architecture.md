@@ -51,12 +51,19 @@ The simulation cleanup (stopping forces, removing elements) is handled in a `use
 
 ### Payload Analysis
 
-A Web Worker analyses MQTT payloads off the main thread, running detector functions to identify structured data in message payloads:
+A Web Worker analyses MQTT payloads off the main thread, running three phases of detector functions to identify structured data in message payloads:
 
-- **Geo detector** — finds latitude/longitude coordinates via GeoJSON Point geometry or common key-pair patterns (`lat`/`lon`, `latitude`/`longitude`, etc.)
-- **Image detector** — identifies JPEG and PNG binary payloads from magic-byte signatures in the UTF-8-decoded string
+- **Topic-aware detectors** — run first and see the topic, payload string, and raw bytes. The **Sparkplug B detector** matches the `spBv1.0/` namespace and decodes protobuf metrics with a minimal hand-rolled wire-format reader (no protobuf library dependency). A match short-circuits the other phases.
+- **Raw-string detectors** — the **image detector** identifies JPEG and PNG binary payloads from magic-byte signatures in the UTF-8-decoded string
+- **JSON detectors** — the **geo detector** finds latitude/longitude coordinates via GeoJSON Point geometry or common key-pair patterns (`lat`/`lon`, `latitude`/`longitude`, etc.)
 
-Detected tags are stored on the topic nodes and can be visualised as indicator rings on the graph or explored in the Insights Drawer (a slide-out Leaflet map for geo data).
+Payloads are sliced to 64 KB before posting to the worker, and identical payloads are skipped via a fingerprint check. Each tag type is defined once in a central registry (`src/utils/tagRegistry.ts`) — label, ring colour, settings toggle, and Insights Drawer tab all derive from it.
+
+Detected tags are stored on the topic nodes and visualised as indicator rings on the graph (concentric when a node has multiple tags). Selecting a tagged node opens the Insights Drawer on the matching tab: a Leaflet map for geo data, an image preview, or a live Sparkplug device panel.
+
+### Sparkplug B Lifecycle
+
+Sparkplug topics (`spBv1.0/{group}/{message_type}/{edge_node}[/{device}]`) get special handling beyond payload decoding. BIRTH/DEATH/DATA lifecycle is applied synchronously on the main thread from the topic shape alone, maintaining per-device online/offline state in a dedicated store slice (an edge node's NDEATH cascades offline state to its devices). Raw payload bytes are forwarded to the worker as transferable ArrayBuffers for metric decoding; alias-only DATA metrics are resolved against alias maps recorded from BIRTH messages. Offline entities render with red dashed rings across every topic branch the device's messages have touched. `scripts/publish-sparkplug.ts` simulates an edge node and device for testing.
 
 ## Project Structure
 
@@ -67,6 +74,7 @@ src/
   types/
     index.ts               # TopicNode, GraphNode, GraphLink, ConnectionParams, etc.
     payloadTags.ts          # Payload tag types, detector results, GeoMetadata
+    sparkplug.ts            # Sparkplug B types: topic info, metrics, device state
     webmcp.d.ts            # Ambient type declarations for W3C WebMCP API
   stores/
     topicStore.ts           # Zustand store: topic tree, EMA rates, decay, settings
@@ -83,7 +91,8 @@ src/
     TopicGraph.tsx          # SVG container, syncs store state to GraphRenderer
     GraphRenderer.ts        # D3 force simulation, nodes/links/labels/effects
     DetailPanel.tsx         # Selected node detail panel (stats, payload, properties)
-    InsightsDrawer.tsx      # Slide-out Leaflet map with trails and multi-geo mode
+    InsightsDrawer.tsx      # Slide-out drawer: Leaflet map, image preview, device panel
+    SparkplugDevicePanel.tsx # Live Sparkplug device status + metric table
     NodeTooltip.tsx         # Hover tooltip for node details
     SettingsPanel.tsx       # Sliders, toggles, collapsible sections
     StatusBar.tsx           # Message/topic counts, uptime
@@ -96,9 +105,19 @@ src/
     brokerIcons.ts          # Bundled SVG broker icons + domain matching
     connectionErrors.ts     # Connection error diagnosis and actionable hints
     perfDebug.ts            # Performance debug module (?perf URL param)
+    tagRegistry.ts          # Central payload tag registry (colours, settings, tabs)
+    payloadAnalysis.ts      # Payload slice cap + fingerprint helpers for the worker
     detectors/
       geoDetector.ts        # Geo coordinate detection (key pairs + GeoJSON Point)
       imageDetector.ts      # JPEG/PNG detection from magic-byte signatures
+    sparkplug/
+      topic.ts              # Sparkplug topic namespace parsing
+      decoder.ts            # Minimal protobuf wire-format decoder (Tahu Payload subset)
+      datatypes.ts          # Sparkplug datatype code -> name mapping
+      lifecycle.ts          # BIRTH/DEATH/DATA online-state reducer, seq tracking
+      aliases.ts            # BIRTH alias map recording + DATA alias resolution
+scripts/
+  publish-sparkplug.ts      # Sparkplug B test publisher (edge node + device simulator)
 ```
 
 ## Tech Stack
@@ -106,7 +125,7 @@ src/
 | Layer | Choice |
 |---|---|
 | Framework | React 18 + TypeScript (strict) |
-| Build | Vite 5 |
+| Build | Vite 6 |
 | Styling | Tailwind CSS v3 |
 | Visualisation | D3.js v7 (force simulation, SVG) |
 | MQTT | mqtt.js v5 (browser WebSocket, MQTT v5 protocol) |

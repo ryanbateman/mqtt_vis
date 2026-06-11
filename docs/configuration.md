@@ -40,6 +40,9 @@ When the app resolves a setting, it checks these sources in order:
 | `scaleNodeSizeByDepth` | boolean | `false` | Scale node display radius inversely with tree depth |
 | `ancestorPulse` | boolean | `true` | Pulse parent nodes on descendant messages |
 | `showRootPath` | boolean | `false` | Show structural ancestor nodes above subscription prefix |
+| `showGeoIndicators` | boolean | `true` | Cyan indicator rings on nodes with detected geo coordinates |
+| `showImageIndicators` | boolean | `true` | Purple indicator rings on nodes with detected image payloads |
+| `showSparkplugIndicators` | boolean | `true` | Emerald indicator rings on Sparkplug B edge nodes/devices (red dashed when offline) |
 | `repulsionStrength` | number | `-350` | Node repulsion force |
 | `linkDistance` | number | `155` | Ideal parent-child link distance (px) |
 | `linkStrength` | number | `0.5` | Link rigidity (0-1) |
