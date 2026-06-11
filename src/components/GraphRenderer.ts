@@ -325,11 +325,26 @@ export class GraphRenderer {
 
     this.linkElements.exit().remove();
 
+    // Set initial endpoint positions on enter — a frame can paint between this
+    // data join and the first simulation tick, and lines without coordinates
+    // render at the SVG origin (visible as a flicker when nodes are created).
+    // Endpoints may still be string IDs if the link force hasn't resolved them,
+    // so fall back to a position lookup over the placed nodes array.
+    const nodePosMap = new Map<string, GraphNode>();
+    for (const n of nodes) nodePosMap.set(n.id, n);
+    const endpointXY = (end: string | GraphNode) => {
+      const n = typeof end === "string" ? nodePosMap.get(end) : (end as GraphNode);
+      return { x: n?.x ?? 0, y: n?.y ?? 0 };
+    };
     this.linkElements = this.linkElements
       .enter()
       .append("line")
       .attr("stroke", "#6b7280")
       .attr("stroke-width", 1.5)
+      .attr("x1", (d) => endpointXY(d.source).x)
+      .attr("y1", (d) => endpointXY(d.source).y)
+      .attr("x2", (d) => endpointXY(d.target).x)
+      .attr("y2", (d) => endpointXY(d.target).y)
       .merge(this.linkElements);
 
     // Set depth-based idle opacity on all links (enter + update).
@@ -357,6 +372,10 @@ export class GraphRenderer {
       .attr("stroke", (d) => (d.depth === 0 ? "#ffffff" : IDLE_STROKE))
       .attr("stroke-width", 2)
       .attr("stroke-opacity", (d) => (d.depth === 0 ? 1 : 0.6))
+      // Position immediately — without cx/cy a new node can paint one frame
+      // at the SVG origin before the first simulation tick places it.
+      .attr("cx", (d) => d.x ?? 0)
+      .attr("cy", (d) => d.y ?? 0)
       .attr("pointer-events", "none");
 
     // Capture enter count before merge — used for burst-aware reheat below.
@@ -439,6 +458,9 @@ export class GraphRenderer {
       .attr("stroke-width", this.labelStrokeWidth)
       .attr("paint-order", "stroke fill")
       .attr("opacity", 0) // Start invisible — visibility mode sets correct value
+      // Position immediately — see the node/link enter comments above.
+      .attr("x", (d) => d.x ?? 0)
+      .attr("y", (d) => (d.y ?? 0) + d.displayRadius + 14 / this.currentZoomScale)
       .text((d) => d.label) // Set text on enter only (labels are immutable)
       .merge(this.labelElements);
 
