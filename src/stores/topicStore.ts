@@ -7,9 +7,19 @@ import type {
   LabelMode,
   MqttUserProperties,
 } from "../types";
-import type { DetectorResult } from "../types/payloadTags";
+import type { DetectorResult, HomeAssistantMetadata } from "../types/payloadTags";
 import type { SparkplugDeviceState, SparkplugMetadata, SparkplugTopicInfo } from "../types/sparkplug";
+import type { DomainEntity } from "../types/entities";
 import type { IndicatorSettingsKey } from "../utils/tagRegistry";
+import {
+  createEntityRegistry,
+  clearEntityRegistry,
+  applyEntityDeclarations,
+  applyConfigTombstone,
+  recordEntityTopicHit,
+  isEcosystemDefiningTopic,
+} from "../utils/ecosystems/entityOps";
+import { isHaDiscoveryTopic } from "../utils/ecosystems/homeassistant/discovery";
 import {
   isSparkplugTopic,
   parseSparkplugTopic,
@@ -116,6 +126,8 @@ interface TopicStoreState {
   showImageIndicators: boolean;
   /** Whether to show sparkplug edge-node/device indicator rings in the graph. */
   showSparkplugIndicators: boolean;
+  /** Whether to show Home Assistant entity indicator rings in the graph. */
+  showHomeAssistantIndicators: boolean;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -139,6 +151,14 @@ interface TopicStoreState {
   sparkplugDevices: Map<string, SparkplugDeviceState>;
   /** Incremented whenever sparkplugDevices content changes. */
   sparkplugVersion: number;
+  /**
+   * Discovery-based domain entities (Home Assistant today), keyed by
+   * "<ecosystem>:<id>". Mutated in place via the entity registry
+   * (entityOps.ts); entitiesVersion is bumped (batched) on change.
+   */
+  domainEntities: Map<string, DomainEntity>;
+  /** Incremented whenever domainEntities content changes. */
+  entitiesVersion: number;
   /**
    * True while the topic tree is at TOPIC_NODE_CAP — new topics are being
    * dropped. Recomputed on each batched flush; clears when pruning frees space.
@@ -412,6 +432,16 @@ let _sparkplugHistoryDevice: string | null = null;
 const _sparkplugHistory = new Map<string, MetricSample[]>();
 
 /**
+ * Entity registry maps (reverse topic index, tombstone/cleanup tracking).
+ * The entities Map itself lives in the store (domainEntities) for React
+ * subscriptions; these lookup structures stay module-level like the other
+ * non-reactive state. Version bumps are batched via _entitiesDirty, drained
+ * by the rAF flush / rebuildGraph exactly like the sparkplug flag.
+ */
+const _entityRegistry = createEntityRegistry();
+let _entitiesDirty = false;
+
+/**
  * Apply a Sparkplug message's lifecycle effect: update the device state
  * slice, cascade NDEATH to the edge's devices, and synchronously attach a
  * slim sparkplug tag to the topic node (instant indicator ring — no worker
@@ -553,6 +583,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showGeoIndicators:    saved.showGeoIndicators    ?? cfg.showGeoIndicators    ?? true,
   showImageIndicators:  saved.showImageIndicators  ?? cfg.showImageIndicators  ?? true,
   showSparkplugIndicators: saved.showSparkplugIndicators ?? cfg.showSparkplugIndicators ?? true,
+  showHomeAssistantIndicators: saved.showHomeAssistantIndicators ?? cfg.showHomeAssistantIndicators ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -560,6 +591,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   exportRequested: 0,
   sparkplugDevices: new Map<string, SparkplugDeviceState>(),
   sparkplugVersion: 0,
+  // The registry's entities Map IS the store slice — mutated in place,
+  // entitiesVersion drives React re-renders.
+  domainEntities: _entityRegistry.entities,
+  entitiesVersion: 0,
   nodeCapReached: false,
   selectedNodeId: null,
   highlightedNodes: new Map<string, string>(),
@@ -573,9 +608,12 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // Fully drop retained messages during the post-subscribe burst window.
     // No node creation, no counters, no visual effects — the message is
     // silently ignored so the graph doesn't explode with stale retained data.
+    // Ecosystem-defining topics (HA discovery configs) are exempt: they are
+    // always retained, so dropping them would blind the entity registry.
     const inBurstWindow = _burstWindowStart > 0
       && (Date.now() - _burstWindowStart < state.burstWindowDuration);
-    if (state.dropRetainedBurst && retain && inBurstWindow) {
+    if (state.dropRetainedBurst && retain && inBurstWindow
+        && !isEcosystemDefiningTopic(topic)) {
       if (imageBlobUrl) URL.revokeObjectURL(imageBlobUrl);
       return;
     }
@@ -655,6 +693,33 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const spInfo = isSparkplugTopic(topic) ? parseSparkplugTopic(topic) : null;
     if (spInfo && spInfo.messageType !== "STATE") {
       recordSparkplugMessage(get, node, spInfo);
+    }
+
+    // Entity registry: an empty retained payload on a defining topic is a
+    // tombstone (HA: "entity deleted") — handled here because empty payloads
+    // never reach the analyzer worker.
+    if (payload.length === 0 && isHaDiscoveryTopic(topic)) {
+      if (applyConfigTombstone(_entityRegistry, topic)) _entitiesDirty = true;
+    }
+
+    // Entity registry: messages on claimed topics (declared state/
+    // availability topics, possibly in other subtrees) bind the node to its
+    // entity, set the anchor, and flip availability — synchronously, like
+    // sparkplug lifecycle, so ordering is not lost to the analyzer debounce.
+    const hit = recordEntityTopicHit(_entityRegistry, topic, node.id, payload);
+    if (hit) {
+      mergeNodeTag(node, {
+        tag: "homeassistant",
+        confidence: 1,
+        fieldPath: "",
+        metadata: {
+          entityKey: hit.entity.key,
+          role: hit.entity.role,
+          label: hit.entity.label,
+          online: hit.entity.online,
+        } satisfies HomeAssistantMetadata,
+      });
+      if (hit.changed) _entitiesDirty = true;
     }
 
     // Submit payload for off-thread analysis (geo detection, image detection,
@@ -914,10 +979,12 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const pendingTopics = _pendingNewTopics;
     _pendingMessages = 0;
     _pendingNewTopics = 0;
-    // Drain the batched sparkplug version bump (mirrors the rAF callback).
+    // Drain the batched sparkplug/entity version bumps (mirrors the rAF callback).
     const sparkplugWasDirty = _sparkplugDirty;
     _sparkplugDirty = false;
     if (sparkplugWasDirty) _lastSparkplugVersionBump = Date.now();
+    const entitiesWasDirty = _entitiesDirty;
+    _entitiesDirty = false;
     set({
       graphNodes,
       graphLinks,
@@ -929,6 +996,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       sparkplugVersion: sparkplugWasDirty
         ? state.sparkplugVersion + 1
         : state.sparkplugVersion,
+      entitiesVersion: entitiesWasDirty
+        ? state.entitiesVersion + 1
+        : state.entitiesVersion,
       nodeCapReached: _treeNodeCount >= TOPIC_NODE_CAP,
     });
   },
@@ -981,10 +1051,12 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         const pendingTopics = _pendingNewTopics;
         _pendingMessages = 0;
         _pendingNewTopics = 0;
-        // Drain the batched sparkplug version bump (keep in sync with rebuildGraph()).
+        // Drain the batched sparkplug/entity version bumps (keep in sync with rebuildGraph()).
         const sparkplugWasDirty = _sparkplugDirty;
         _sparkplugDirty = false;
         if (sparkplugWasDirty) _lastSparkplugVersionBump = Date.now();
+        const entitiesWasDirty = _entitiesDirty;
+        _entitiesDirty = false;
 
         set({
           graphNodes,
@@ -998,6 +1070,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           sparkplugVersion: sparkplugWasDirty
             ? s.sparkplugVersion + 1
             : s.sparkplugVersion,
+          entitiesVersion: entitiesWasDirty
+            ? s.entitiesVersion + 1
+            : s.entitiesVersion,
           nodeCapReached: _treeNodeCount >= TOPIC_NODE_CAP,
         });
 
@@ -1045,6 +1120,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _treeNodeCount = 0;
     _sparkplugHistoryDevice = null;
     _sparkplugHistory.clear();
+    clearEntityRegistry(_entityRegistry);
+    _entitiesDirty = false;
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
     const savedForReset = loadSavedSettings();
@@ -1058,6 +1135,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       errorMessage: null,
       graphStructureVersion: 0,
       sparkplugVersion: 0,
+      entitiesVersion: 0,
       nodeCapReached: false,
       nodeScale: savedForReset.nodeScale ?? cfg.nodeScale ?? 1.0,
       scaleNodeSizeByDepth: savedForReset.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
@@ -1102,6 +1180,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showGeoIndicators: cfg.showGeoIndicators ?? true,
       showImageIndicators: cfg.showImageIndicators ?? true,
       showSparkplugIndicators: cfg.showSparkplugIndicators ?? true,
+      showHomeAssistantIndicators: cfg.showHomeAssistantIndicators ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
@@ -1245,8 +1324,27 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     if (node) {
       // Sparkplug tags arrive from the worker carrying full decoded metrics.
       // Strip those into the device state slice (the authoritative store)
-      // and keep only the slim metadata on the node.
+      // and keep only the slim metadata on the node. Home Assistant tags
+      // likewise carry parsed declarations — stripped into the entity
+      // registry the same way.
       const processed = tags.map((t) => {
+        if (t.tag === "homeassistant") {
+          const meta = t.metadata as HomeAssistantMetadata;
+          if (meta.declarations && meta.declarations.length > 0) {
+            if (applyEntityDeclarations(_entityRegistry, meta.declarations)) {
+              _entitiesDirty = true;
+            }
+          }
+          const entity = _entityRegistry.entities.get(meta.entityKey);
+          const slim: HomeAssistantMetadata = {
+            entityKey: meta.entityKey,
+            role: meta.role,
+            label: meta.label,
+            // The registry is authoritative for online state.
+            online: entity?.online ?? meta.online,
+          };
+          return { ...t, metadata: slim } as DetectorResult;
+        }
         if (t.tag !== "sparkplug") return t;
         const meta = t.metadata as SparkplugMetadata;
         const devices = get().sparkplugDevices;

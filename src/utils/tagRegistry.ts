@@ -20,7 +20,8 @@ export type InsightsTab = "map" | "image" | "device";
 export type IndicatorSettingsKey =
   | "showGeoIndicators"
   | "showImageIndicators"
-  | "showSparkplugIndicators";
+  | "showSparkplugIndicators"
+  | "showHomeAssistantIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -78,6 +79,18 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
       "Show a coloured ring around Sparkplug B edge nodes and devices (offline entities get a dashed red ring)",
     defaultEnabled: true,
     drawerTab: "device",
+  },
+  {
+    id: "homeassistant",
+    label: "Home Assistant",
+    // HA brand blue — distinct from geo cyan and the node heat palette.
+    ringColor: "#41bdf5",
+    settingsKey: "showHomeAssistantIndicators",
+    settingsLabel: "Home Assistant Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to Home Assistant discovery entities (config and state topics)",
+    defaultEnabled: true,
+    drawerTab: null,
   },
 ];
 

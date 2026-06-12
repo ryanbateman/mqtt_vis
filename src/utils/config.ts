@@ -31,6 +31,7 @@ export interface AppConfig {
   showGeoIndicators?: boolean;
   showImageIndicators?: boolean;
   showSparkplugIndicators?: boolean;
+  showHomeAssistantIndicators?: boolean;
 
   // Simulation
   repulsionStrength?: number;

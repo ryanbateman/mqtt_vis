@@ -5,6 +5,7 @@ import { detectImage } from "../utils/detectors/imageDetector";
 import { parseSparkplugTopic, sparkplugDeviceKey, isBirth, isDeath } from "../utils/sparkplug/topic";
 import { decodeSparkplugPayload } from "../utils/sparkplug/decoder";
 import { recordAliases, resolveAliases, type AliasMap } from "../utils/sparkplug/aliases";
+import { detectHomeAssistant } from "../utils/ecosystems/homeassistant/discovery";
 
 /**
  * Payload Analyzer Web Worker
@@ -105,7 +106,7 @@ function detectSparkplug(
 /** Topic-aware detectors — run first; returning results short-circuits. */
 const topicDetectors: Array<
   (topic: string, payload: string, rawBytes: ArrayBuffer | undefined) => DetectorResult[]
-> = [detectSparkplug];
+> = [detectSparkplug, detectHomeAssistant];
 
 /** Raw-string detectors — run on every payload before JSON parsing. */
 const rawDetectors: Array<(payload: string) => DetectorResult[]> = [

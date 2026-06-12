@@ -24,6 +24,12 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     // Matches the sparkplug indicator-ring emerald (tagRegistry.ts).
     color: "#34d399",
   },
+  {
+    id: "homeassistant",
+    label: "Home Assistant",
+    // Matches the homeassistant indicator-ring blue (tagRegistry.ts).
+    color: "#41bdf5",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */

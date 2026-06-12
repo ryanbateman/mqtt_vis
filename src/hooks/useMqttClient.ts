@@ -3,6 +3,7 @@ import { mqttService } from "../services/mqttService";
 import { useTopicStore, startDecayTimer } from "../stores/topicStore";
 import { diagnoseConnectionError } from "../utils/connectionErrors";
 import { isSparkplugTopic } from "../utils/sparkplug/topic";
+import { isEcosystemDefiningTopic } from "../utils/ecosystems/entityOps";
 import type { ConnectionParams } from "../types";
 
 /**
@@ -22,7 +23,10 @@ export function useMqttClient() {
       // Messages the store will immediately discard (retained burst drop)
       // skip ALL per-message work: blob creation, sparkplug byte copies,
       // and the UTF-8 decode. The store keeps its own drop branch too.
-      if (retain && useTopicStore.getState().wouldDropRetained()) {
+      // Ecosystem-defining topics (HA discovery configs) are exempt to
+      // match the store's drop branch — they are always retained.
+      if (retain && useTopicStore.getState().wouldDropRetained()
+          && !isEcosystemDefiningTopic(topic)) {
         return;
       }
 

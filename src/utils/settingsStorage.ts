@@ -49,6 +49,7 @@ export interface SavedSettings {
   showGeoIndicators?: boolean;
   showImageIndicators?: boolean;
   showSparkplugIndicators?: boolean;
+  showHomeAssistantIndicators?: boolean;
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
@@ -109,6 +110,7 @@ function validate(raw: StoredSettings): SavedSettings {
     showGeoIndicators:  validBoolean(raw.showGeoIndicators),
     showImageIndicators: validBoolean(raw.showImageIndicators),
     showSparkplugIndicators: validBoolean(raw.showSparkplugIndicators),
+    showHomeAssistantIndicators: validBoolean(raw.showHomeAssistantIndicators),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),
   };
