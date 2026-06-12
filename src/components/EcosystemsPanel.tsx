@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTopicStore } from "../stores/topicStore";
 import { sparkplugEntitiesView } from "../utils/ecosystems/sparkplugFacade";
 import { getEcosystemDefinition } from "../utils/ecosystemRegistry";
@@ -72,18 +72,30 @@ function StatusDot({ online }: { online: boolean | null }) {
   return <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${color}`} />;
 }
 
-/** One clickable entity row: hover highlights its topic nodes, click selects its anchor. */
+/**
+ * One clickable entity row: hover highlights its topic nodes, click selects
+ * its anchor. Parents pass onToggle to get a collapse chevron (with a child
+ * count while collapsed).
+ */
 function EntityRow({
   entity,
   extraHighlightIds,
   color,
   indent,
+  childCount = 0,
+  expanded = false,
+  onToggle,
 }: {
   entity: DomainEntity;
   /** Additional topic node IDs to highlight on hover (e.g. an edge's devices). */
   extraHighlightIds?: ReadonlySet<string>[];
   color: string;
   indent: boolean;
+  /** Number of child rows (shown while collapsed). */
+  childCount?: number;
+  expanded?: boolean;
+  /** When set, the row gets a collapse chevron. */
+  onToggle?: () => void;
 }) {
   const setHighlightedNodes = useTopicStore((s) => s.setHighlightedNodes);
   const clearHighlights = useTopicStore((s) => s.clearHighlights);
@@ -105,22 +117,56 @@ function EntityRow({
   const metricCount = entity.attributes.metrics;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onMouseEnter={handleEnter}
       onMouseLeave={clearHighlights}
       onClick={() => {
         if (entity.anchorTopicId) setSelectedNodeId(entity.anchorTopicId);
       }}
-      className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left transition-colors hover:bg-gray-700/50 ${
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && entity.anchorTopicId) {
+          setSelectedNodeId(entity.anchorTopicId);
+        }
+      }}
+      className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left transition-colors cursor-pointer hover:bg-gray-700/50 ${
         isSelected ? "bg-gray-700/70" : ""
       } ${indent ? "pl-5" : ""}`}
       title={entity.anchorTopicId ?? undefined}
     >
+      {onToggle && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          title={expanded ? "Collapse" : "Expand"}
+          className="p-0.5 -ml-1 text-gray-500 hover:text-gray-200 transition-colors flex-shrink-0"
+        >
+          <svg
+            className={`w-2.5 h-2.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fillRule="evenodd"
+              d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+      )}
       <StatusDot online={entity.online} />
       <span className="font-mono text-[11px] text-gray-200 truncate flex-1">
         {entity.label}
       </span>
+      {onToggle && !expanded && childCount > 0 && (
+        <span className="text-[10px] font-mono text-gray-500 flex-shrink-0">
+          {childCount}
+        </span>
+      )}
       <span className="text-[9px] uppercase tracking-wider text-gray-500 flex-shrink-0">
         {entity.role === "edge-node" ? "edge" : entity.role}
       </span>
@@ -129,8 +175,30 @@ function EntityRow({
           {metricCount}m
         </span>
       )}
-    </button>
+    </div>
   );
+}
+
+/**
+ * Per-section expansion state. Parents default expanded in small sections
+ * (≤ EXPAND_ALL_THRESHOLD entities) and collapsed in large ones; user
+ * toggles are stored as exceptions to that default.
+ */
+const EXPAND_ALL_THRESHOLD = 12;
+
+function useExpansion(sectionSize: number) {
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
+  const defaultExpanded = sectionSize <= EXPAND_ALL_THRESHOLD;
+  const isExpanded = (key: string) =>
+    toggled.has(key) ? !defaultExpanded : defaultExpanded;
+  const toggle = (key: string) =>
+    setToggled((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  return { isExpanded, toggle };
 }
 
 /** Section heading: ecosystem colour dot, label, and entity count. */
@@ -153,6 +221,7 @@ function SectionHeading({ color, label, count }: { color: string; label: string;
 function SparkplugSection({ entities }: { entities: DomainEntity[] }) {
   const def = getEcosystemDefinition("sparkplug");
   const groups = groupSparkplug(entities);
+  const { isExpanded, toggle } = useExpansion(entities.length);
 
   return (
     <div>
@@ -162,30 +231,38 @@ function SparkplugSection({ entities }: { entities: DomainEntity[] }) {
           <div className="px-2 pt-1 text-[10px] text-gray-500 font-mono truncate">
             {groupId}
           </div>
-          {families.map((family) => (
-            <div key={family.edgeId}>
-              {family.edge ? (
-                <EntityRow
-                  entity={family.edge}
-                  extraHighlightIds={family.devices.map((d) => d.topicNodeIds)}
-                  color={def.color}
-                  indent={false}
-                />
-              ) : (
-                <div className="px-2 py-1 pl-5 text-[11px] font-mono text-gray-500 truncate">
-                  {family.edgeId}
-                </div>
-              )}
-              {family.devices.map((device) => (
-                <EntityRow
-                  key={device.key}
-                  entity={device}
-                  color={def.color}
-                  indent
-                />
-              ))}
-            </div>
-          ))}
+          {families.map((family) => {
+            const familyKey = family.edge?.key ?? `${groupId}/${family.edgeId}`;
+            const expanded = family.devices.length === 0 || isExpanded(familyKey);
+            return (
+              <div key={family.edgeId}>
+                {family.edge ? (
+                  <EntityRow
+                    entity={family.edge}
+                    extraHighlightIds={family.devices.map((d) => d.topicNodeIds)}
+                    color={def.color}
+                    indent={false}
+                    childCount={family.devices.length}
+                    expanded={expanded}
+                    onToggle={family.devices.length > 0 ? () => toggle(familyKey) : undefined}
+                  />
+                ) : (
+                  <div className="px-2 py-1 pl-5 text-[11px] font-mono text-gray-500 truncate">
+                    {family.edgeId}
+                  </div>
+                )}
+                {expanded &&
+                  family.devices.map((device) => (
+                    <EntityRow
+                      key={device.key}
+                      entity={device}
+                      color={def.color}
+                      indent
+                    />
+                  ))}
+              </div>
+            );
+          })}
         </div>
       ))}
     </div>
@@ -195,6 +272,7 @@ function SparkplugSection({ entities }: { entities: DomainEntity[] }) {
 /** Home Assistant section: devices with their entities, orphan entities flat. */
 function HomeAssistantSection({ entities }: { entities: DomainEntity[] }) {
   const def = getEcosystemDefinition("homeassistant");
+  const { isExpanded, toggle } = useExpansion(entities.length);
 
   const byLabel = (a: DomainEntity, b: DomainEntity) => a.label.localeCompare(b.label);
   const devices = entities.filter((e) => e.role === "device").sort(byLabel);
@@ -216,19 +294,27 @@ function HomeAssistantSection({ entities }: { entities: DomainEntity[] }) {
   return (
     <div>
       <SectionHeading color={def.color} label={def.label} count={entities.length} />
-      {devices.map((device) => (
-        <div key={device.key}>
-          <EntityRow
-            entity={device}
-            extraHighlightIds={(childrenByParent.get(device.key) ?? []).map((c) => c.topicNodeIds)}
-            color={def.color}
-            indent={false}
-          />
-          {(childrenByParent.get(device.key) ?? []).map((child) => (
-            <EntityRow key={child.key} entity={child} color={def.color} indent />
-          ))}
-        </div>
-      ))}
+      {devices.map((device) => {
+        const children = childrenByParent.get(device.key) ?? [];
+        const expanded = children.length === 0 || isExpanded(device.key);
+        return (
+          <div key={device.key}>
+            <EntityRow
+              entity={device}
+              extraHighlightIds={children.map((c) => c.topicNodeIds)}
+              color={def.color}
+              indent={false}
+              childCount={children.length}
+              expanded={expanded}
+              onToggle={children.length > 0 ? () => toggle(device.key) : undefined}
+            />
+            {expanded &&
+              children.map((child) => (
+                <EntityRow key={child.key} entity={child} color={def.color} indent />
+              ))}
+          </div>
+        );
+      })}
       {orphans.map((entity) => (
         <EntityRow key={entity.key} entity={entity} color={def.color} indent={false} />
       ))}

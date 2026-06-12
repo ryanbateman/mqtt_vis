@@ -17,6 +17,7 @@ import {
   applyEntityDeclarations,
   applyConfigTombstone,
   recordEntityTopicHit,
+  removeEntityNodeRef,
   isEcosystemDefiningTopic,
 } from "../utils/ecosystems/entityOps";
 import { isHaDiscoveryTopic } from "../utils/ecosystems/homeassistant/discovery";
@@ -504,6 +505,26 @@ function recordSparkplugMessage(
   }
 }
 
+/**
+ * A node was pruned: clean up ecosystem references to it so highlights and
+ * anchors never point at ghosts. Entity/device DEFINITIONS deliberately
+ * survive pruning (HA configs are retained one-shots; sparkplug devices show
+ * offline) — only the per-node references go.
+ */
+function cleanupPrunedNodeReferences(
+  nodeId: string,
+  devices: Map<string, SparkplugDeviceState>,
+): void {
+  if (removeEntityNodeRef(_entityRegistry, nodeId)) _entitiesDirty = true;
+
+  if (isSparkplugTopic(nodeId)) {
+    const info = parseSparkplugTopic(nodeId);
+    const key = info && info.messageType !== "STATE" ? sparkplugDeviceKey(info) : null;
+    const device = key !== null ? devices.get(key) : undefined;
+    if (device?.topicNodeIds.delete(nodeId)) _sparkplugDirty = true;
+  }
+}
+
 /** Walk the topic tree and revoke all image blob URLs. Called on reset/disconnect. */
 function revokeAllBlobUrls(node: TopicNode): void {
   if (node.lastImageBlobUrl) {
@@ -914,6 +935,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
               child.lastImageBlobUrl = null;
             }
             _payloadLru.delete(child.id);
+            cleanupPrunedNodeReferences(child.id, state.sparkplugDevices);
             node.children.delete(segment);
             _treeNodeCount -= 1;
           }

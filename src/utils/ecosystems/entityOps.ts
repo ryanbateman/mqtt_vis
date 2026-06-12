@@ -206,6 +206,31 @@ export function applyConfigTombstone(registry: EntityRegistry, sourceTopic: stri
   return changed;
 }
 
+/**
+ * A topic node was pruned from the tree: drop it from every claiming
+ * entity's seen-topics set and re-anchor entities that pointed at it
+ * (falling back to any other seen member, else null). The claims and the
+ * entity itself stay — definitions are removed only by tombstones; if the
+ * topic publishes again, the recreated node re-binds on the next hit.
+ * Returns true when anything changed.
+ */
+export function removeEntityNodeRef(registry: EntityRegistry, nodeId: string): boolean {
+  const claims = registry.topicIndex.get(nodeId);
+  if (!claims || claims.length === 0) return false;
+
+  let changed = false;
+  for (const claim of claims) {
+    const entity = registry.entities.get(claim.entityKey);
+    if (!entity) continue;
+    if ((entity.topicNodeIds as Set<string>).delete(nodeId)) changed = true;
+    if (entity.anchorTopicId === nodeId) {
+      entity.anchorTopicId = entity.topicNodeIds.values().next().value ?? null;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /** Result of a hot-path topic hit: the matched entity plus what changed. */
 export interface TopicHitResult {
   /** First matched entity — drives the slim node tag. */

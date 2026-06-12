@@ -4,6 +4,7 @@ import {
   applyEntityDeclarations,
   applyConfigTombstone,
   recordEntityTopicHit,
+  removeEntityNodeRef,
   isEcosystemDefiningTopic,
   DOMAIN_ENTITY_CAP,
   type EntityRegistry,
@@ -137,6 +138,33 @@ describe("entity registry", () => {
     expect(registry.entities.has("homeassistant:ent:e1")).toBe(false);
     expect(registry.entities.has("homeassistant:dev:d1")).toBe(false);
     expect(registry.topicIndex.has("home/e1/state")).toBe(false);
+  });
+
+  it("pruned nodes are dropped from seen topics and anchors re-point", () => {
+    applyEntityDeclarations(registry, [
+      makeDecl({ memberTopics: ["home/e1/state", "home/e1/attrs"] }),
+    ]);
+    recordEntityTopicHit(registry, "home/e1/attrs", "home/e1/attrs", "{}");
+    recordEntityTopicHit(registry, "home/e1/state", "home/e1/state", "21.5");
+    const entity = registry.entities.get("homeassistant:ent:e1")!;
+    expect(entity.anchorTopicId).toBe("home/e1/state");
+
+    // Anchor node pruned — falls back to the other seen member.
+    expect(removeEntityNodeRef(registry, "home/e1/state")).toBe(true);
+    expect(entity.topicNodeIds.has("home/e1/state")).toBe(false);
+    expect(entity.anchorTopicId).toBe("home/e1/attrs");
+
+    // Last seen node pruned — anchor clears; the entity itself survives.
+    removeEntityNodeRef(registry, "home/e1/attrs");
+    expect(entity.anchorTopicId).toBeNull();
+    expect(registry.entities.has("homeassistant:ent:e1")).toBe(true);
+
+    // Re-publishing on a claimed topic re-binds the recreated node.
+    recordEntityTopicHit(registry, "home/e1/state", "home/e1/state", "22");
+    expect(entity.anchorTopicId).toBe("home/e1/state");
+
+    // Unclaimed node ids are no-ops.
+    expect(removeEntityNodeRef(registry, "other/topic")).toBe(false);
   });
 
   it("tombstones keep a device that still has other children", () => {
