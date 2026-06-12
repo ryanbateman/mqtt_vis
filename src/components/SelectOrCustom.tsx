@@ -52,8 +52,6 @@ export function SelectOrCustom({
   const [mode, setMode] = useState<"list" | "custom">("custom");
   // Last custom text — restored when re-entering custom mode.
   const [customDraft, setCustomDraft] = useState(value);
-  // Last known-option selection — restored when leaving custom mode.
-  const lastListValue = useRef(isKnown ? value : (options[0]?.value ?? ""));
   const inputRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
 
@@ -63,10 +61,13 @@ export function SelectOrCustom({
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
-  /** Back to the dropdown, restoring the last known selection. */
-  const revertToList = (refocus: boolean) => {
+  /**
+   * Show the dropdown. Deliberately does NOT change the value — browsing
+   * the list is not choosing from it. While the value is custom (or empty)
+   * the select displays the leading "Custom…" option, which is truthful.
+   */
+  const showList = (refocus: boolean) => {
     setMode("list");
-    onChange(lastListValue.current);
     if (refocus) requestAnimationFrame(() => selectRef.current?.focus());
   };
 
@@ -86,10 +87,10 @@ export function SelectOrCustom({
             }}
             onFocus={onFocus}
             onKeyDown={(e) => {
-              if (e.key === "Escape") revertToList(true);
+              if (e.key === "Escape") showList(true);
             }}
             onBlur={() => {
-              if (value === "") revertToList(false);
+              if (value === "") showList(false);
             }}
             disabled={disabled}
             placeholder={placeholder}
@@ -97,7 +98,7 @@ export function SelectOrCustom({
           />
           <button
             type="button"
-            onClick={() => revertToList(true)}
+            onClick={() => showList(true)}
             disabled={disabled}
             title="Choose from list"
             className="absolute inset-y-0 right-0 pl-1.5 pr-3 flex items-center text-gray-500 hover:text-gray-200 disabled:opacity-50 transition-colors"
@@ -121,12 +122,14 @@ export function SelectOrCustom({
       <select
         id={id}
         ref={selectRef}
-        value={isKnown ? value : (options[0]?.value ?? "")}
+        // A custom (or empty) value displays as the hidden placeholder, so
+        // every visible option — including "Custom…" — fires a change event
+        // when picked (re-selecting the displayed option never does).
+        value={isKnown ? value : ""}
         onChange={(e) => {
           if (e.target.value === CUSTOM_SENTINEL) {
             enterCustom();
           } else {
-            lastListValue.current = e.target.value;
             onChange(e.target.value);
           }
         }}
@@ -134,12 +137,15 @@ export function SelectOrCustom({
         disabled={disabled}
         className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
       >
+        <option value="" hidden disabled>
+          Select…
+        </option>
+        <option value={CUSTOM_SENTINEL}>{customLabel}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
-        <option value={CUSTOM_SENTINEL}>{customLabel}</option>
       </select>
     </div>
   );
