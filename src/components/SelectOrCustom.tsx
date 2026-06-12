@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 /** One selectable option. */
 export interface SelectOrCustomOption {
@@ -10,12 +10,13 @@ export interface SelectOrCustomOption {
 const CUSTOM_SENTINEL = "__custom__";
 
 /**
- * A single morphing form control: a native <select> of known options that
- * converts to a text input when "Custom…" is chosen, and reverts to the
- * dropdown when the input is emptied (blur), Escape is pressed, or the
- * embedded chevron button is clicked. A compact take on the
- * "Other (please specify)" reveal pattern — both modes keep native form
- * semantics, focus follows the morph, and custom text survives round-trips.
+ * A single morphing form control: a text input by default (showing the
+ * current value), with an embedded chevron that swaps in a native <select>
+ * of known options; choosing "Custom…" morphs back. The dropdown also
+ * appears when the input is emptied (blur) or Escape is pressed. A compact
+ * take on the "Other (please specify)" reveal pattern — both modes keep
+ * native form semantics, focus follows the morph, and custom text survives
+ * round-trips.
  *
  * Controlled: `value` is the real field value (URL/filter string);
  * mode and the remembered custom draft are internal.
@@ -47,25 +48,14 @@ export function SelectOrCustom({
   leading?: ReactNode;
 }) {
   const isKnown = options.some((o) => o.value === value);
-  const [mode, setMode] = useState<"list" | "custom">(
-    () => (isKnown || value === "" ? "list" : "custom"),
-  );
+  // Custom (text) mode is the default — the dropdown is one chevron away.
+  const [mode, setMode] = useState<"list" | "custom">("custom");
   // Last custom text — restored when re-entering custom mode.
-  const [customDraft, setCustomDraft] = useState(() => (isKnown ? "" : value));
+  const [customDraft, setCustomDraft] = useState(value);
   // Last known-option selection — restored when leaving custom mode.
   const lastListValue = useRef(isKnown ? value : (options[0]?.value ?? ""));
   const inputRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
-
-  // List mode displays a concrete option — if the incoming value is empty
-  // (e.g. no saved filter), true-up the parent state to the displayed
-  // option once on mount so the form value matches what the user sees.
-  useEffect(() => {
-    if (mode === "list" && value === "" && options.length > 0) {
-      onChange(options[0].value);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const enterCustom = () => {
     setMode("custom");
@@ -110,7 +100,7 @@ export function SelectOrCustom({
             onClick={() => revertToList(true)}
             disabled={disabled}
             title="Choose from list"
-            className="absolute inset-y-0 right-0 px-2 flex items-center text-gray-500 hover:text-gray-200 disabled:opacity-50 transition-colors"
+            className="absolute inset-y-0 right-0 pl-1.5 pr-3 flex items-center text-gray-500 hover:text-gray-200 disabled:opacity-50 transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
               <path
