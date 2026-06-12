@@ -7,9 +7,18 @@ import { useTopicStore } from "../stores/topicStore";
 import { mqttService } from "../services/mqttService";
 import { formatLogTimestamp } from "../utils/connectionErrors";
 import { SliderRow, InfoTooltip } from "./SettingsPanel";
+import { ECOSYSTEM_REGISTRY } from "../utils/ecosystemRegistry";
 
 /** Sentinel value used as the <select> value for the Custom Broker option. */
 const CUSTOM_BROKER = "__custom__";
+
+/** Sentinel value used as the <select> value for the Custom Topic option. */
+const CUSTOM_TOPIC = "__custom__";
+
+/** The ecosystem whose preset filter exactly matches the given string, if any. */
+function matchEcosystemFilter(filter: string) {
+  return ECOSYSTEM_REGISTRY.find((e) => e.topicFilter === filter);
+}
 
 /** Generate a random client ID with a recognisable prefix. */
 function generateClientId(): string {
@@ -117,6 +126,8 @@ export function ConnectionPanel({
   const setBurstWindowDuration = useTopicStore((s) => s.setBurstWindowDuration);
   const pruneTimeout = useTopicStore((s) => s.pruneTimeout);
   const setPruneTimeout = useTopicStore((s) => s.setPruneTimeout);
+  const followEcosystemTopics = useTopicStore((s) => s.followEcosystemTopics);
+  const setFollowEcosystemTopics = useTopicStore((s) => s.setFollowEcosystemTopics);
 
   // Auto-switch to Log tab when an error message arrives so the user sees it.
   useEffect(() => {
@@ -130,9 +141,42 @@ export function ConnectionPanel({
   // The last custom URL the user typed/used — restored when they pick "Custom Broker"
   const [customBrokerUrl, setCustomBrokerUrl] = useState(initialBrokerState.customBrokerUrl);
 
-  const [topicFilter, setTopicFilter] = useState(
-    urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? ""
+  // Topic filter + its ecosystem-preset dropdown (mirrors the broker pair).
+  const initialTopicFilter = urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? "";
+  const [topicFilter, setTopicFilter] = useState(initialTopicFilter);
+  const [topicDropdownValue, setTopicDropdownValue] = useState(
+    () => matchEcosystemFilter(initialTopicFilter)?.id ?? CUSTOM_TOPIC,
   );
+  // The last custom filter the user typed — restored when they pick Custom.
+  const [customTopicFilter, setCustomTopicFilter] = useState(
+    () => (matchEcosystemFilter(initialTopicFilter) ? "" : initialTopicFilter),
+  );
+
+  /** Dropdown change: ecosystem preset populates the input; Custom restores. */
+  const handleTopicDropdownChange = useCallback((value: string) => {
+    if (value === CUSTOM_TOPIC) {
+      setTopicFilter(customTopicFilter);
+      setTopicDropdownValue(CUSTOM_TOPIC);
+      return;
+    }
+    const def = ECOSYSTEM_REGISTRY.find((e) => e.id === value);
+    if (def) {
+      setTopicFilter(def.topicFilter);
+      setTopicDropdownValue(def.id);
+    }
+  }, [customTopicFilter]);
+
+  /** Manual edits sync the dropdown (exact preset match, else Custom). */
+  const handleTopicFilterChange = useCallback((text: string) => {
+    setTopicFilter(text);
+    const eco = matchEcosystemFilter(text);
+    if (eco) {
+      setTopicDropdownValue(eco.id);
+    } else {
+      setTopicDropdownValue(CUSTOM_TOPIC);
+      setCustomTopicFilter(text);
+    }
+  }, []);
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
   const [showAuth, setShowAuth] = useState(false);
@@ -401,10 +445,24 @@ export function ConnectionPanel({
                 <label className="block text-xs font-medium text-gray-400 mb-1">
                   Topic Filter
                 </label>
+                <select
+                  value={topicDropdownValue}
+                  onChange={(e) => handleTopicDropdownChange(e.target.value)}
+                  onFocus={cancelReconnect}
+                  disabled={isConnected}
+                  className="w-full px-3 py-1.5 mb-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
+                >
+                  <option value={CUSTOM_TOPIC}>Custom Topic</option>
+                  {ECOSYSTEM_REGISTRY.map((eco) => (
+                    <option key={eco.id} value={eco.id}>
+                      {eco.label} ({eco.topicFilter})
+                    </option>
+                  ))}
+                </select>
                 <input
                   type="text"
                   value={topicFilter}
-                  onChange={(e) => setTopicFilter(e.target.value)}
+                  onChange={(e) => handleTopicFilterChange(e.target.value)}
                   onFocus={cancelReconnect}
                   disabled={isConnected}
                   placeholder="#"
@@ -582,6 +640,20 @@ export function ConnectionPanel({
                   disabled={burstSettingsLocked}
                 />
               )}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-medium text-gray-400">
+                    Follow Ecosystem Topics
+                  </label>
+                  <InfoTooltip text="Auto-subscribe to state and availability topics declared by ecosystem documents (e.g. Home Assistant discovery configs pointing at zigbee2mqtt/...) so entities show live data even when those topics fall outside the topic filter. Capped at 2000 extra topics." />
+                </div>
+                <input
+                  type="checkbox"
+                  checked={followEcosystemTopics}
+                  onChange={(e) => setFollowEcosystemTopics(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                />
+              </div>
               <SliderRow
                 label="Prune Idle Nodes"
                 tooltip="Remove nodes that stop receiving messages after this time. Helps clear retained message clutter after initial connect."

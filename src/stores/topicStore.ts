@@ -16,10 +16,13 @@ import {
   clearEntityRegistry,
   applyEntityDeclarations,
   applyConfigTombstone,
+  collectDeclaredTopics,
   recordEntityTopicHit,
   removeEntityNodeRef,
   isEcosystemDefiningTopic,
 } from "../utils/ecosystems/entityOps";
+import { mqttTopicMatches } from "../utils/mqttMatch";
+import { mqttService } from "../services/mqttService";
 import { isHaDiscoveryTopic } from "../utils/ecosystems/homeassistant/discovery";
 import { recordFrigateMessage } from "../utils/ecosystems/frigate";
 import { recordShellyMessage } from "../utils/ecosystems/shelly";
@@ -135,6 +138,14 @@ interface TopicStoreState {
   showFrigateIndicators: boolean;
   /** Whether to show Shelly device indicator rings in the graph. */
   showShellyIndicators: boolean;
+  /**
+   * Whether to auto-subscribe to ecosystem-declared state/availability
+   * topics that fall outside the primary filter (e.g. HA discovery configs
+   * pointing at zigbee2mqtt/...). Makes entities live instead of static.
+   */
+  followEcosystemTopics: boolean;
+  /** Toggle follow-on ecosystem subscriptions. */
+  setFollowEcosystemTopics: (enabled: boolean) => void;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -613,6 +624,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showHomeAssistantIndicators: saved.showHomeAssistantIndicators ?? cfg.showHomeAssistantIndicators ?? true,
   showFrigateIndicators: saved.showFrigateIndicators ?? cfg.showFrigateIndicators ?? true,
   showShellyIndicators:  saved.showShellyIndicators  ?? cfg.showShellyIndicators  ?? true,
+  followEcosystemTopics: saved.followEcosystemTopics ?? cfg.followEcosystemTopics ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -1234,6 +1246,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showHomeAssistantIndicators: cfg.showHomeAssistantIndicators ?? true,
       showFrigateIndicators: cfg.showFrigateIndicators ?? true,
       showShellyIndicators: cfg.showShellyIndicators ?? true,
+      followEcosystemTopics: cfg.followEcosystemTopics ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
@@ -1326,6 +1339,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     set({ dropRetainedBurst: enabled });
     persistSettings({ dropRetainedBurst: enabled });
   },
+  setFollowEcosystemTopics: (enabled: boolean) => {
+    set({ followEcosystemTopics: enabled });
+    persistSettings({ followEcosystemTopics: enabled });
+  },
   setBurstWindowDuration: (value: number) => {
     set({ burstWindowDuration: value });
     persistSettings({ burstWindowDuration: value });
@@ -1386,6 +1403,18 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           if (meta.declarations && meta.declarations.length > 0) {
             if (applyEntityDeclarations(_entityRegistry, meta.declarations)) {
               _entitiesDirty = true;
+            }
+            // Follow declared state/availability topics that the primary
+            // filter doesn't cover — otherwise entities stay static
+            // (HA configs point at zigbee2mqtt/... etc.). Covered topics
+            // are skipped: overlapping subscriptions mean duplicate
+            // deliveries on most brokers.
+            const state = get();
+            if (state.followEcosystemTopics) {
+              const uncovered = collectDeclaredTopics(meta.declarations).filter(
+                (topic) => !mqttTopicMatches(state.topicFilter, topic),
+              );
+              if (uncovered.length > 0) mqttService.followTopics(uncovered);
             }
           }
           const entity = _entityRegistry.entities.get(meta.entityKey);

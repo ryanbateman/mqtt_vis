@@ -33,6 +33,16 @@ const MAX_LOG_ENTRIES = 20;
 const MAX_RECONNECT_ATTEMPTS = 3;
 
 /**
+ * Maximum follow-on subscriptions (ecosystem-declared state/availability
+ * topics) per connection. Matches the entity-cap order of magnitude while
+ * staying a polite client on shared brokers.
+ */
+const MAX_FOLLOW_TOPICS = 2000;
+
+/** Filters per SUBSCRIBE packet when following in bulk. */
+const FOLLOW_BATCH_SIZE = 200;
+
+/**
  * Thin wrapper around mqtt.js for browser WebSocket connections.
  * Manages a single client instance with connect/disconnect lifecycle,
  * a connection event log, and a capped auto-reconnect strategy.
@@ -44,6 +54,9 @@ export class MqttService {
   private _log: ConnectionLogEntry[] = [];
   private _reconnectAttempts = 0;
   private _lastBrokerUrl = "";
+  /** Follow-on subscriptions made this connection (dedupe + cap). */
+  private _followed = new Set<string>();
+  private _followCapWarned = false;
 
   /** The broker URL from the most recent connect() call. */
   get lastBrokerUrl(): string {
@@ -89,10 +102,44 @@ export class MqttService {
     client.end(true);
   }
 
+  /**
+   * Subscribe to additional exact topics declared by ecosystem documents
+   * (HA discovery state/availability topics living outside the primary
+   * filter). Deduped per connection, capped at MAX_FOLLOW_TOPICS, sent in
+   * batches; mqtt.js re-subscribes them automatically on reconnect.
+   * Returns the number of newly followed topics.
+   */
+  followTopics(topics: string[]): number {
+    if (!this.client || this.client.disconnected) return 0;
+
+    const fresh: string[] = [];
+    for (const topic of topics) {
+      if (this._followed.has(topic)) continue;
+      if (this._followed.size + fresh.length >= MAX_FOLLOW_TOPICS) {
+        if (!this._followCapWarned) {
+          this._followCapWarned = true;
+          this.log(`Follow-topic cap (${MAX_FOLLOW_TOPICS}) reached — not following further ecosystem topics.`);
+        }
+        break;
+      }
+      fresh.push(topic);
+    }
+    if (fresh.length === 0) return 0;
+
+    for (const topic of fresh) this._followed.add(topic);
+    for (let i = 0; i < fresh.length; i += FOLLOW_BATCH_SIZE) {
+      this.client.subscribe(fresh.slice(i, i + FOLLOW_BATCH_SIZE), { qos: 0 });
+    }
+    this.log(`Following ${fresh.length} ecosystem topic${fresh.length === 1 ? "" : "s"} (total ${this._followed.size})`);
+    return fresh.length;
+  }
+
   /** Connect to an MQTT broker and subscribe to the given topic filter. */
   connect(params: ConnectionParams): void {
     this.disconnect();
     this._lastBrokerUrl = params.brokerUrl;
+    this._followed.clear();
+    this._followCapWarned = false;
     this._reconnectAttempts = 0;
     // Preserve the log across reconnects within the same session;
     // clear it only on a fresh user-initiated connect.

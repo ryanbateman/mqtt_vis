@@ -208,6 +208,20 @@ export function applyEntityDeclarations(
 }
 
 /**
+ * All concrete topics a set of declarations claims (state/command/
+ * availability) — the follow-on subscription candidates for live entity
+ * state when those topics fall outside the primary filter.
+ */
+export function collectDeclaredTopics(declarations: EntityDeclaration[]): string[] {
+  const out = new Set<string>();
+  for (const decl of declarations) {
+    for (const topic of decl.memberTopics) out.add(topic);
+    for (const avail of decl.availability) out.add(avail.topic);
+  }
+  return [...out];
+}
+
+/**
  * Handle an empty retained payload on a defining topic: the entity it
  * declared is removed. A parent device is removed too once its last child
  * goes. Returns true when anything was removed.

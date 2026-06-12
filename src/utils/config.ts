@@ -34,6 +34,7 @@ export interface AppConfig {
   showHomeAssistantIndicators?: boolean;
   showFrigateIndicators?: boolean;
   showShellyIndicators?: boolean;
+  followEcosystemTopics?: boolean;
 
   // Simulation
   repulsionStrength?: number;

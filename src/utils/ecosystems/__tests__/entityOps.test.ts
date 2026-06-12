@@ -3,6 +3,7 @@ import {
   createEntityRegistry,
   applyEntityDeclarations,
   applyConfigTombstone,
+  collectDeclaredTopics,
   recordEntityTopicHit,
   removeEntityNodeRef,
   isEcosystemDefiningTopic,
@@ -30,6 +31,25 @@ describe("isEcosystemDefiningTopic", () => {
   it("matches HA discovery topics only", () => {
     expect(isEcosystemDefiningTopic("homeassistant/sensor/x/config")).toBe(true);
     expect(isEcosystemDefiningTopic("zigbee2mqtt/lamp")).toBe(false);
+  });
+});
+
+describe("collectDeclaredTopics", () => {
+  it("collects member and availability topics, deduplicated", () => {
+    const topics = collectDeclaredTopics([
+      makeDecl({
+        memberTopics: ["z2m/lamp", "z2m/lamp/set"],
+        availability: [
+          { topic: "z2m/lamp/availability", payloadAvailable: "online", payloadNotAvailable: "offline" },
+        ],
+      }),
+      makeDecl({
+        key: "homeassistant:ent:e2",
+        memberTopics: ["z2m/lamp"],
+        availability: [],
+      }),
+    ]);
+    expect(topics.sort()).toEqual(["z2m/lamp", "z2m/lamp/availability", "z2m/lamp/set"]);
   });
 });
 
