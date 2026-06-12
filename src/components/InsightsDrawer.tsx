@@ -634,8 +634,8 @@ export function InsightsDrawer({
   })();
 
   return (
-    <div className={`absolute bottom-4 right-4 z-20 w-96 max-h-[calc(100vh-2rem)] flex flex-col bg-gray-900/95 backdrop-blur-sm border rounded-lg shadow-xl overflow-hidden animate-slide-up ${
-      isPinned ? "border-amber-600/50 ring-1 ring-amber-500/20" : "border-gray-700"
+    <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${
+      isPinned ? "ring-1 ring-inset ring-amber-500/30" : ""
     }`}>
       {/* Header */}
       <div className={`flex items-start gap-2 p-3 pb-2 border-b flex-shrink-0 ${isPinned ? "border-amber-600/40" : "border-gray-700/50"}`}>

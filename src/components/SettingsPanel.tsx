@@ -1,8 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTopicStore } from "../stores/topicStore";
-import { getConfig } from "../utils/config";
-import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
 import { TAG_REGISTRY, type TagDefinition } from "../utils/tagRegistry";
 
 type SettingsTab = "visual" | "labels" | "simulation";
@@ -163,11 +161,6 @@ function TabButton({
  * tabbed sections and info-icon tooltips.
  */
 export function SettingsPanel() {
-  const cfg = getConfig();
-  const savedSettings = loadSavedSettings();
-  const [collapsed, setCollapsed] = useState(
-    savedSettings.settingsCollapsed ?? cfg.settingsCollapsed ?? false
-  );
   const [activeTab, setActiveTab] = useState<SettingsTab>("visual");
   const emaTau = useTopicStore((s) => s.emaTau);
   const setEmaTau = useTopicStore((s) => s.setEmaTau);
@@ -215,36 +208,8 @@ export function SettingsPanel() {
   }, [confirmReset]);
 
   return (
-    <div className="absolute top-4 right-4 z-10 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-64 max-h-[calc(100vh-2rem)] overflow-y-auto">
-      <button
-        type="button"
-        onClick={() => {
-          const next = !collapsed;
-          setCollapsed(next);
-          persistSettings({ settingsCollapsed: next });
-        }}
-        className="flex items-center gap-1.5 text-sm font-medium text-gray-300 hover:text-gray-100 transition-colors w-full"
-      >
-        <svg
-          className={`w-3 h-3 transition-transform ${collapsed ? "" : "rotate-90"}`}
-          fill="currentColor"
-          viewBox="0 0 20 20"
-        >
-          <path
-            fillRule="evenodd"
-            d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-            clipRule="evenodd"
-          />
-        </svg>
-        Settings
-      </button>
-
-      {/* Animated collapsible body */}
-      <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)] ${
-        collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
-      }`}>
-        <div className="overflow-hidden">
-        <>
+    <div className="p-4 pt-1">
+      <>
         {/* Tab bar */}
         <div className="flex rounded overflow-hidden border border-gray-600 mt-3">
           <TabButton label="Visual" active={activeTab === "visual"} onClick={() => setActiveTab("visual")} />
@@ -574,9 +539,7 @@ export function SettingsPanel() {
             </>
           )}
         </button>
-        </>
-        </div>
-      </div>
+      </>
     </div>
   );
 }

@@ -3,7 +3,6 @@ import type { ConnectionParams, ConnectionStatus } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 import { getConfig } from "../utils/config";
 import { getBrokerIcon, CUSTOM_BROKER_ICON } from "../utils/brokerIcons";
-import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
 import { useTopicStore } from "../stores/topicStore";
 import { mqttService } from "../services/mqttService";
 import { formatLogTimestamp } from "../utils/connectionErrors";
@@ -98,7 +97,6 @@ export function ConnectionPanel({
 }: ConnectionPanelProps) {
   const cfg = getConfig();
   const saved = loadSavedConnection();
-  const savedSettings = loadSavedSettings();
   const urlParams = useMemo(() => getUrlParams(), []);
 
   const brokers = cfg.brokers ?? [];
@@ -110,11 +108,7 @@ export function ConnectionPanel({
     []
   );
 
-  const [collapsed, setCollapsed] = useState(
-    savedSettings.connectionCollapsed ?? cfg.connectionCollapsed ?? false
-  );
   const [activeTab, setActiveTab] = useState<"connect" | "filter" | "log">("connect");
-  const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
   const dropRetainedBurst = useTopicStore((s) => s.dropRetainedBurst);
   const setDropRetainedBurst = useTopicStore((s) => s.setDropRetainedBurst);
   const burstWindowActive = useTopicStore((s) => s.burstWindowActive);
@@ -123,14 +117,6 @@ export function ConnectionPanel({
   const setBurstWindowDuration = useTopicStore((s) => s.setBurstWindowDuration);
   const pruneTimeout = useTopicStore((s) => s.pruneTimeout);
   const setPruneTimeout = useTopicStore((s) => s.setPruneTimeout);
-
-  // Auto-collapse when a node is selected (to make room for the DetailPanel).
-  // Deselecting does NOT re-expand — the user can manually expand if they want.
-  useEffect(() => {
-    if (selectedNodeId !== null) {
-      setCollapsed(true);
-    }
-  }, [selectedNodeId]);
 
   // Auto-switch to Log tab when an error message arrives so the user sees it.
   useEffect(() => {
@@ -288,34 +274,9 @@ export function ConnectionPanel({
       : (cfg.description ?? DEFAULT_DESCRIPTION);
 
   return (
-    <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-4 shadow-xl w-80">
-      <button
-        type="button"
-        onClick={() => {
-          const next = !collapsed;
-          setCollapsed(next);
-          persistSettings({ connectionCollapsed: next });
-        }}
-        className="flex items-center gap-2 w-full hover:opacity-80 transition-opacity"
-      >
-        <svg
-          className={`w-3 h-3 text-gray-400 transition-transform ${collapsed ? "" : "rotate-90"}`}
-          fill="currentColor"
-          viewBox="0 0 20 20"
-        >
-          <path
-            fillRule="evenodd"
-            d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-            clipRule="evenodd"
-          />
-        </svg>
+    <div className="p-4 pt-3 flex flex-col min-h-0">
+      <div className="flex items-center gap-2">
         <span className="text-sm font-semibold text-gray-200">MQTT Visualiser</span>
-        {/* Error hint visible even when panel is collapsed */}
-        {collapsed && errorMessage && connectionStatus === "error" && (
-          <span className="ml-2 text-[10px] text-red-400 truncate max-w-[100px]" title={errorMessage}>
-            {errorMessage}
-          </span>
-        )}
         <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
           {burstWindowActive && (
             <svg
@@ -333,14 +294,9 @@ export function ConnectionPanel({
           )}
           <div className={`w-2.5 h-2.5 rounded-full ${statusColor}`} />
         </div>
-      </button>
+      </div>
 
-      {/* Animated collapsible body — always mounted, grid-row collapses to 0fr */}
-      <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)] ${
-        collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
-      }`}>
-        <div className="overflow-hidden">
-          <>
+      <>
             {/* Description */}
             {panelDescription && (
               <p className="text-[11px] text-gray-500 leading-snug mt-1.5 mb-0">
@@ -666,9 +622,7 @@ export function ConnectionPanel({
               )}
             </div>
           )}
-          </>
-        </div>
-      </div>
+      </>
 
       <div className="flex justify-between items-center mt-3">
         <span className="text-[10px] text-gray-600">v{__APP_VERSION__}</span>

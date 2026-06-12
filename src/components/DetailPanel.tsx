@@ -85,7 +85,7 @@ export function DetailPanel({
   const sparkplugMetadata = getTag(topicNode.payloadTags, "sparkplug")?.metadata ?? null;
 
   return (
-    <div className="bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl w-80 flex flex-col overflow-hidden">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Header with topic path and close button */}
       <div className="flex items-start gap-2 p-3 pb-2 border-b border-gray-700/50">
         <div className="flex-1 min-w-0">
