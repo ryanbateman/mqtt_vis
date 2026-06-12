@@ -2,53 +2,56 @@ import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useMqttClient, loadSavedConnection } from "./hooks/useMqttClient";
 import { useTopicStore } from "./stores/topicStore";
 import { ConnectionPanel } from "./components/ConnectionPanel";
-import { DetailPanel } from "./components/DetailPanel";
 import { EcosystemsPanel, useDomainEntities } from "./components/EcosystemsPanel";
-import { InsightsDrawer } from "./components/InsightsDrawer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SideRail, type RailSection } from "./components/SideRail";
+import { TopicDrawer, type TopicTab } from "./components/TopicDrawer";
 import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
 import { getConfig } from "./utils/config";
 import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
-import { getTag, TAG_REGISTRY, type InsightsTab } from "./utils/tagRegistry";
+import { getTag, TAG_REGISTRY } from "./utils/tagRegistry";
 import { loadSavedSettings, persistSettings } from "./utils/settingsStorage";
 import type { GeoMetadata, GeoNode } from "./types/payloadTags";
 import type { SparkplugMetadata } from "./types/sparkplug";
 
-/** State for the Insights section — tracks which topic is shown and what content is available. */
-interface InsightsState {
+/** State for the Topic drawer — which topic is shown, its detected content, and the active tab. */
+interface DrawerState {
   topicPath: string;
   geo: GeoMetadata | null;
   imageBlobUrl: string | null;
   sparkplug: SparkplugMetadata | null;
-  activeTab: InsightsTab;
+  activeTab: TopicTab;
 }
 
 /** Left rail section identifiers. */
 type LeftSection = "connection" | "settings";
 /** Right rail section identifiers. */
-type RightSection = "detail" | "insights" | "ecosystems";
+type RightSection = "topic" | "ecosystems";
 
 /**
- * Pick the insights tab to show: keep the current tab when its content is still
- * available, otherwise fall back to the first available tab in registry order.
+ * Pick the drawer tab to show. Sticky while browsing: an already-open drawer
+ * keeps the current tab when it is still valid for the new node. On a fresh
+ * open — or when the current tab has no content — prefer the first available
+ * insight tab in registry order (the old auto-open behaviour), else Payload.
  */
-function resolveInsightsTab(
-  current: InsightsTab,
+function resolveTopicTab(
+  current: TopicTab,
+  freshOpen: boolean,
   available: { geo: boolean; image: boolean; sparkplug: boolean },
-): InsightsTab {
-  const tabHasContent: Record<InsightsTab, boolean> = {
+): TopicTab {
+  const tabHasContent: Record<TopicTab, boolean> = {
+    payload: true,
     map: available.geo,
     image: available.image,
     device: available.sparkplug,
   };
-  if (tabHasContent[current]) return current;
+  if (!freshOpen && tabHasContent[current]) return current;
   for (const def of TAG_REGISTRY) {
     if (def.drawerTab && tabHasContent[def.drawerTab]) return def.drawerTab;
   }
-  return current;
+  return "payload";
 }
 
 function App() {
@@ -74,9 +77,9 @@ function App() {
     persistSettings({ connectionCollapsed: id !== "connection" });
   }, []);
 
-  // Insights section state
-  const [insightsState, setInsightsState] = useState<InsightsState | null>(null);
-  const [isInsightsPinned, setIsInsightsPinned] = useState(false);
+  // Topic drawer state
+  const [drawerState, setDrawerState] = useState<DrawerState | null>(null);
+  const [isPinned, setIsPinned] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"single" | "all">("single");
   const [geoNavIndex, setGeoNavIndex] = useState(0);
 
@@ -87,55 +90,22 @@ function App() {
     return collectGeoNodes(root);
   }, [graphNodes]);
 
-  /** Open the insights section on a given tab for the selected node. */
-  const openInsightsForSelected = useCallback((activeTab: InsightsTab) => {
-    if (!selectedNodeId) return;
-    const root = useTopicStore.getState().root;
-    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
-    const node = findNode(root, segments);
-    setInsightsState({
-      topicPath: selectedNodeId,
-      geo: getTag(node?.payloadTags, "geo")?.metadata ?? null,
-      imageBlobUrl: node?.lastImageBlobUrl ?? null,
-      sparkplug: getTag(node?.payloadTags, "sparkplug")?.metadata ?? null,
-      activeTab,
-    });
+  /** Close the drawer: deselect the node, clear state, unpin. */
+  const handleCloseDrawer = useCallback(() => {
+    setSelectedNodeId(null);
+    setDrawerState(null);
+    setIsPinned(false);
     setDrawerMode("single");
-    setRightActive("insights");
-  }, [selectedNodeId]);
-
-  /** Open the insights section to show a geo map for the selected node. */
-  const handleOpenInsights = useCallback(
-    () => openInsightsForSelected("map"),
-    [openInsightsForSelected],
-  );
-
-  /** Open the insights section to show an image preview for the selected node. */
-  const handleOpenInsightsImage = useCallback(
-    () => openInsightsForSelected("image"),
-    [openInsightsForSelected],
-  );
-
-  /** Open the insights section to show sparkplug device metrics for the selected node. */
-  const handleOpenInsightsDevice = useCallback(
-    () => openInsightsForSelected("device"),
-    [openInsightsForSelected],
-  );
-
-  const handleCloseInsights = useCallback(() => {
-    setInsightsState(null);
-    setIsInsightsPinned(false);
-    setDrawerMode("single");
-  }, []);
+  }, [setSelectedNodeId]);
 
   const handleTogglePin = useCallback(() => {
-    setIsInsightsPinned((prev) => !prev);
+    setIsPinned((prev) => !prev);
   }, []);
 
   const handleSetMode = useCallback((mode: "single" | "all") => {
     if (mode === "all") {
       // Switching to all-geo mode — unpin since pinning is single-topic only
-      setIsInsightsPinned(false);
+      setIsPinned(false);
     }
     setDrawerMode(mode);
   }, []);
@@ -149,7 +119,7 @@ function App() {
     const root = useTopicStore.getState().root;
     const segments = target.topicPath === "" ? [] : target.topicPath.split("/");
     const node = findNode(root, segments);
-    setInsightsState((prev) => ({
+    setDrawerState((prev) => ({
       topicPath: target.topicPath,
       geo: target.geo,
       imageBlobUrl: node?.lastImageBlobUrl ?? null,
@@ -157,48 +127,46 @@ function App() {
       activeTab: prev?.activeTab ?? "map",
     }));
     // Navigating while pinned unpins — the user clearly wants a different topic
-    setIsInsightsPinned(false);
+    setIsPinned(false);
   }, [geoNodes]);
 
-  /** Switch the active tab in the insights section. */
-  const handleSetInsightsTab = useCallback((tab: InsightsTab) => {
-    setInsightsState((prev) => prev ? { ...prev, activeTab: tab } : null);
+  /** Switch the active tab in the topic drawer. */
+  const handleSetTab = useCallback((tab: TopicTab) => {
+    setDrawerState((prev) => prev ? { ...prev, activeTab: tab } : null);
   }, []);
 
-  // Sync geoNavIndex when the insights topic changes (e.g. opening from DetailPanel)
+  // Sync geoNavIndex when the drawer's topic changes
   useEffect(() => {
-    if (!insightsState) return;
-    const idx = geoNodes.findIndex((n) => n.topicPath === insightsState.topicPath);
+    if (!drawerState) return;
+    const idx = geoNodes.findIndex((n) => n.topicPath === drawerState.topicPath);
     if (idx >= 0) setGeoNavIndex(idx);
-  }, [insightsState, geoNodes]);
+  }, [drawerState, geoNodes]);
 
-  // Close insights (and unpin) on disconnect — the topic tree is
-  // about to be cleared so the pinned map would show stale data.
+  // Close the drawer (and unpin) on disconnect — the topic tree is
+  // about to be cleared so the pinned content would be stale.
   useEffect(() => {
-    if (connectionStatus === "disconnected" && insightsState) {
-      setInsightsState(null);
-      setIsInsightsPinned(false);
+    if (connectionStatus === "disconnected" && drawerState) {
+      setDrawerState(null);
+      setIsPinned(false);
       setDrawerMode("single");
     }
-  }, [connectionStatus, insightsState]);
+  }, [connectionStatus, drawerState]);
 
-  // Selecting a node drives the right rail: nodes with detected insight
-  // content (geo, image, sparkplug) activate the Insights section on the
-  // appropriate tab (the previous drawer auto-open behaviour); nodes without
-  // activate the Topic section. Deselecting collapses both. When pinned or
-  // in all-geo mode, the insights content stays as-is regardless of selection.
+  // Selecting a node drives the Topic drawer. Tab choice is sticky while
+  // browsing (kept when still valid for the new node); a fresh open prefers
+  // the first detected insight tab in registry order (the old drawer
+  // auto-open behaviour), falling back to Payload. When pinned or in all-geo
+  // mode, the drawer content stays as-is regardless of selection.
   // Note: the image tab keys off lastImageBlobUrl, not the image tag — a
-  // node whose blob was evicted (LRU) won't auto-open until a new image
-  // message arrives.
+  // node whose blob was evicted (LRU) won't surface an Image tab until a new
+  // image message arrives.
   useEffect(() => {
-    if (isInsightsPinned) return; // pinned — ignore node selection changes
+    if (isPinned) return; // pinned — ignore node selection changes
     if (drawerMode === "all") return; // all-geo mode — ignore node selection changes
 
     if (!selectedNodeId) {
-      setInsightsState(null);
-      setRightActive((prev) =>
-        prev === "detail" || prev === "insights" ? null : prev,
-      );
+      setDrawerState(null);
+      setRightActive((prev) => (prev === "topic" ? null : prev));
       return;
     }
 
@@ -210,49 +178,42 @@ function App() {
     const newImage = node?.lastImageBlobUrl ?? null;
     const newSparkplug = getTag(node?.payloadTags, "sparkplug")?.metadata ?? null;
 
-    if (newGeo || newImage || newSparkplug) {
-      // Keep the current tab when it still has content; otherwise fall back
-      // to the first available tab (registry order).
-      setInsightsState((prev) => ({
-        topicPath: selectedNodeId,
-        geo: newGeo,
-        imageBlobUrl: newImage,
-        sparkplug: newSparkplug,
-        activeTab: resolveInsightsTab(prev?.activeTab ?? "map", {
-          geo: newGeo !== null,
-          image: newImage !== null,
-          sparkplug: newSparkplug !== null,
-        }),
-      }));
-      setRightActive("insights");
-    } else {
-      // New node has no insight content — show the plain topic detail
-      setInsightsState(null);
-      setRightActive("detail");
-    }
-  }, [selectedNodeId, isInsightsPinned, drawerMode]);
+    setDrawerState((prev) => ({
+      topicPath: selectedNodeId,
+      geo: newGeo,
+      imageBlobUrl: newImage,
+      sparkplug: newSparkplug,
+      activeTab: resolveTopicTab(prev?.activeTab ?? "payload", prev === null, {
+        geo: newGeo !== null,
+        image: newImage !== null,
+        sparkplug: newSparkplug !== null,
+      }),
+    }));
+    setRightActive("topic");
+  }, [selectedNodeId, isPinned, drawerMode]);
 
-  // Look up the selected node's data for the topic detail section
-  const selectedNodes = useMemo(() => {
-    if (!selectedNodeId) return null;
+  // Look up the drawer topic's nodes for the Payload tab. Keyed on the
+  // drawer's topicPath (not selectedNodeId) so the payload follows pinning
+  // and all-geo navigation.
+  const drawerNodes = useMemo(() => {
+    if (!drawerState) return null;
     const root = useTopicStore.getState().root;
-    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
+    const segments = drawerState.topicPath === "" ? [] : drawerState.topicPath.split("/");
     const topicNode = findNode(root, segments);
-    const graphNode = graphNodes.find((n) => n.id === selectedNodeId);
+    const graphNode = graphNodes.find((n) => n.id === drawerState.topicPath);
     if (!topicNode || !graphNode) return null;
     return { topicNode, graphNode };
-  }, [selectedNodeId, graphNodes]);
+  }, [drawerState, graphNodes]);
 
   // Collapse a right-rail section whose content disappeared
-  // (deselect, insights closed, entities cleared on disconnect).
+  // (deselect, drawer closed, entities cleared on disconnect).
   useEffect(() => {
     setRightActive((prev) => {
-      if (prev === "detail" && !selectedNodes) return null;
-      if (prev === "insights" && !insightsState) return null;
+      if (prev === "topic" && !drawerState) return null;
       if (prev === "ecosystems" && entities.length === 0) return null;
       return prev;
     });
-  }, [selectedNodes, insightsState, entities.length]);
+  }, [drawerState, entities.length]);
 
   // Autoconnect on initial mount if enabled
   useEffect(() => {
@@ -344,52 +305,33 @@ function App() {
 
   const rightSections: RailSection<RightSection>[] = [
     {
-      id: "detail",
+      id: "topic",
       title: "Topic",
-      disabled: !selectedNodes,
+      disabled: !drawerState,
       icon: (
         // Information circle icon
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
         </svg>
       ),
-      content: selectedNodes ? (
-        <DetailPanel
-          topicNode={selectedNodes.topicNode}
-          graphNode={selectedNodes.graphNode}
-          onClose={() => setSelectedNodeId(null)}
-          onOpenInsights={handleOpenInsights}
-          onOpenInsightsImage={handleOpenInsightsImage}
-          onOpenInsightsDevice={handleOpenInsightsDevice}
-        />
-      ) : null,
-    },
-    {
-      id: "insights",
-      title: "Insights",
-      disabled: !insightsState,
-      icon: (
-        // Sparkles icon
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-        </svg>
-      ),
-      content: insightsState ? (
-        <InsightsDrawer
-          topicPath={insightsState.topicPath}
-          geo={insightsState.geo}
-          imageBlobUrl={insightsState.imageBlobUrl}
-          sparkplug={insightsState.sparkplug}
-          activeTab={insightsState.activeTab}
-          onSetTab={handleSetInsightsTab}
-          isPinned={isInsightsPinned}
+      content: drawerState ? (
+        <TopicDrawer
+          topicPath={drawerState.topicPath}
+          topicNode={drawerNodes?.topicNode ?? null}
+          graphNode={drawerNodes?.graphNode ?? null}
+          geo={drawerState.geo}
+          imageBlobUrl={drawerState.imageBlobUrl}
+          sparkplug={drawerState.sparkplug}
+          activeTab={drawerState.activeTab}
+          onSetTab={handleSetTab}
+          isPinned={isPinned}
           onTogglePin={handleTogglePin}
           mode={drawerMode}
           onSetMode={handleSetMode}
           geoNodes={geoNodes}
           geoNavIndex={geoNavIndex}
           onNavigate={handleNavigate}
-          onClose={handleCloseInsights}
+          onClose={handleCloseDrawer}
         />
       ) : null,
     },

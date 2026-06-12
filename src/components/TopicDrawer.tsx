@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useTopicStore } from "../stores/topicStore";
@@ -6,10 +6,15 @@ import { findNode } from "../utils/topicParser";
 import { formatTimestamp } from "../utils/formatters";
 import { getTag, type InsightsTab } from "../utils/tagRegistry";
 import { SparkplugDevicePanel } from "./SparkplugDevicePanel";
+import { TopicPayloadPanel } from "./TopicPayloadPanel";
+import type { TopicNode, GraphNode } from "../types";
 import type { GeoMetadata, GeoNode, TrailPoint } from "../types/payloadTags";
 import type { SparkplugMetadata } from "../types/sparkplug";
 
 export type { InsightsTab };
+
+/** Tabs of the Topic drawer: the always-present payload tab plus detected insight tabs. */
+export type TopicTab = "payload" | InsightsTab;
 
 /** Maximum number of trail points per topic before oldest are discarded. */
 const MAX_TRAIL_POINTS = 50;
@@ -74,16 +79,19 @@ function getGeoForTopic(topicPath: string): GeoMetadata | null {
 }
 
 /**
- * Slide-out drawer displaying rich insights for a selected node.
- * Supports content tabs (Map and Image) and two geo modes:
+ * Topic drawer: everything about one selected (or pinned) node behind a
+ * unified tab bar — Payload (stats + last payload + user properties) plus
+ * Map / Image / Device tabs when that content is detected. Two geo modes:
  * - **single**: One topic's geo coordinates + historical trail.
  * - **all**: All detected geo topics shown as pins on a single map.
  *
  * React owns the container elements; Leaflet manages the map inside a ref
  * (same pattern as D3 in GraphRenderer).
  */
-export function InsightsDrawer({
+export function TopicDrawer({
   topicPath,
+  topicNode,
+  graphNode,
   geo,
   imageBlobUrl,
   sparkplug,
@@ -98,8 +106,12 @@ export function InsightsDrawer({
   onNavigate,
   onClose,
 }: {
-  /** Full topic path of the selected node. */
+  /** Full topic path of the displayed node. */
   topicPath: string;
+  /** Tree node for the payload tab (null when the node was pruned). */
+  topicNode: TopicNode | null;
+  /** Graph node for the payload tab's stats (null when not in the graph). */
+  graphNode: GraphNode | null;
   /** Detected geo coordinates to display on the map (null if no geo data). */
   geo: GeoMetadata | null;
   /** Blob URL for an image payload preview (null if no image). */
@@ -107,9 +119,9 @@ export function InsightsDrawer({
   /** Sparkplug metadata for the selected node (null if not a sparkplug topic). */
   sparkplug: SparkplugMetadata | null;
   /** Which content tab is currently active. */
-  activeTab: InsightsTab;
+  activeTab: TopicTab;
   /** Switch the active content tab. */
-  onSetTab: (tab: InsightsTab) => void;
+  onSetTab: (tab: TopicTab) => void;
   /** Whether the drawer is pinned (stays open across node selection changes). */
   isPinned: boolean;
   /** Toggle the pinned state. */
@@ -606,46 +618,63 @@ export function InsightsDrawer({
     }
   }, [activeTab]);
 
+  // --- Topic path copy ------------------------------------------------------
+  const [copied, setCopied] = useState(false);
+  const handleCopyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(topicPath);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API may be unavailable in insecure contexts
+    }
+  };
+
   // --- Derived values for rendering ----------------------------------------
   const hasGeo = geo !== null;
   const hasImage = imageBlobUrl !== null;
   const hasSparkplug = sparkplug !== null;
-  const availableTabs = [hasGeo, hasImage, hasSparkplug].filter(Boolean).length;
-  const showTabs = availableTabs > 1;
+  const anyInsightTabs = hasGeo || hasImage || hasSparkplug;
+  // The payload tab always exists; show the bar once any insight tab joins it.
+  const showTabs = anyInsightTabs;
   const showNav = geoNodes.length > 1 && activeTab === "map";
   const canToggleMode = geoNodes.length > 1;
   const navTopic = geoNodes[geoNavIndex]?.topicPath ?? topicPath;
-
-  // Determine header label based on active tab and mode
-  const headerLabel = (() => {
-    if (activeTab === "image") return "Image Preview";
-    if (activeTab === "device") return "Sparkplug Device";
-    if (mode === "all") return `All Locations (${geoNodes.length})`;
-    if (isPinned) return "Pinned Location";
-    return "Location";
-  })();
-
-  const headerDetail = (() => {
-    if (activeTab === "device") return sparkplug?.deviceKey ?? topicPath;
-    if (mode === "all" && activeTab === "map") {
-      return `${geoNodes.length} geo topic${geoNodes.length !== 1 ? "s" : ""}`;
-    }
-    return topicPath;
-  })();
 
   return (
     <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${
       isPinned ? "ring-1 ring-inset ring-amber-500/30" : ""
     }`}>
-      {/* Header */}
+      {/* Header — copyable topic path + map controls + close */}
       <div className={`flex items-start gap-2 p-3 pb-2 border-b flex-shrink-0 ${isPinned ? "border-amber-600/40" : "border-gray-700/50"}`}>
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">
-            {headerLabel}
-          </div>
-          <div className="text-xs font-mono text-gray-100 break-all leading-snug">
-            {headerDetail}
-          </div>
+          {isPinned && (
+            <div className="text-[10px] uppercase tracking-wider text-amber-400/80 mb-0.5">
+              Pinned
+            </div>
+          )}
+          <button
+            onClick={handleCopyPath}
+            title="Copy topic path"
+            className="group flex items-start gap-1.5 text-left cursor-pointer"
+          >
+            <span className="text-xs font-mono text-gray-100 break-all leading-snug group-hover:text-blue-300 transition-colors">
+              {topicPath || "(root)"}
+            </span>
+            <span className="flex-shrink-0 mt-0.5 text-gray-500 group-hover:text-blue-400 transition-colors">
+              {copied ? (
+                /* Checkmark — confirms copy succeeded */
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              ) : (
+                /* Clipboard icon */
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                </svg>
+              )}
+            </span>
+          </button>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {/* Mode toggle — switch between single/all (map tab only) */}
@@ -704,9 +733,23 @@ export function InsightsDrawer({
         </div>
       </div>
 
-      {/* Tab bar — shown when more than one content type is available */}
+      {/* Tab bar — shown when any insight tab joins the payload tab */}
       {showTabs && (
         <div className="flex border-b border-gray-700/50 flex-shrink-0">
+          <button
+            onClick={() => onSetTab("payload")}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
+              activeTab === "payload"
+                ? "text-blue-300 border-b-2 border-blue-400"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {/* Document icon */}
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            Payload
+          </button>
           {hasGeo && (
             <button
               onClick={() => onSetTab("map")}
@@ -832,6 +875,16 @@ export function InsightsDrawer({
       {activeTab === "device" && sparkplug && (
         <SparkplugDevicePanel deviceKey={sparkplug.deviceKey} />
       )}
+
+      {/* Payload tab — stats, last payload, user properties */}
+      {activeTab === "payload" &&
+        (topicNode && graphNode ? (
+          <TopicPayloadPanel topicNode={topicNode} graphNode={graphNode} />
+        ) : (
+          <div className="p-3 text-xs text-gray-500">
+            Topic data unavailable — the node may have been pruned.
+          </div>
+        ))}
     </div>
   );
 }
