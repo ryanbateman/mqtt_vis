@@ -185,9 +185,9 @@ export function SparkplugDevicePanel({ deviceKey }: { deviceKey: string }) {
         </div>
       </div>
 
-      {/* Metric table */}
+      {/* Metric table — fills the remaining rail height, scrolls internally */}
       {metrics.length > 0 ? (
-        <div className="flex-1 min-h-0 overflow-y-auto max-h-72">
+        <div className="flex-1 min-h-[8rem] overflow-y-auto">
           <table className="w-full text-[11px]">
             <thead className="sticky top-0 bg-gray-900/95">
               <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500">
