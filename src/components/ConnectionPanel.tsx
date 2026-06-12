@@ -37,16 +37,15 @@ function getUrlParams(): { broker?: string; topic?: string } {
 
 /**
  * Initial broker URL from the precedence chain:
- *   URL param > localStorage > config brokers[0] > empty.
- * SelectOrCustom derives its own list/custom mode from whether the value
- * matches a known broker.
+ *   URL param > localStorage > empty.
+ * Fresh sessions deliberately start empty — known brokers are a hint away
+ * in the dropdown, not pre-filled.
  */
 function deriveInitialBrokerUrl(
   urlParamBroker: string | undefined,
   savedBrokerUrl: string | undefined,
-  configBrokers: { url: string }[],
 ): string {
-  return urlParamBroker ?? savedBrokerUrl ?? configBrokers[0]?.url ?? "";
+  return urlParamBroker ?? savedBrokerUrl ?? "";
 }
 
 export function ConnectionPanel({
@@ -63,10 +62,14 @@ export function ConnectionPanel({
 
   // Derive initial state once
   const initialBrokerUrl = useMemo(
-    () => deriveInitialBrokerUrl(urlParams.broker, saved.brokerUrl, brokers),
+    () => deriveInitialBrokerUrl(urlParams.broker, saved.brokerUrl),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
+
+  // Config's topicFilter serves as the hint (and the submit fallback when
+  // the field is left empty), not a pre-filled value.
+  const topicPlaceholder = cfg.topicFilter || "#";
 
   const [activeTab, setActiveTab] = useState<"connect" | "filter" | "log">("connect");
   const dropRetainedBurst = useTopicStore((s) => s.dropRetainedBurst);
@@ -89,7 +92,7 @@ export function ConnectionPanel({
 
   const [brokerUrl, setBrokerUrl] = useState(initialBrokerUrl);
   const [topicFilter, setTopicFilter] = useState(
-    urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? ""
+    urlParams.topic ?? saved.topicFilter ?? ""
   );
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
@@ -149,16 +152,20 @@ export function ConnectionPanel({
       if (isConnected || isConnecting) {
         onDisconnect(clearOnDisconnect);
       } else {
+        // An empty topic falls back to the visible hint value; reflect it
+        // in the field so the user sees what was subscribed.
+        const effectiveFilter = topicFilter.trim() || topicPlaceholder;
+        if (effectiveFilter !== topicFilter) setTopicFilter(effectiveFilter);
         onConnect({
           brokerUrl,
-          topicFilter,
+          topicFilter: effectiveFilter,
           clientId,
           username: username || undefined,
           password: password || undefined,
         });
       }
     },
-    [brokerUrl, topicFilter, clientId, username, password, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
+    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
   );
 
   const statusColor =
@@ -319,7 +326,7 @@ export function ConnectionPanel({
                   value={topicFilter}
                   onChange={setTopicFilter}
                   customLabel="Custom Topic…"
-                  placeholder="#"
+                  placeholder={topicPlaceholder}
                   disabled={isConnected}
                   onFocus={cancelReconnect}
                   inputClassName="font-mono text-xs"
@@ -411,7 +418,8 @@ export function ConnectionPanel({
 
               <button
                 type="submit"
-                className={`w-full py-2 rounded text-sm font-medium transition-colors ${buttonClass}`}
+                disabled={!isConnected && !isConnecting && brokerUrl.trim() === ""}
+                className={`w-full py-2 rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${buttonClass}`}
               >
                 {buttonLabel}
               </button>
