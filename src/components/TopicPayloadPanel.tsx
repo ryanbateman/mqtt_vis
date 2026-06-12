@@ -11,17 +11,96 @@ import { getTag } from "../utils/tagRegistry";
 let _prettyJsonPref = true;
 
 /**
- * Payload tab of the Topic drawer: stats grid, last payload (with copy and
- * JSON pretty-print toggle), and MQTT v5 user properties for one topic node.
- * The drawer provides the header and tab bar.
+ * Always-visible stats block of the Topic drawer: rate, message count,
+ * depth, payload sizes, etc. Rendered between the drawer header and the
+ * tab bar so it stays in view on every tab.
  */
-export function TopicPayloadPanel({
+export function TopicStatsPanel({
   topicNode,
   graphNode,
 }: {
   topicNode: TopicNode;
   graphNode: GraphNode;
 }) {
+  const childCount = topicNode.children.size;
+
+  // Image metadata drives the static format row below the stats grid.
+  const imageMetadata = getTag(topicNode.payloadTags, "image")?.metadata ?? null;
+
+  return (
+    <div className="p-3 border-b border-gray-700/50 flex-shrink-0">
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+        <span className="text-gray-500">Rate</span>
+        <span className="text-gray-300 font-mono">
+          {formatRate(graphNode.messageRate)} msg/s
+        </span>
+
+        <span className="text-gray-500">Agg. Rate</span>
+        <span className="text-gray-300 font-mono">
+          {childCount === 0 ? "—" : `${formatRate(graphNode.aggregateRate)} msg/s`}
+        </span>
+
+        <span className="text-gray-500">Messages</span>
+        <span className="text-gray-300 font-mono">
+          {topicNode.messageCount.toLocaleString()}
+        </span>
+
+        <span className="text-gray-500">Depth</span>
+        <span className="text-gray-300 font-mono">{graphNode.depth}</span>
+
+        <span className="text-gray-500">Children</span>
+        <span className="text-gray-300 font-mono">{childCount}</span>
+
+        <span className="text-gray-500">QoS</span>
+        <span className="text-gray-300 font-mono">
+          {topicNode.messageCount > 0 ? topicNode.lastQoS : "-"}
+        </span>
+
+        <span className="text-gray-500">Last seen</span>
+        <span className="text-gray-300 font-mono">
+          {formatTimestamp(topicNode.lastTimestamp)}
+        </span>
+
+        <span className="text-gray-500">Payload size</span>
+        <span className="text-gray-300 font-mono">
+          {topicNode.messageCount > 0 ? formatPayloadSize(topicNode.lastPayloadSize) : "-"}
+        </span>
+
+        <span className="text-gray-500">Largest payload</span>
+        <span className="text-gray-300 font-mono">
+          {topicNode.messageCount > 0 ? formatPayloadSize(topicNode.largestPayloadSize) : "-"}
+        </span>
+      </div>
+
+      {/* Image tag indicator (no blob URL available yet) — static, non-clickable */}
+      {imageMetadata && !topicNode.lastImageBlobUrl && (
+        <div className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-purple-300 bg-purple-900/20 border border-purple-800/30">
+          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+          </svg>
+          <span>
+            {imageMetadata.format.toUpperCase()}
+            {imageMetadata.subFormat && (
+              <span className="text-purple-400/60 ml-1">
+                ({imageMetadata.subFormat.toUpperCase()})
+              </span>
+            )}
+            <span className="text-purple-400/60 ml-1">
+              {formatPayloadSize(imageMetadata.sizeBytes)}
+            </span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Payload tab of the Topic drawer: last payload (with copy and JSON
+ * pretty-print toggle) and MQTT v5 user properties. Stats live in
+ * TopicStatsPanel above the tab bar.
+ */
+export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [prettyJson, setPrettyJson] = useState(_prettyJsonPref);
 
@@ -52,82 +131,15 @@ export function TopicPayloadPanel({
     }
   };
 
-  const childCount = topicNode.children.size;
-
-  // Image metadata drives the static format row below the stats grid.
-  const imageMetadata = getTag(topicNode.payloadTags, "image")?.metadata ?? null;
+  const hasUserProperties =
+    topicNode.lastUserProperties !== null &&
+    Object.keys(topicNode.lastUserProperties).length > 0;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      {/* Stats */}
-      <div className="p-3 border-b border-gray-700/50">
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-          <span className="text-gray-500">Rate</span>
-          <span className="text-gray-300 font-mono">
-            {formatRate(graphNode.messageRate)} msg/s
-          </span>
-
-          <span className="text-gray-500">Agg. Rate</span>
-          <span className="text-gray-300 font-mono">
-            {childCount === 0 ? "—" : `${formatRate(graphNode.aggregateRate)} msg/s`}
-          </span>
-
-          <span className="text-gray-500">Messages</span>
-          <span className="text-gray-300 font-mono">
-            {topicNode.messageCount.toLocaleString()}
-          </span>
-
-          <span className="text-gray-500">Depth</span>
-          <span className="text-gray-300 font-mono">{graphNode.depth}</span>
-
-          <span className="text-gray-500">Children</span>
-          <span className="text-gray-300 font-mono">{childCount}</span>
-
-          <span className="text-gray-500">QoS</span>
-          <span className="text-gray-300 font-mono">
-            {topicNode.messageCount > 0 ? topicNode.lastQoS : "-"}
-          </span>
-
-          <span className="text-gray-500">Last seen</span>
-          <span className="text-gray-300 font-mono">
-            {formatTimestamp(topicNode.lastTimestamp)}
-          </span>
-
-          <span className="text-gray-500">Payload size</span>
-          <span className="text-gray-300 font-mono">
-            {topicNode.messageCount > 0 ? formatPayloadSize(topicNode.lastPayloadSize) : "-"}
-          </span>
-
-          <span className="text-gray-500">Largest payload</span>
-          <span className="text-gray-300 font-mono">
-            {topicNode.messageCount > 0 ? formatPayloadSize(topicNode.largestPayloadSize) : "-"}
-          </span>
-        </div>
-
-        {/* Image tag indicator (no blob URL available yet) — static, non-clickable */}
-        {imageMetadata && !topicNode.lastImageBlobUrl && (
-          <div className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] font-medium text-purple-300 bg-purple-900/20 border border-purple-800/30">
-            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
-            </svg>
-            <span>
-              {imageMetadata.format.toUpperCase()}
-              {imageMetadata.subFormat && (
-                <span className="text-purple-400/60 ml-1">
-                  ({imageMetadata.subFormat.toUpperCase()})
-                </span>
-              )}
-              <span className="text-purple-400/60 ml-1">
-                {formatPayloadSize(imageMetadata.sizeBytes)}
-              </span>
-            </span>
-          </div>
-        )}
-      </div>
-
       {/* Payload — full content, scrollable */}
-      {topicNode.lastPayload !== null && (
-        <div className="p-3 overflow-y-auto min-h-0 flex-1 border-t border-gray-700/50">
+      {topicNode.lastPayload !== null ? (
+        <div className="p-3 overflow-y-auto min-h-0 flex-1">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-gray-500">Last Payload</span>
             <div className="flex items-center gap-1">
@@ -165,16 +177,20 @@ export function TopicPayloadPanel({
             {prettyJson && formattedPayload ? formattedPayload : topicNode.lastPayload}
           </pre>
         </div>
+      ) : (
+        <div className="p-3 text-[11px] text-gray-500">
+          No payload stored for this topic.
+        </div>
       )}
 
       {/* User Properties — MQTT v5 key-value pairs */}
-      {topicNode.lastUserProperties !== null && Object.keys(topicNode.lastUserProperties).length > 0 && (
+      {hasUserProperties && (
         <div className="p-3 overflow-y-auto min-h-0 border-t border-gray-700/50">
           <div className="mb-1">
             <span className="text-[10px] text-gray-500">User Properties</span>
           </div>
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
-            {Object.entries(topicNode.lastUserProperties).map(([key, value]) => (
+            {Object.entries(topicNode.lastUserProperties!).map(([key, value]) => (
               <Fragment key={key}>
                 <span className="text-gray-500 font-mono">{key}</span>
                 <span className="text-gray-300 font-mono break-all">

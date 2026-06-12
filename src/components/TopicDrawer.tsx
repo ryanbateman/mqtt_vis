@@ -6,7 +6,7 @@ import { findNode } from "../utils/topicParser";
 import { formatTimestamp } from "../utils/formatters";
 import { getTag, type InsightsTab } from "../utils/tagRegistry";
 import { SparkplugDevicePanel } from "./SparkplugDevicePanel";
-import { TopicPayloadPanel } from "./TopicPayloadPanel";
+import { TopicPayloadPanel, TopicStatsPanel } from "./TopicPayloadPanel";
 import type { TopicNode, GraphNode } from "../types";
 import type { GeoMetadata, GeoNode, TrailPoint } from "../types/payloadTags";
 import type { SparkplugMetadata } from "../types/sparkplug";
@@ -733,6 +733,11 @@ export function TopicDrawer({
         </div>
       </div>
 
+      {/* Stats — always visible for the displayed topic, above the tab bar */}
+      {topicNode && graphNode && (
+        <TopicStatsPanel topicNode={topicNode} graphNode={graphNode} />
+      )}
+
       {/* Tab bar — shown when any insight tab joins the payload tab */}
       {showTabs && (
         <div className="flex border-b border-gray-700/50 flex-shrink-0">
@@ -876,10 +881,10 @@ export function TopicDrawer({
         <SparkplugDevicePanel deviceKey={sparkplug.deviceKey} />
       )}
 
-      {/* Payload tab — stats, last payload, user properties */}
+      {/* Payload tab — last payload and user properties */}
       {activeTab === "payload" &&
-        (topicNode && graphNode ? (
-          <TopicPayloadPanel topicNode={topicNode} graphNode={graphNode} />
+        (topicNode ? (
+          <TopicPayloadPanel topicNode={topicNode} />
         ) : (
           <div className="p-3 text-xs text-gray-500">
             Topic data unavailable — the node may have been pruned.
