@@ -53,6 +53,8 @@ describe("parseHaDiscovery", () => {
     expect(entity.label).toBe("Living Room Temperature");
     expect(entity.parentKey).toBe("homeassistant:dev:lr-multisensor");
     expect(entity.attributes.device_class).toBe("temperature");
+    // device_class doubles as the shared functional type slot.
+    expect(entity.attributes.type).toBe("temperature");
     expect(entity.memberTopics[0]).toBe("home/livingroom/temperature");
     expect(entity.availability).toEqual([
       {

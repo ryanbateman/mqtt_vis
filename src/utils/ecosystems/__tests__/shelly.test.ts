@@ -4,6 +4,7 @@ import {
   parseShellyAnnounce,
   detectShelly,
   recordShellyMessage,
+  shellyDeviceType,
 } from "../shelly";
 import {
   createEntityRegistry,
@@ -46,6 +47,7 @@ describe("parseShellyAnnounce / detectShelly", () => {
       mac: "AABBCCF2BA4B",
       ip: "192.168.1.40",
       fw_ver: "20230913-112531",
+      type: "H&T sensor",
     });
   });
 
@@ -65,6 +67,22 @@ describe("parseShellyAnnounce / detectShelly", () => {
   });
 });
 
+describe("shellyDeviceType", () => {
+  it("maps Gen1, Plus, and Pro topic-id prefixes to functional types", () => {
+    expect(shellyDeviceType("shellyht-F2BA4B")).toBe("H&T sensor");
+    expect(shellyDeviceType("shellyswitch25-ABC")).toBe("2ch relay");
+    expect(shellyDeviceType("shellyplug-s-123")).toBe("plug");
+    expect(shellyDeviceType("shellyplus1pm-a0dd6c")).toBe("relay");
+    expect(shellyDeviceType("shellypro3em-fce8c0")).toBe("energy meter");
+    expect(shellyDeviceType("ShellyWallDisplay-0008221A")).toBe("wall display");
+    expect(shellyDeviceType("shelly1-abc")).toBe("relay");
+  });
+
+  it("returns null for unrecognised ids", () => {
+    expect(shellyDeviceType("not-a-shelly")).toBeNull();
+  });
+});
+
 describe("recordShellyMessage", () => {
   let registry: EntityRegistry;
   beforeEach(() => {
@@ -80,7 +98,8 @@ describe("recordShellyMessage", () => {
     )!;
     expect(hit.entity.key).toBe("shelly:dev:shellyplus1pm-a0dd6c");
     expect(hit.entity.label).toBe("shellyplus1pm-a0dd6c");
-    expect(hit.entity.attributes).toEqual({});
+    // Provisional entity gets its type from the topic-id prefix.
+    expect(hit.entity.attributes).toEqual({ type: "relay" });
     expect(hit.entity.anchorTopicId).toBe("shellies/shellyplus1pm-a0dd6c/switch/0");
 
     // Announce arrives later — same key, attributes merge in, state survives.

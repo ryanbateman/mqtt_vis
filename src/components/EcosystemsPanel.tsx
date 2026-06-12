@@ -168,7 +168,8 @@ function EntityRow({
         </span>
       )}
       <span className="text-[9px] uppercase tracking-wider text-gray-500 flex-shrink-0">
-        {entity.role === "edge-node" ? "edge" : entity.role}
+        {entity.attributes.type ??
+          (entity.role === "edge-node" ? "edge" : entity.role)}
       </span>
       {metricCount !== undefined && metricCount !== "0" && (
         <span className="text-[10px] font-mono text-gray-500 flex-shrink-0">

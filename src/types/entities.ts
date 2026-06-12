@@ -60,7 +60,17 @@ export interface DomainEntity {
   parentKey: string | null;
   /** Online state. Null when the ecosystem provides no availability signal. */
   online: boolean | null;
-  /** Small, flat, display-oriented facts (group, manufacturer, model, ...). */
+  /**
+   * Small, flat, display-oriented facts (group, manufacturer, model, ...).
+   *
+   * Convention: the optional `type` attribute is a normalized functional
+   * device type that UI prefers over the structural role. Providers should
+   * lean on a shared vocabulary — relay, plug, light, dimmer, RGBW,
+   * "H&T sensor", "flood sensor", "door/window", smoke, gas, motion,
+   * button, input, "energy meter", TRV, "I/O module", "wall display",
+   * camera, tracker — so a future type→icon/legend layer (#12) can key
+   * off one mapping. Free-form strings (vendor variety), not a hard union.
+   */
   attributes: Record<string, string>;
   /** Topic node where this entity "lives" — the click-to-select target. */
   anchorTopicId: string | null;

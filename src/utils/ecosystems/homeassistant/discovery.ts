@@ -148,6 +148,9 @@ function buildEntityDeclaration(
   const attributes: Record<string, string> = { component };
   if (typeof cfg.device_class === "string" && cfg.device_class) {
     attributes.device_class = cfg.device_class;
+    // device_class is HA's functional type — surface it in the shared
+    // type slot (panel chips show "temperature" instead of "sensor").
+    attributes.type = cfg.device_class;
   }
 
   const ownAvailability = collectAvailability(cfg, base);

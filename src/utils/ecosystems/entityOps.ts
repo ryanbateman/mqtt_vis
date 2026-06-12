@@ -63,6 +63,22 @@ export function isEcosystemDefiningTopic(topic: string): boolean {
 }
 
 /**
+ * Ordered longest-first prefix match against a lowercase table. Shared by
+ * providers that classify devices from topic ids (Shelly today; WLED and
+ * Tasmota pattern rules later). The input is lowercased before matching.
+ */
+export function matchPrefix(
+  table: readonly [prefix: string, value: string][],
+  input: string,
+): string | null {
+  const lower = input.toLowerCase();
+  for (const [prefix, value] of table) {
+    if (lower.startsWith(prefix)) return value;
+  }
+  return null;
+}
+
+/**
  * Get or create an entity for a structural provider (topic-shape-derived,
  * no defining document — Frigate cameras, announce-less Shelly devices).
  * Honours the entity cap. Returns null when the cap blocks creation.

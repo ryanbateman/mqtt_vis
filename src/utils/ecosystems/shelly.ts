@@ -1,6 +1,6 @@
 import type { DetectorResult, EntityTagMetadata } from "../../types/payloadTags";
 import type { DomainEntity, EntityDeclaration } from "../../types/entities";
-import { ensureEntity, type EntityRegistry } from "./entityOps";
+import { ensureEntity, matchPrefix, type EntityRegistry } from "./entityOps";
 
 /**
  * Shelly (Gen1 announce-based) — hybrid provider.
@@ -28,6 +28,88 @@ function shellyKey(id: string): string {
   return `shelly:dev:${id}`;
 }
 
+/**
+ * Topic-id prefix → functional device type (shared vocabulary, see
+ * DomainEntity.attributes). Ordered longest-first so e.g. shellyplus1pm-
+ * wins over shellyplus1-. Works for every device — including announce-less
+ * Plus/Pro gen — since the id is the topic segment itself.
+ */
+const ID_TYPE_PREFIXES: readonly [string, string][] = [
+  ["shellyswitch25", "2ch relay"],
+  ["shellyswitch", "2ch relay"],
+  ["shellyplusplugs", "plug"],
+  ["shellyplus1pm", "relay"],
+  ["shellyplus1", "relay"],
+  ["shellyplusht", "H&T sensor"],
+  ["shellyplusem", "energy meter"],
+  ["shellyplusi4", "input"],
+  ["shellypro4pm", "relay"],
+  ["shellypro3em", "energy meter"],
+  ["shellypro3", "relay"],
+  ["shellypro2pm", "relay"],
+  ["shellypro2", "relay"],
+  ["shellypro1pm", "relay"],
+  ["shellypro1", "relay"],
+  ["shellycolorbulb", "light"],
+  ["shellyvintage", "light"],
+  ["shellybduo", "light"],
+  ["shellybulb", "light"],
+  ["shellydimmer", "dimmer"],
+  ["shellyrgbw2", "RGBW"],
+  ["shellybutton1", "button"],
+  ["shellymotion", "motion"],
+  ["shellysmoke", "smoke"],
+  ["shellyflood", "flood sensor"],
+  ["shellygas", "gas"],
+  ["shellydw", "door/window"],
+  ["shellyht", "H&T sensor"],
+  ["shellytrv", "TRV"],
+  ["shellyuni", "I/O module"],
+  ["shellyix3", "input"],
+  ["shellyi3", "input"],
+  ["shellyem3", "energy meter"],
+  ["shellyem", "energy meter"],
+  ["shellyplug", "plug"],
+  ["shelly1pm", "relay"],
+  ["shelly1l", "relay"],
+  ["shelly1", "relay"],
+  ["shelly4pro", "relay"],
+  ["shellywalldisplay", "wall display"],
+];
+
+/** Announce model code → functional type, for ids the prefix table misses. */
+const MODEL_TYPES: readonly [string, string][] = [
+  ["shsw-25", "2ch relay"],
+  ["shsw-", "relay"],
+  ["shplg-", "plug"],
+  ["shht-", "H&T sensor"],
+  ["shdm-", "dimmer"],
+  ["shem-3", "energy meter"],
+  ["shem", "energy meter"],
+  ["shrgbw2", "RGBW"],
+  ["shtrv-", "TRV"],
+  ["shdw-", "door/window"],
+  ["shwt-", "flood sensor"],
+  ["shbtn-", "button"],
+  ["shix3-", "input"],
+  ["shmos-", "motion"],
+  ["snsw-", "relay"],
+  ["snpl-", "plug"],
+  ["snsn-", "sensor"],
+  ["spem-", "energy meter"],
+  ["spsw-", "relay"],
+];
+
+/** Functional device type from the topic id, null when unrecognised. */
+export function shellyDeviceType(id: string): string | null {
+  return matchPrefix(ID_TYPE_PREFIXES, id);
+}
+
+/** Functional device type from an announce model code, null when unrecognised. */
+function shellyTypeFromModel(model: string): string | null {
+  return matchPrefix(MODEL_TYPES, model);
+}
+
 /** Parse one announce JSON into a device declaration. Returns [] when unparseable. */
 export function parseShellyAnnounce(topic: string, payload: string): EntityDeclaration[] {
   if (!isShellyAnnounceTopic(topic) || payload.length === 0) return [];
@@ -46,6 +128,10 @@ export function parseShellyAnnounce(topic: string, payload: string): EntityDecla
   for (const attr of ["model", "mac", "ip", "fw_ver"] as const) {
     if (typeof cfg[attr] === "string" && cfg[attr]) attributes[attr] = cfg[attr] as string;
   }
+  const type =
+    (attributes.model ? shellyTypeFromModel(attributes.model) : null) ??
+    shellyDeviceType(cfg.id);
+  if (type) attributes.type = type;
 
   return [
     {
@@ -107,12 +193,14 @@ export function recordShellyMessage(
   if (!id || (segments.length === 2 && id === "announce")) return null;
   if (id === "command") return null; // broadcast command topic, not a device
 
+  const type = shellyDeviceType(id);
   const result = ensureEntity(registry, {
     key: shellyKey(id),
     ecosystem: "shelly",
     role: "device",
     label: id,
     parentKey: null,
+    attributes: type ? { type } : {},
   });
   if (!result) return null;
   const device = result.entity;
