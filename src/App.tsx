@@ -3,6 +3,7 @@ import { useMqttClient, loadSavedConnection } from "./hooks/useMqttClient";
 import { useTopicStore } from "./stores/topicStore";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { DetailPanel } from "./components/DetailPanel";
+import { EcosystemsPanel } from "./components/EcosystemsPanel";
 import { InsightsDrawer } from "./components/InsightsDrawer";
 import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
@@ -278,6 +279,7 @@ function App() {
             onOpenInsightsDevice={handleOpenInsightsDevice}
           />
         )}
+        <EcosystemsPanel />
       </div>
       {insightsState && (
         <InsightsDrawer
