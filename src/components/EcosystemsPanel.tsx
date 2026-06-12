@@ -172,7 +172,10 @@ function EntityRow({
           (entity.role === "edge-node" ? "edge" : entity.role)}
       </span>
       {metricCount !== undefined && metricCount !== "0" && (
-        <span className="text-[10px] font-mono text-gray-500 flex-shrink-0">
+        <span
+          className="text-[10px] font-mono text-gray-500 flex-shrink-0"
+          title={`${metricCount} decoded metrics`}
+        >
           {metricCount}m
         </span>
       )}
