@@ -53,6 +53,8 @@ export interface SavedSettings {
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
+  /** Resizable rail content width in px (right rail). */
+  railWidth?: number;
 }
 
 /** Internal stored shape — includes version sentinel. */
@@ -113,6 +115,7 @@ function validate(raw: StoredSettings): SavedSettings {
     showHomeAssistantIndicators: validBoolean(raw.showHomeAssistantIndicators),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),
+    railWidth:          validNumber(raw.railWidth, 240, 720),
   };
 }
 

@@ -1,4 +1,16 @@
-import type { ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { loadSavedSettings, persistSettings } from "../utils/settingsStorage";
+
+/** Width bounds for resizable rail content (px). */
+const MIN_WIDTH = 240;
+const MAX_WIDTH = 720;
+const DEFAULT_WIDTH = 320;
+
+function clampWidth(width: number): number {
+  // Keep some graph visible regardless of viewport size.
+  const viewportMax = Math.max(MIN_WIDTH, window.innerWidth - 200);
+  return Math.min(Math.max(width, MIN_WIDTH), Math.min(MAX_WIDTH, viewportMax));
+}
 
 /** One section of a side rail: an icon in the strip plus expandable content. */
 export interface RailSection<Id extends string = string> {
@@ -29,6 +41,7 @@ export function SideRail<Id extends string>({
   activeId,
   onSelect,
   footer,
+  resizable = false,
 }: {
   side: "left" | "right";
   sections: RailSection<Id>[];
@@ -38,9 +51,37 @@ export function SideRail<Id extends string>({
   onSelect: (id: Id | null) => void;
   /** Optional element pinned to the bottom of the icon strip. */
   footer?: ReactNode;
+  /** Content panel width adjustable by dragging its inner edge (persisted). */
+  resizable?: boolean;
 }) {
   const active = sections.find((s) => s.id === activeId && !s.disabled) ?? null;
   const innerBorder = side === "left" ? "border-r" : "border-l";
+
+  // Resizable width — initialised from saved settings, persisted on drag end.
+  const [width, setWidth] = useState(
+    () => loadSavedSettings().railWidth ?? DEFAULT_WIDTH,
+  );
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current = { startX: e.clientX, startWidth: widthRef.current };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    e.preventDefault();
+    const delta = side === "right" ? drag.startX - e.clientX : e.clientX - drag.startX;
+    setWidth(clampWidth(drag.startWidth + delta));
+  };
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    persistSettings({ railWidth: widthRef.current });
+  };
 
   return (
     <div
@@ -93,7 +134,24 @@ export function SideRail<Id extends string>({
       >
         <div className="overflow-hidden">
           {active && (
-            <div className="w-80 h-full flex flex-col">
+            <div
+              className={`relative h-full flex flex-col ${resizable ? "" : "w-80"}`}
+              style={resizable ? { width } : undefined}
+            >
+              {/* Drag handle on the inner edge — pointer-captured column resize */}
+              {resizable && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  title="Drag to resize"
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  className={`absolute inset-y-0 ${
+                    side === "right" ? "left-0 -ml-0.5" : "right-0 -mr-0.5"
+                  } w-1.5 z-10 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors touch-none`}
+                />
+              )}
               <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700/60 flex-shrink-0">
                 <span className="text-sm font-semibold text-gray-200">
                   {active.title}

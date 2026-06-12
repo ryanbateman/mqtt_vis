@@ -377,6 +377,7 @@ function App() {
         sections={rightSections}
         activeId={rightActive}
         onSelect={setRightActive}
+        resizable
       />
       <StatusBar />
     </div>

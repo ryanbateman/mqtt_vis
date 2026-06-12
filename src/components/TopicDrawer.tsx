@@ -618,6 +618,19 @@ export function TopicDrawer({
     }
   }, [activeTab]);
 
+  // --- Invalidate map size when the container resizes (resizable rail) ------
+  // Leaflet does not observe its container, so tiles would misalign while
+  // the drawer is drag-resized without this.
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => {
+      mapRef.current?.invalidateSize();
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   // --- Topic path copy ------------------------------------------------------
   const [copied, setCopied] = useState(false);
   const handleCopyPath = async () => {
