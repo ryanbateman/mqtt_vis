@@ -8,17 +8,7 @@ import { mqttService } from "../services/mqttService";
 import { formatLogTimestamp } from "../utils/connectionErrors";
 import { SliderRow, InfoTooltip } from "./SettingsPanel";
 import { ECOSYSTEM_REGISTRY } from "../utils/ecosystemRegistry";
-
-/** Sentinel value used as the <select> value for the Custom Broker option. */
-const CUSTOM_BROKER = "__custom__";
-
-/** Sentinel value used as the <select> value for the Custom Topic option. */
-const CUSTOM_TOPIC = "__custom__";
-
-/** The ecosystem whose preset filter exactly matches the given string, if any. */
-function matchEcosystemFilter(filter: string) {
-  return ECOSYSTEM_REGISTRY.find((e) => e.topicFilter === filter);
-}
+import { SelectOrCustom } from "./SelectOrCustom";
 
 /** Generate a random client ID with a recognisable prefix. */
 function generateClientId(): string {
@@ -46,56 +36,17 @@ function getUrlParams(): { broker?: string; topic?: string } {
 }
 
 /**
- * Derive initial broker URL and dropdown selection from the precedence chain:
- *   URL param > localStorage > config brokers[0] > empty
- *
- * Returns:
- *   brokerUrl      — the URL to populate in the input field
- *   dropdownValue  — the <select> value (a known broker URL or CUSTOM_BROKER)
- *   customBrokerUrl — the URL to restore when the user picks "Custom Broker"
+ * Initial broker URL from the precedence chain:
+ *   URL param > localStorage > config brokers[0] > empty.
+ * SelectOrCustom derives its own list/custom mode from whether the value
+ * matches a known broker.
  */
-function deriveInitialBrokerState(
+function deriveInitialBrokerUrl(
   urlParamBroker: string | undefined,
   savedBrokerUrl: string | undefined,
-  configBrokers: { url: string }[]
-): { brokerUrl: string; dropdownValue: string; customBrokerUrl: string } {
-  const knownUrls = new Set(configBrokers.map((b) => b.url));
-
-  // URL param overrides everything
-  if (urlParamBroker) {
-    const dropdownValue = knownUrls.has(urlParamBroker)
-      ? urlParamBroker
-      : CUSTOM_BROKER;
-    return {
-      brokerUrl: urlParamBroker,
-      dropdownValue,
-      customBrokerUrl: knownUrls.has(urlParamBroker) ? "" : urlParamBroker,
-    };
-  }
-
-  // Returning visitor: restore from localStorage
-  if (savedBrokerUrl) {
-    const dropdownValue = knownUrls.has(savedBrokerUrl)
-      ? savedBrokerUrl
-      : CUSTOM_BROKER;
-    return {
-      brokerUrl: savedBrokerUrl,
-      dropdownValue,
-      customBrokerUrl: knownUrls.has(savedBrokerUrl) ? "" : savedBrokerUrl,
-    };
-  }
-
-  // First-time visitor: use first broker in config list
-  if (configBrokers.length > 0) {
-    return {
-      brokerUrl: configBrokers[0].url,
-      dropdownValue: configBrokers[0].url,
-      customBrokerUrl: "",
-    };
-  }
-
-  // No brokers configured at all
-  return { brokerUrl: "", dropdownValue: CUSTOM_BROKER, customBrokerUrl: "" };
+  configBrokers: { url: string }[],
+): string {
+  return urlParamBroker ?? savedBrokerUrl ?? configBrokers[0]?.url ?? "";
 }
 
 export function ConnectionPanel({
@@ -111,8 +62,8 @@ export function ConnectionPanel({
   const brokers = cfg.brokers ?? [];
 
   // Derive initial state once
-  const initialBrokerState = useMemo(
-    () => deriveInitialBrokerState(urlParams.broker, saved.brokerUrl, brokers),
+  const initialBrokerUrl = useMemo(
+    () => deriveInitialBrokerUrl(urlParams.broker, saved.brokerUrl, brokers),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
@@ -136,47 +87,10 @@ export function ConnectionPanel({
     }
   }, [errorMessage]);
 
-  const [brokerUrl, setBrokerUrl] = useState(initialBrokerState.brokerUrl);
-  const [dropdownValue, setDropdownValue] = useState(initialBrokerState.dropdownValue);
-  // The last custom URL the user typed/used — restored when they pick "Custom Broker"
-  const [customBrokerUrl, setCustomBrokerUrl] = useState(initialBrokerState.customBrokerUrl);
-
-  // Topic filter + its ecosystem-preset dropdown (mirrors the broker pair).
-  const initialTopicFilter = urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? "";
-  const [topicFilter, setTopicFilter] = useState(initialTopicFilter);
-  const [topicDropdownValue, setTopicDropdownValue] = useState(
-    () => matchEcosystemFilter(initialTopicFilter)?.id ?? CUSTOM_TOPIC,
+  const [brokerUrl, setBrokerUrl] = useState(initialBrokerUrl);
+  const [topicFilter, setTopicFilter] = useState(
+    urlParams.topic ?? saved.topicFilter ?? cfg.topicFilter ?? ""
   );
-  // The last custom filter the user typed — restored when they pick Custom.
-  const [customTopicFilter, setCustomTopicFilter] = useState(
-    () => (matchEcosystemFilter(initialTopicFilter) ? "" : initialTopicFilter),
-  );
-
-  /** Dropdown change: ecosystem preset populates the input; Custom restores. */
-  const handleTopicDropdownChange = useCallback((value: string) => {
-    if (value === CUSTOM_TOPIC) {
-      setTopicFilter(customTopicFilter);
-      setTopicDropdownValue(CUSTOM_TOPIC);
-      return;
-    }
-    const def = ECOSYSTEM_REGISTRY.find((e) => e.id === value);
-    if (def) {
-      setTopicFilter(def.topicFilter);
-      setTopicDropdownValue(def.id);
-    }
-  }, [customTopicFilter]);
-
-  /** Manual edits sync the dropdown (exact preset match, else Custom). */
-  const handleTopicFilterChange = useCallback((text: string) => {
-    setTopicFilter(text);
-    const eco = matchEcosystemFilter(text);
-    if (eco) {
-      setTopicDropdownValue(eco.id);
-    } else {
-      setTopicDropdownValue(CUSTOM_TOPIC);
-      setCustomTopicFilter(text);
-    }
-  }, []);
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
   const [showAuth, setShowAuth] = useState(false);
@@ -205,32 +119,6 @@ export function ConnectionPanel({
   }, [isConnecting, onDisconnect]);
 
   const knownBrokerUrls = useMemo(() => new Set(brokers.map((b) => b.url)), [brokers]);
-
-  /** Handle dropdown selection changes. */
-  const handleDropdownChange = useCallback((value: string) => {
-    if (value === CUSTOM_BROKER) {
-      // Restore the last custom URL (may be empty on first visit)
-      setBrokerUrl(customBrokerUrl);
-      setDropdownValue(CUSTOM_BROKER);
-    } else {
-      // Known broker selected
-      setBrokerUrl(value);
-      setDropdownValue(value);
-    }
-  }, [customBrokerUrl]);
-
-  /** Handle manual edits to the Broker URL input. */
-  const handleBrokerUrlChange = useCallback((newUrl: string) => {
-    setBrokerUrl(newUrl);
-    if (knownBrokerUrls.has(newUrl)) {
-      // Typed URL exactly matches a known broker — sync the dropdown
-      setDropdownValue(newUrl);
-    } else {
-      // Non-matching URL — switch to Custom Broker and remember it
-      setDropdownValue(CUSTOM_BROKER);
-      setCustomBrokerUrl(newUrl);
-    }
-  }, [knownBrokerUrls]);
 
   /** Persist the autoconnect preference to localStorage. */
   const persistAutoconnect = useCallback((value: boolean) => {
@@ -302,11 +190,10 @@ export function ConnectionPanel({
         ? "bg-amber-600 hover:bg-amber-700 text-white animate-pulse"
         : "bg-blue-600 hover:bg-blue-700 text-white";
 
-  // Icon reflects the currently selected broker (custom = pencil icon, known = brand icon)
-  const brokerIcon =
-    dropdownValue === CUSTOM_BROKER
-      ? CUSTOM_BROKER_ICON
-      : getBrokerIcon(dropdownValue);
+  // Icon reflects the current broker value (custom = pencil icon, known = brand icon)
+  const brokerIcon = knownBrokerUrls.has(brokerUrl)
+    ? getBrokerIcon(brokerUrl)
+    : CUSTOM_BROKER_ICON;
 
   // Description: undefined/null → default; "" → hidden; string → use as-is
   const DEFAULT_DESCRIPTION =
@@ -392,13 +279,20 @@ export function ConnectionPanel({
           {activeTab === "connect" && (
             <form onSubmit={handleSubmit} className="space-y-3">
 
-              {/* Quick Connect dropdown — always shown when brokers list is non-empty */}
-              {brokers.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">
-                    Quick Connect
-                  </label>
-                  <div className="flex items-center gap-2">
+              {/* Broker — one morphing control: known brokers or a custom URL */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">
+                  Broker
+                </label>
+                <SelectOrCustom
+                  options={brokers.map((b) => ({ value: b.url, label: b.name }))}
+                  value={brokerUrl}
+                  onChange={setBrokerUrl}
+                  customLabel="Custom Broker…"
+                  placeholder="wss://broker.example.com:8884/mqtt"
+                  disabled={isConnected}
+                  onFocus={cancelReconnect}
+                  leading={
                     <svg
                       className="w-5 h-5 flex-shrink-0"
                       viewBox="0 0 24 24"
@@ -408,65 +302,27 @@ export function ConnectionPanel({
                     >
                       <path d={brokerIcon.path} />
                     </svg>
-                    <select
-                      value={dropdownValue}
-                      onChange={(e) => handleDropdownChange(e.target.value)}
-                      onFocus={cancelReconnect}
-                      disabled={isConnected}
-                      className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
-                    >
-                      {brokers.map((broker) => (
-                        <option key={broker.url} value={broker.url}>
-                          {broker.name}
-                        </option>
-                      ))}
-                      <option value={CUSTOM_BROKER}>Custom Broker</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">
-                  Broker URL
-                </label>
-                <input
-                  type="text"
-                  value={brokerUrl}
-                  onChange={(e) => handleBrokerUrlChange(e.target.value)}
-                  onFocus={cancelReconnect}
-                  disabled={isConnected}
-                  placeholder="wss://broker.example.com:8884/mqtt"
-                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                  }
                 />
               </div>
 
+              {/* Topic — one morphing control: ecosystem presets or a custom filter */}
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1">
                   Topic Filter
                 </label>
-                <select
-                  value={topicDropdownValue}
-                  onChange={(e) => handleTopicDropdownChange(e.target.value)}
-                  onFocus={cancelReconnect}
-                  disabled={isConnected}
-                  className="w-full px-3 py-1.5 mb-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
-                >
-                  <option value={CUSTOM_TOPIC}>Custom Topic</option>
-                  {ECOSYSTEM_REGISTRY.map((eco) => (
-                    <option key={eco.id} value={eco.id}>
-                      {eco.label} ({eco.topicFilter})
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
+                <SelectOrCustom
+                  options={ECOSYSTEM_REGISTRY.map((eco) => ({
+                    value: eco.topicFilter,
+                    label: `${eco.label} (${eco.topicFilter})`,
+                  }))}
                   value={topicFilter}
-                  onChange={(e) => handleTopicFilterChange(e.target.value)}
-                  onFocus={cancelReconnect}
-                  disabled={isConnected}
+                  onChange={setTopicFilter}
+                  customLabel="Custom Topic…"
                   placeholder="#"
-                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                  disabled={isConnected}
+                  onFocus={cancelReconnect}
+                  inputClassName="font-mono text-xs"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Use # for all topics, + for single-level wildcard
