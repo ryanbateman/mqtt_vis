@@ -21,7 +21,9 @@ export type IndicatorSettingsKey =
   | "showGeoIndicators"
   | "showImageIndicators"
   | "showSparkplugIndicators"
-  | "showHomeAssistantIndicators";
+  | "showHomeAssistantIndicators"
+  | "showFrigateIndicators"
+  | "showShellyIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -89,6 +91,30 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
     settingsLabel: "Home Assistant Indicators",
     settingsTooltip:
       "Show a coloured ring around topics belonging to Home Assistant discovery entities (config and state topics)",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "frigate",
+    label: "Frigate",
+    // Orange — distinct from the heat palette's amber band at ring width.
+    ringColor: "#fb923c",
+    settingsKey: "showFrigateIndicators",
+    settingsLabel: "Frigate Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to Frigate NVR cameras",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "shelly",
+    label: "Shelly",
+    // Teal — distinct from geo cyan and Home Assistant blue.
+    ringColor: "#2dd4bf",
+    settingsKey: "showShellyIndicators",
+    settingsLabel: "Shelly Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to Shelly devices (Gen1 announce-based)",
     defaultEnabled: true,
     drawerTab: null,
   },

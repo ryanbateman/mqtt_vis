@@ -6,6 +6,7 @@ import { parseSparkplugTopic, sparkplugDeviceKey, isBirth, isDeath } from "../ut
 import { decodeSparkplugPayload } from "../utils/sparkplug/decoder";
 import { recordAliases, resolveAliases, type AliasMap } from "../utils/sparkplug/aliases";
 import { detectHomeAssistant } from "../utils/ecosystems/homeassistant/discovery";
+import { detectShelly } from "../utils/ecosystems/shelly";
 
 /**
  * Payload Analyzer Web Worker
@@ -106,7 +107,7 @@ function detectSparkplug(
 /** Topic-aware detectors — run first; returning results short-circuits. */
 const topicDetectors: Array<
   (topic: string, payload: string, rawBytes: ArrayBuffer | undefined) => DetectorResult[]
-> = [detectSparkplug, detectHomeAssistant];
+> = [detectSparkplug, detectHomeAssistant, detectShelly];
 
 /** Raw-string detectors — run on every payload before JSON parsing. */
 const rawDetectors: Array<(payload: string) => DetectorResult[]> = [

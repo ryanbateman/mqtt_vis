@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTopicStore } from "../stores/topicStore";
 import { sparkplugEntitiesView } from "../utils/ecosystems/sparkplugFacade";
 import { getEcosystemDefinition } from "../utils/ecosystemRegistry";
-import type { DomainEntity } from "../types/entities";
+import type { DomainEntity, EcosystemId } from "../types/entities";
 
 /**
  * All identified domain entities — the sparkplug facade plus the
@@ -269,44 +269,53 @@ function SparkplugSection({ entities }: { entities: DomainEntity[] }) {
   );
 }
 
-/** Home Assistant section: devices with their entities, orphan entities flat. */
-function HomeAssistantSection({ entities }: { entities: DomainEntity[] }) {
-  const def = getEcosystemDefinition("homeassistant");
+/**
+ * Generic parent/child section for registry-backed ecosystems: entities
+ * whose parentKey resolves nest under that parent (HA device → entities,
+ * Frigate NVR → cameras); the rest render flat (Shelly's flat device list).
+ */
+function EntityTreeSection({
+  ecosystemId,
+  entities,
+}: {
+  ecosystemId: EcosystemId;
+  entities: DomainEntity[];
+}) {
+  const def = getEcosystemDefinition(ecosystemId);
   const { isExpanded, toggle } = useExpansion(entities.length);
 
   const byLabel = (a: DomainEntity, b: DomainEntity) => a.label.localeCompare(b.label);
-  const devices = entities.filter((e) => e.role === "device").sort(byLabel);
+  const keys = new Set(entities.map((e) => e.key));
   const childrenByParent = new Map<string, DomainEntity[]>();
-  const orphans: DomainEntity[] = [];
+  const topLevel: DomainEntity[] = [];
   for (const e of entities) {
-    if (e.role === "device") continue;
-    const parent = e.parentKey ? childrenByParent.get(e.parentKey) : undefined;
-    if (e.parentKey && entities.some((d) => d.key === e.parentKey)) {
-      if (parent) parent.push(e);
+    if (e.parentKey && keys.has(e.parentKey)) {
+      const siblings = childrenByParent.get(e.parentKey);
+      if (siblings) siblings.push(e);
       else childrenByParent.set(e.parentKey, [e]);
     } else {
-      orphans.push(e);
+      topLevel.push(e);
     }
   }
   for (const children of childrenByParent.values()) children.sort(byLabel);
-  orphans.sort(byLabel);
+  topLevel.sort(byLabel);
 
   return (
     <div>
       <SectionHeading color={def.color} label={def.label} count={entities.length} />
-      {devices.map((device) => {
-        const children = childrenByParent.get(device.key) ?? [];
-        const expanded = children.length === 0 || isExpanded(device.key);
+      {topLevel.map((parent) => {
+        const children = childrenByParent.get(parent.key) ?? [];
+        const expanded = children.length === 0 || isExpanded(parent.key);
         return (
-          <div key={device.key}>
+          <div key={parent.key}>
             <EntityRow
-              entity={device}
+              entity={parent}
               extraHighlightIds={children.map((c) => c.topicNodeIds)}
               color={def.color}
               indent={false}
               childCount={children.length}
               expanded={expanded}
-              onToggle={children.length > 0 ? () => toggle(device.key) : undefined}
+              onToggle={children.length > 0 ? () => toggle(parent.key) : undefined}
             />
             {expanded &&
               children.map((child) => (
@@ -315,9 +324,6 @@ function HomeAssistantSection({ entities }: { entities: DomainEntity[] }) {
           </div>
         );
       })}
-      {orphans.map((entity) => (
-        <EntityRow key={entity.key} entity={entity} color={def.color} indent={false} />
-      ))}
     </div>
   );
 }
@@ -338,12 +344,17 @@ export function EcosystemsPanel({ entities }: { entities: DomainEntity[] }) {
   }, [clearHighlights]);
 
   const sparkplug = entities.filter((e) => e.ecosystem === "sparkplug");
-  const homeassistant = entities.filter((e) => e.ecosystem === "homeassistant");
+  // Registry-backed ecosystems share the generic parent/child tree.
+  const treeEcosystems: EcosystemId[] = ["homeassistant", "frigate", "shelly"];
 
   return (
     <div className="p-2 space-y-2">
       {sparkplug.length > 0 && <SparkplugSection entities={sparkplug} />}
-      {homeassistant.length > 0 && <HomeAssistantSection entities={homeassistant} />}
+      {treeEcosystems.map((id) => {
+        const sectionEntities = entities.filter((e) => e.ecosystem === id);
+        if (sectionEntities.length === 0) return null;
+        return <EntityTreeSection key={id} ecosystemId={id} entities={sectionEntities} />;
+      })}
     </div>
   );
 }

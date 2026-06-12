@@ -7,7 +7,7 @@ import type {
   LabelMode,
   MqttUserProperties,
 } from "../types";
-import type { DetectorResult, HomeAssistantMetadata } from "../types/payloadTags";
+import type { DetectorResult, EntityTagMetadata } from "../types/payloadTags";
 import type { SparkplugDeviceState, SparkplugMetadata, SparkplugTopicInfo } from "../types/sparkplug";
 import type { DomainEntity } from "../types/entities";
 import type { IndicatorSettingsKey } from "../utils/tagRegistry";
@@ -21,6 +21,8 @@ import {
   isEcosystemDefiningTopic,
 } from "../utils/ecosystems/entityOps";
 import { isHaDiscoveryTopic } from "../utils/ecosystems/homeassistant/discovery";
+import { recordFrigateMessage } from "../utils/ecosystems/frigate";
+import { recordShellyMessage } from "../utils/ecosystems/shelly";
 import {
   isSparkplugTopic,
   parseSparkplugTopic,
@@ -129,6 +131,10 @@ interface TopicStoreState {
   showSparkplugIndicators: boolean;
   /** Whether to show Home Assistant entity indicator rings in the graph. */
   showHomeAssistantIndicators: boolean;
+  /** Whether to show Frigate camera indicator rings in the graph. */
+  showFrigateIndicators: boolean;
+  /** Whether to show Shelly device indicator rings in the graph. */
+  showShellyIndicators: boolean;
   /** Whether ancestor nodes pulse when a descendant receives a message. */
   ancestorPulse: boolean;
   /** Whether to show the structural root-path nodes above the subscription prefix. */
@@ -605,6 +611,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showImageIndicators:  saved.showImageIndicators  ?? cfg.showImageIndicators  ?? true,
   showSparkplugIndicators: saved.showSparkplugIndicators ?? cfg.showSparkplugIndicators ?? true,
   showHomeAssistantIndicators: saved.showHomeAssistantIndicators ?? cfg.showHomeAssistantIndicators ?? true,
+  showFrigateIndicators: saved.showFrigateIndicators ?? cfg.showFrigateIndicators ?? true,
+  showShellyIndicators:  saved.showShellyIndicators  ?? cfg.showShellyIndicators  ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
   topicFilter: cfg.topicFilter ?? "#",
@@ -738,9 +746,30 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           role: hit.entity.role,
           label: hit.entity.label,
           online: hit.entity.online,
-        } satisfies HomeAssistantMetadata,
+        } satisfies EntityTagMetadata,
       });
       if (hit.changed) _entitiesDirty = true;
+    }
+
+    // Structural providers: ecosystems whose topic SHAPE is the signal
+    // (Frigate cameras, Shelly device trees) — entities derived per message,
+    // no defining document round-trip needed.
+    const structuralHit =
+      recordFrigateMessage(_entityRegistry, topic, node.id, payload) ??
+      recordShellyMessage(_entityRegistry, topic, node.id, payload);
+    if (structuralHit) {
+      mergeNodeTag(node, {
+        tag: structuralHit.entity.ecosystem as "frigate" | "shelly",
+        confidence: 1,
+        fieldPath: "",
+        metadata: {
+          entityKey: structuralHit.entity.key,
+          role: structuralHit.entity.role,
+          label: structuralHit.entity.label,
+          online: structuralHit.entity.online,
+        } satisfies EntityTagMetadata,
+      });
+      if (structuralHit.changed) _entitiesDirty = true;
     }
 
     // Submit payload for off-thread analysis (geo detection, image detection,
@@ -1203,6 +1232,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showImageIndicators: cfg.showImageIndicators ?? true,
       showSparkplugIndicators: cfg.showSparkplugIndicators ?? true,
       showHomeAssistantIndicators: cfg.showHomeAssistantIndicators ?? true,
+      showFrigateIndicators: cfg.showFrigateIndicators ?? true,
+      showShellyIndicators: cfg.showShellyIndicators ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
     });
@@ -1346,19 +1377,19 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     if (node) {
       // Sparkplug tags arrive from the worker carrying full decoded metrics.
       // Strip those into the device state slice (the authoritative store)
-      // and keep only the slim metadata on the node. Home Assistant tags
-      // likewise carry parsed declarations — stripped into the entity
-      // registry the same way.
+      // and keep only the slim metadata on the node. Registry-backed
+      // ecosystem tags (HA discovery, Shelly announces) likewise carry
+      // parsed declarations — stripped into the entity registry the same way.
       const processed = tags.map((t) => {
-        if (t.tag === "homeassistant") {
-          const meta = t.metadata as HomeAssistantMetadata;
+        if (t.tag === "homeassistant" || t.tag === "shelly") {
+          const meta = t.metadata as EntityTagMetadata;
           if (meta.declarations && meta.declarations.length > 0) {
             if (applyEntityDeclarations(_entityRegistry, meta.declarations)) {
               _entitiesDirty = true;
             }
           }
           const entity = _entityRegistry.entities.get(meta.entityKey);
-          const slim: HomeAssistantMetadata = {
+          const slim: EntityTagMetadata = {
             entityKey: meta.entityKey,
             role: meta.role,
             label: meta.label,

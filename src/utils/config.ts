@@ -32,6 +32,8 @@ export interface AppConfig {
   showImageIndicators?: boolean;
   showSparkplugIndicators?: boolean;
   showHomeAssistantIndicators?: boolean;
+  showFrigateIndicators?: boolean;
+  showShellyIndicators?: boolean;
 
   // Simulation
   repulsionStrength?: number;

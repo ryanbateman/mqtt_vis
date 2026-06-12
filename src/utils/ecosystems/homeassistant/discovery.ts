@@ -1,4 +1,4 @@
-import type { DetectorResult, HomeAssistantMetadata } from "../../../types/payloadTags";
+import type { DetectorResult, EntityTagMetadata } from "../../../types/payloadTags";
 import type { EntityDeclaration } from "../../../types/entities";
 import {
   expandConfig,
@@ -233,7 +233,7 @@ export function detectHomeAssistant(topic: string, payload: string): DetectorRes
   if (declarations.length === 0) return [];
 
   const entity = declarations.find((d) => d.role !== "device") ?? declarations[0];
-  const metadata: HomeAssistantMetadata = {
+  const metadata: EntityTagMetadata = {
     entityKey: entity.key,
     role: entity.role,
     label: entity.label,

@@ -30,6 +30,18 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     // Matches the homeassistant indicator-ring blue (tagRegistry.ts).
     color: "#41bdf5",
   },
+  {
+    id: "frigate",
+    label: "Frigate",
+    // Matches the frigate indicator-ring orange (tagRegistry.ts).
+    color: "#fb923c",
+  },
+  {
+    id: "shelly",
+    label: "Shelly",
+    // Matches the shelly indicator-ring teal (tagRegistry.ts).
+    color: "#2dd4bf",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */

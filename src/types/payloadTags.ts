@@ -2,7 +2,13 @@ import type { SparkplugMetadata } from "./sparkplug";
 import type { EntityDeclaration } from "./entities";
 
 /** Supported payload tag types. Extensible as new detectors are added. */
-export type PayloadTagType = "geo" | "image" | "sparkplug" | "homeassistant";
+export type PayloadTagType =
+  | "geo"
+  | "image"
+  | "sparkplug"
+  | "homeassistant"
+  | "frigate"
+  | "shelly";
 
 /** Detected geo coordinates extracted from a JSON payload. */
 export interface GeoMetadata {
@@ -26,11 +32,15 @@ export interface ImageMetadata {
   sizeBytes: number;
 }
 
-/** Slim per-topic-node tag metadata pointing at the entity registry. */
-export interface HomeAssistantMetadata {
+/**
+ * Slim per-topic-node tag metadata pointing at the entity registry.
+ * Shared by every registry-backed ecosystem tag (homeassistant, frigate,
+ * shelly, ...).
+ */
+export interface EntityTagMetadata {
   /** Key into the domainEntities store slice. */
   entityKey: string;
-  /** Entity role (component type, or "device"). */
+  /** Entity role (component type, "device", "camera", ...). */
   role: string;
   /** Human label at tag time (authoritative state lives in the registry). */
   label: string;
@@ -49,7 +59,9 @@ export interface TagMetadataMap {
   geo: GeoMetadata;
   image: ImageMetadata;
   sparkplug: SparkplugMetadata;
-  homeassistant: HomeAssistantMetadata;
+  homeassistant: EntityTagMetadata;
+  frigate: EntityTagMetadata;
+  shelly: EntityTagMetadata;
 }
 
 /** A single detection result from a payload analyzer detector. */

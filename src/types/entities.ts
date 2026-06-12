@@ -9,7 +9,12 @@
  */
 
 /** Ecosystems the app knows about. Extended as providers are added. */
-export type EcosystemId = "sparkplug" | "homeassistant" | "zigbee2mqtt";
+export type EcosystemId =
+  | "sparkplug"
+  | "homeassistant"
+  | "zigbee2mqtt"
+  | "frigate"
+  | "shelly";
 
 /**
  * One entity parsed from an ecosystem's defining payload (e.g. a Home

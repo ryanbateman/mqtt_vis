@@ -1,5 +1,6 @@
 import type { DomainEntity, EntityDeclaration } from "../../types/entities";
 import { isHaDiscoveryTopic } from "./homeassistant/discovery";
+import { isShellyAnnounceTopic } from "./shelly";
 
 /**
  * Entity registry operations: pure functions over the registry's maps,
@@ -52,12 +53,42 @@ export function clearEntityRegistry(registry: EntityRegistry): void {
 }
 
 /**
- * True for topics that DEFINE ecosystem entities (e.g. HA discovery
- * configs). These are exempt from the retained-burst drop: discovery
- * payloads are always retained, so dropping them would blind the registry.
+ * True for topics that DEFINE ecosystem entities (HA discovery configs,
+ * Shelly announces). These are exempt from the retained-burst drop:
+ * discovery payloads are always retained, so dropping them would blind
+ * the registry.
  */
 export function isEcosystemDefiningTopic(topic: string): boolean {
-  return isHaDiscoveryTopic(topic);
+  return isHaDiscoveryTopic(topic) || isShellyAnnounceTopic(topic);
+}
+
+/**
+ * Get or create an entity for a structural provider (topic-shape-derived,
+ * no defining document — Frigate cameras, announce-less Shelly devices).
+ * Honours the entity cap. Returns null when the cap blocks creation.
+ */
+export function ensureEntity(
+  registry: EntityRegistry,
+  template: Omit<DomainEntity, "online" | "attributes" | "anchorTopicId" | "topicNodeIds"> &
+    Partial<Pick<DomainEntity, "online" | "attributes">>,
+): { entity: DomainEntity; created: boolean } | null {
+  const existing = registry.entities.get(template.key);
+  if (existing) return { entity: existing, created: false };
+  if (registry.entities.size >= DOMAIN_ENTITY_CAP) return null;
+
+  const entity: DomainEntity = {
+    key: template.key,
+    ecosystem: template.ecosystem,
+    role: template.role,
+    label: template.label,
+    parentKey: template.parentKey,
+    online: template.online ?? null,
+    attributes: template.attributes ?? {},
+    anchorTopicId: null,
+    topicNodeIds: new Set<string>(),
+  };
+  registry.entities.set(template.key, entity);
+  return { entity, created: true };
 }
 
 /** Remove all of one entity's claims from the reverse index. */

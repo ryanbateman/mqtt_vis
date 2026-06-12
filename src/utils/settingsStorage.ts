@@ -50,6 +50,8 @@ export interface SavedSettings {
   showImageIndicators?: boolean;
   showSparkplugIndicators?: boolean;
   showHomeAssistantIndicators?: boolean;
+  showFrigateIndicators?: boolean;
+  showShellyIndicators?: boolean;
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
   connectionCollapsed?: boolean;
@@ -113,6 +115,8 @@ function validate(raw: StoredSettings): SavedSettings {
     showImageIndicators: validBoolean(raw.showImageIndicators),
     showSparkplugIndicators: validBoolean(raw.showSparkplugIndicators),
     showHomeAssistantIndicators: validBoolean(raw.showHomeAssistantIndicators),
+    showFrigateIndicators: validBoolean(raw.showFrigateIndicators),
+    showShellyIndicators: validBoolean(raw.showShellyIndicators),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),
     railWidth:          validNumber(raw.railWidth, 240, 720),
