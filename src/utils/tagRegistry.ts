@@ -24,7 +24,9 @@ export type IndicatorSettingsKey =
   | "showHomeAssistantIndicators"
   | "showFrigateIndicators"
   | "showShellyIndicators"
-  | "showOwnTracksIndicators";
+  | "showOwnTracksIndicators"
+  | "showTtnIndicators"
+  | "showChirpstackIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -128,6 +130,30 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
     settingsLabel: "OwnTracks Indicators",
     settingsTooltip:
       "Show a coloured ring around topics belonging to OwnTracks location trackers",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "ttn",
+    label: "The Things Network",
+    // Indigo — distinct from Home Assistant blue and the heat palette.
+    ringColor: "#6366f1",
+    settingsKey: "showTtnIndicators",
+    settingsLabel: "The Things Network Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to The Things Network (LoRaWAN) applications and devices",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "chirpstack",
+    label: "ChirpStack",
+    // Pink — distinct from every other ring and the offline dashed red.
+    ringColor: "#ec4899",
+    settingsKey: "showChirpstackIndicators",
+    settingsLabel: "ChirpStack Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to ChirpStack (LoRaWAN) applications and devices",
     defaultEnabled: true,
     drawerTab: null,
   },

@@ -27,6 +27,7 @@ import { isHaDiscoveryTopic } from "../utils/ecosystems/homeassistant/discovery"
 import { recordFrigateMessage } from "../utils/ecosystems/frigate";
 import { recordShellyMessage } from "../utils/ecosystems/shelly";
 import { recordOwnTracksMessage } from "../utils/ecosystems/owntracks";
+import { recordLorawanMessage } from "../utils/ecosystems/lorawan";
 import {
   isSparkplugTopic,
   parseSparkplugTopic,
@@ -141,6 +142,10 @@ interface TopicStoreState {
   showShellyIndicators: boolean;
   /** Whether to show OwnTracks tracker indicator rings in the graph. */
   showOwnTracksIndicators: boolean;
+  /** Whether to show The Things Network (LoRaWAN) indicator rings in the graph. */
+  showTtnIndicators: boolean;
+  /** Whether to show ChirpStack (LoRaWAN) indicator rings in the graph. */
+  showChirpstackIndicators: boolean;
   /**
    * Whether to auto-subscribe to ecosystem-declared state/availability
    * topics that fall outside the primary filter (e.g. HA discovery configs
@@ -628,6 +633,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showFrigateIndicators: saved.showFrigateIndicators ?? cfg.showFrigateIndicators ?? true,
   showShellyIndicators:  saved.showShellyIndicators  ?? cfg.showShellyIndicators  ?? true,
   showOwnTracksIndicators: saved.showOwnTracksIndicators ?? cfg.showOwnTracksIndicators ?? true,
+  showTtnIndicators: saved.showTtnIndicators ?? cfg.showTtnIndicators ?? true,
+  showChirpstackIndicators: saved.showChirpstackIndicators ?? cfg.showChirpstackIndicators ?? true,
   followEcosystemTopics: saved.followEcosystemTopics ?? cfg.followEcosystemTopics ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
@@ -773,10 +780,16 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const structuralHit =
       recordFrigateMessage(_entityRegistry, topic, node.id, payload) ??
       recordShellyMessage(_entityRegistry, topic, node.id, payload) ??
-      recordOwnTracksMessage(_entityRegistry, topic, node.id, payload);
+      recordOwnTracksMessage(_entityRegistry, topic, node.id, payload) ??
+      recordLorawanMessage(_entityRegistry, topic, node.id, payload);
     if (structuralHit) {
       mergeNodeTag(node, {
-        tag: structuralHit.entity.ecosystem as "frigate" | "shelly" | "owntracks",
+        tag: structuralHit.entity.ecosystem as
+          | "frigate"
+          | "shelly"
+          | "owntracks"
+          | "ttn"
+          | "chirpstack",
         confidence: 1,
         fieldPath: "",
         metadata: {
@@ -1252,6 +1265,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showFrigateIndicators: cfg.showFrigateIndicators ?? true,
       showShellyIndicators: cfg.showShellyIndicators ?? true,
       showOwnTracksIndicators: cfg.showOwnTracksIndicators ?? true,
+      showTtnIndicators: cfg.showTtnIndicators ?? true,
+      showChirpstackIndicators: cfg.showChirpstackIndicators ?? true,
       followEcosystemTopics: cfg.followEcosystemTopics ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,

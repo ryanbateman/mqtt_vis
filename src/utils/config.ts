@@ -35,6 +35,8 @@ export interface AppConfig {
   showFrigateIndicators?: boolean;
   showShellyIndicators?: boolean;
   showOwnTracksIndicators?: boolean;
+  showTtnIndicators?: boolean;
+  showChirpstackIndicators?: boolean;
   followEcosystemTopics?: boolean;
 
   // Simulation

@@ -15,7 +15,9 @@ export type EcosystemId =
   | "zigbee2mqtt"
   | "frigate"
   | "shelly"
-  | "owntracks";
+  | "owntracks"
+  | "ttn"
+  | "chirpstack";
 
 /**
  * One entity parsed from an ecosystem's defining payload (e.g. a Home

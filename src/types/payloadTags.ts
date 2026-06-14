@@ -9,7 +9,9 @@ export type PayloadTagType =
   | "homeassistant"
   | "frigate"
   | "shelly"
-  | "owntracks";
+  | "owntracks"
+  | "ttn"
+  | "chirpstack";
 
 /** Detected geo coordinates extracted from a JSON payload. */
 export interface GeoMetadata {
@@ -72,6 +74,8 @@ export interface TagMetadataMap {
   frigate: EntityTagMetadata;
   shelly: EntityTagMetadata;
   owntracks: EntityTagMetadata;
+  ttn: EntityTagMetadata;
+  chirpstack: EntityTagMetadata;
 }
 
 /** A single detection result from a payload analyzer detector. */

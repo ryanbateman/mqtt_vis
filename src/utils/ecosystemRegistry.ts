@@ -58,6 +58,22 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     color: "#a78bfa",
     topicFilter: "owntracks/#",
   },
+  {
+    id: "ttn",
+    label: "The Things Network",
+    // Matches the ttn indicator-ring indigo (tagRegistry.ts).
+    color: "#6366f1",
+    topicFilter: "v3/#",
+  },
+  {
+    id: "chirpstack",
+    label: "ChirpStack",
+    // Matches the chirpstack indicator-ring pink (tagRegistry.ts).
+    color: "#ec4899",
+    // "application/" alone is generic; the +/device/ infix scopes the preset
+    // to ChirpStack's device topics (payload shape confirms identity).
+    topicFilter: "application/+/device/#",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */
