@@ -10,8 +10,12 @@ No backend required — it's a static SPA. Host it anywhere, and the MQTT connec
 
 - **Live topic graph** — topics appear as nodes in a force-directed layout, sized by message rate and coloured by activity
 - **Wildcard subscriptions** — subscribe with `#` or `+` and watch the tree grow in real-time
-- **Payload analysis** — automatic detection of geo coordinates and image payloads, with map view and image preview
-- **Sparkplug B support** — recognises Sparkplug edge nodes and devices from the topic namespace, decodes protobuf metrics, and tracks BIRTH/DEATH lifecycle with online/offline indicators and a live metric table
+- **Payload insights** — automatic detection of geo coordinates (map view with movement trails) and image payloads (inline preview), surfaced in a tabbed topic drawer alongside the raw payload and per-topic stats
+- **Ecosystem awareness** — identifies domain objects from known MQTT ecosystems and presents them as a device/entity tree with online/offline state, colour-coded indicator rings on the graph, and one-click topic-filter presets:
+  - **Sparkplug B** — edge nodes and devices decoded from protobuf, with BIRTH/DEATH lifecycle and a live metric table
+  - **Home Assistant** — MQTT discovery (devices and entities), with follow-on subscriptions that bind live state published in other namespaces
+  - **Frigate, Shelly, OwnTracks** — cameras, devices, and location trackers identified structurally from their topic shapes (OwnTracks trackers also plot on the map)
+- **Expanding side rails** — connection and settings on the left, payload/insight/ecosystem detail on the right; the right rail is drag-resizable
 - **Fully configurable** — tune the graph physics, labels, colours, and behaviour via the UI or a `config.json` file
 - **WebMCP support** — exposes tools for browser AI agents to query the topic tree (Chrome 146+)
 
