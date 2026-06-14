@@ -183,6 +183,8 @@ export function SettingsPanel() {
 
   const ancestorPulse = useTopicStore((s) => s.ancestorPulse);
   const setAncestorPulse = useTopicStore((s) => s.setAncestorPulse);
+  const fadeIndicatorRings = useTopicStore((s) => s.fadeIndicatorRings);
+  const setFadeIndicatorRings = useTopicStore((s) => s.setFadeIndicatorRings);
   const showRootPath = useTopicStore((s) => s.showRootPath);
   const setShowRootPath = useTopicStore((s) => s.setShowRootPath);
   const labelFontSize = useTopicStore((s) => s.labelFontSize);
@@ -308,6 +310,20 @@ export function SettingsPanel() {
                 {TAG_REGISTRY.map((def) => (
                   <IndicatorCheckbox key={def.id} def={def} />
                 ))}
+                <div className="flex items-center justify-between mt-1">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-gray-400">
+                      Fade Rings with Activity
+                    </label>
+                    <InfoTooltip text="Brighten each indicator ring when its node receives a message and dim it as the node quiets — in lockstep with the node body." />
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={fadeIndicatorRings}
+                    onChange={(e) => setFadeIndicatorRings(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                  />
+                </div>
               </div>
             </>
           )}

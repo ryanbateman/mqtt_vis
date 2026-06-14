@@ -1252,6 +1252,17 @@ describe("topicStore — settings localStorage persistence (Issue #21)", () => {
     expect(loadSavedSettings().ancestorPulse).toBe(false);
   });
 
+  it("fadeIndicatorRings defaults to true", () => {
+    state().reset();
+    expect(state().fadeIndicatorRings).toBe(true);
+  });
+
+  it("setFadeIndicatorRings persists fadeIndicatorRings", () => {
+    state().setFadeIndicatorRings(false);
+    expect(state().fadeIndicatorRings).toBe(false);
+    expect(loadSavedSettings().fadeIndicatorRings).toBe(false);
+  });
+
   it("setShowRootPath persists showRootPath", () => {
     state().setShowRootPath(true);
     expect(loadSavedSettings().showRootPath).toBe(true);

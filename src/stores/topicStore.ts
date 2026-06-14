@@ -148,6 +148,8 @@ interface TopicStoreState {
   showTtnIndicators: boolean;
   /** Whether to show ChirpStack (LoRaWAN) indicator rings in the graph. */
   showChirpstackIndicators: boolean;
+  /** Whether insight/ecosystem rings fade with node activity, like the bodies. */
+  fadeIndicatorRings: boolean;
   /**
    * Whether to auto-subscribe to ecosystem-declared state/availability
    * topics that fall outside the primary filter (e.g. HA discovery configs
@@ -262,6 +264,8 @@ interface TopicStoreState {
   setNodeScale: (scale: number) => void;
   /** Toggle depth-based node size scaling. */
   setScaleNodeSizeByDepth: (enabled: boolean) => void;
+  /** Toggle fading insight/ecosystem rings with node activity. */
+  setFadeIndicatorRings: (enabled: boolean) => void;
   /** Update simulation parameters. */
   setRepulsionStrength: (value: number) => void;
   setLinkDistance: (value: number) => void;
@@ -645,6 +649,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showOwnTracksIndicators: saved.showOwnTracksIndicators ?? cfg.showOwnTracksIndicators ?? true,
   showTtnIndicators: saved.showTtnIndicators ?? cfg.showTtnIndicators ?? true,
   showChirpstackIndicators: saved.showChirpstackIndicators ?? cfg.showChirpstackIndicators ?? true,
+  fadeIndicatorRings: saved.fadeIndicatorRings ?? cfg.fadeIndicatorRings ?? true,
   followEcosystemTopics: saved.followEcosystemTopics ?? cfg.followEcosystemTopics ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
@@ -1277,6 +1282,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showOwnTracksIndicators: cfg.showOwnTracksIndicators ?? true,
       showTtnIndicators: cfg.showTtnIndicators ?? true,
       showChirpstackIndicators: cfg.showChirpstackIndicators ?? true,
+      fadeIndicatorRings: cfg.fadeIndicatorRings ?? true,
       followEcosystemTopics: cfg.followEcosystemTopics ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,
@@ -1336,6 +1342,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     persistSettings({ nodeScale: scale });
     // Rebuild graph so node radii update immediately
     get().rebuildGraph();
+  },
+  setFadeIndicatorRings: (enabled: boolean) => {
+    set({ fadeIndicatorRings: enabled });
+    persistSettings({ fadeIndicatorRings: enabled });
   },
   setScaleNodeSizeByDepth: (enabled: boolean) => {
     set({ scaleNodeSizeByDepth: enabled });

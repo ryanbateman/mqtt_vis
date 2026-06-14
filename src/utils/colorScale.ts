@@ -75,3 +75,24 @@ export function linkColor(_rate: number): string {
     .clamp(true);
   return scale(_rate);
 }
+
+// --- Indicator ring opacity ------------------------------------------------
+
+/** Insight/ecosystem ring opacity at the instant of a pulse (fade-progress t=0). */
+export const RING_PULSE_OPACITY = 1.0;
+/** Ring opacity once fully faded / idle (t>=1). Tunable. */
+export const RING_IDLE_OPACITY = 0.4;
+/** Flat ring opacity used when activity fading is disabled (legacy behaviour). */
+export const RING_STATIC_OPACITY = 0.7;
+
+/**
+ * Indicator-ring stroke-opacity for a node's fade-progress `t`, where t=0 is
+ * the moment of a pulse and t>=1 is fully idle. Mirrors the body fade: bright
+ * on a message, easing toward dim as the node quiets. `t` is computed from the
+ * same pulseTimestamp / fadeDuration the node body uses, so rings and bodies
+ * fade in lockstep.
+ */
+export function ringFadeOpacity(t: number): number {
+  const c = Math.min(Math.max(t, 0), 1);
+  return RING_IDLE_OPACITY + (RING_PULSE_OPACITY - RING_IDLE_OPACITY) * (1 - c);
+}

@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { rateToColor, pulseColor, linkColor, IDLE_COLOR, IDLE_STROKE } from "../colorScale";
+import {
+  rateToColor,
+  pulseColor,
+  linkColor,
+  IDLE_COLOR,
+  IDLE_STROKE,
+  ringFadeOpacity,
+  RING_PULSE_OPACITY,
+  RING_IDLE_OPACITY,
+} from "../colorScale";
 
 /** Check that a string looks like a valid CSS colour (hex or rgb). */
 function isValidColor(color: string): boolean {
@@ -76,5 +85,24 @@ describe("linkColor", () => {
     // scaleLinear with clamp(true) should handle out-of-range values
     expect(isValidColor(linkColor(-1))).toBe(true);
     expect(isValidColor(linkColor(2))).toBe(true);
+  });
+});
+
+describe("ringFadeOpacity", () => {
+  it("is full opacity at a fresh pulse (t=0)", () => {
+    expect(ringFadeOpacity(0)).toBe(RING_PULSE_OPACITY);
+  });
+
+  it("is idle opacity when fully faded (t=1)", () => {
+    expect(ringFadeOpacity(1)).toBe(RING_IDLE_OPACITY);
+  });
+
+  it("is the midpoint halfway through the fade", () => {
+    expect(ringFadeOpacity(0.5)).toBeCloseTo((RING_PULSE_OPACITY + RING_IDLE_OPACITY) / 2);
+  });
+
+  it("clamps t outside the 0..1 range", () => {
+    expect(ringFadeOpacity(-1)).toBe(RING_PULSE_OPACITY);
+    expect(ringFadeOpacity(2)).toBe(RING_IDLE_OPACITY);
   });
 });

@@ -1,6 +1,13 @@
 import * as d3 from "d3";
 import type { GraphNode, GraphLink, LabelMode, TooltipData } from "../types";
-import { rateToColor, pulseColor, IDLE_COLOR, IDLE_STROKE } from "../utils/colorScale";
+import {
+  rateToColor,
+  pulseColor,
+  IDLE_COLOR,
+  IDLE_STROKE,
+  ringFadeOpacity,
+  RING_STATIC_OPACITY,
+} from "../utils/colorScale";
 import { depthScale } from "../utils/formatters";
 import {
   PERF_ENABLED,
@@ -137,6 +144,8 @@ export class GraphRenderer {
   private sparkplugOfflineNodes = new Set<string>();
   // Which insight tag types are enabled for ring display.  Map of tag → colour.
   private enabledInsightTags = new Map<string, string>();
+  // Whether insight rings fade with node activity (same envelope as the bodies).
+  private fadeRings = true;
 
   // Selection state — the currently selected/pinned node ID.
   private selectedNodeId: string | null = null;
@@ -993,6 +1002,15 @@ export class GraphRenderer {
   }
 
   /**
+   * Toggle whether insight rings fade with node activity. When on, ring
+   * opacity tracks each node's pulse-decay (same as the body); when off,
+   * rings hold a flat opacity. Applied per frame in syncInsightRingPositions.
+   */
+  setFadeRings(value: boolean): void {
+    this.fadeRings = value;
+  }
+
+  /**
    * Set the node ids whose sparkplug entity is currently offline.
    * Their sparkplug rings render red and dashed instead of the tag colour.
    * Node fill stays untouched — it belongs to the heat-map/pulse pipeline.
@@ -1059,7 +1077,7 @@ export class GraphRenderer {
       .enter()
       .append("circle")
       .attr("fill", "none")
-      .attr("stroke-opacity", 0.7)
+      .attr("stroke-opacity", RING_STATIC_OPACITY)
       .attr("pointer-events", "none")
       .merge(this.insightRingElements)
       .attr("stroke", (d) =>
@@ -1078,12 +1096,22 @@ export class GraphRenderer {
   private syncInsightRingPositions(): void {
     if (this.insightRingNodeIds.size === 0) return;
 
-    const nodePositions = new Map<string, { x: number; y: number; r: number }>();
+    const nodePositions = new Map<
+      string,
+      { x: number; y: number; r: number; pulseTimestamp: number }
+    >();
     this.simulation.nodes().forEach((n) => {
-      nodePositions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, r: n.displayRadius });
+      nodePositions.set(n.id, {
+        x: n.x ?? 0,
+        y: n.y ?? 0,
+        r: n.displayRadius,
+        pulseTimestamp: n.pulseTimestamp,
+      });
     });
 
     const ringStrokeWidth = 1.5 / this.currentZoomScale;
+    const now = Date.now();
+    const duration = this.fadeDuration;
 
     this.insightRingElements
       .attr("cx", (d) => nodePositions.get(d.id)?.x ?? 0)
@@ -1091,7 +1119,15 @@ export class GraphRenderer {
       .attr("r", (d) =>
         (nodePositions.get(d.id)?.r ?? 0) + (6 + d.ringIndex * 4) / this.currentZoomScale
       )
-      .attr("stroke-width", ringStrokeWidth);
+      .attr("stroke-width", ringStrokeWidth)
+      // Fade with the same pulse-decay envelope the node body uses, so rings
+      // and bodies brighten and dim in lockstep. Flat opacity when disabled.
+      .attr("stroke-opacity", (d) => {
+        if (!this.fadeRings) return RING_STATIC_OPACITY;
+        const ts = nodePositions.get(d.id)?.pulseTimestamp ?? 0;
+        const t = Math.min((now - ts) / duration, 1);
+        return ringFadeOpacity(t);
+      });
   }
 
   /**
