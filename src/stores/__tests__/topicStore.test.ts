@@ -1179,6 +1179,59 @@ describe("topicStore — settings localStorage persistence (Issue #21)", () => {
     expect(loadSavedSettings().linkDistance).toBe(200);
   });
 
+  describe("shakeLayout", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("cycles the force params to extremes and settles at the midpoint", () => {
+      state().shakeLayout();
+      expect(state().isShaking).toBe(true);
+
+      vi.advanceTimersByTime(0); // step 0 — full
+      expect(state().repulsionStrength).toBe(-500);
+      expect(state().linkDistance).toBe(300);
+
+      vi.advanceTimersByTime(550); // step 1 — min
+      expect(state().repulsionStrength).toBe(-20);
+      expect(state().linkDistance).toBe(20);
+
+      vi.advanceTimersByTime(550); // step 2 — full
+      expect(state().repulsionStrength).toBe(-500);
+
+      vi.advanceTimersByTime(550); // step 3 — min
+      expect(state().repulsionStrength).toBe(-20);
+
+      vi.advanceTimersByTime(550); // step 4 — settle at midpoint
+      expect(state().repulsionStrength).toBe(-260);
+      expect(state().linkDistance).toBe(160);
+      expect(state().isShaking).toBe(false);
+    });
+
+    it("persists only the resting midpoint, not the extremes", () => {
+      state().shakeLayout();
+      vi.advanceTimersByTime(0);
+      // Mid-shake the extreme is in the store but not yet persisted.
+      expect(loadSavedSettings().repulsionStrength).toBeUndefined();
+
+      vi.advanceTimersByTime(550 * 4); // run to settle
+      expect(loadSavedSettings().repulsionStrength).toBe(-260);
+      expect(loadSavedSettings().linkDistance).toBe(160);
+    });
+
+    it("ignores a re-entrant shake while one is running", () => {
+      state().shakeLayout();
+      expect(state().isShaking).toBe(true);
+      state().shakeLayout(); // guard: no-op
+      vi.advanceTimersByTime(550 * 5);
+      expect(state().isShaking).toBe(false);
+      expect(state().repulsionStrength).toBe(-260);
+    });
+  });
+
   it("setLinkStrength persists linkStrength", () => {
     state().setLinkStrength(0.8);
     expect(loadSavedSettings().linkStrength).toBe(0.8);

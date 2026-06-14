@@ -116,6 +116,8 @@ interface TopicStoreState {
   repulsionStrength: number;
   /** Ideal distance between linked parent-child nodes. */
   linkDistance: number;
+  /** True while a layout "shake" is cycling the force params (transient UI flag). */
+  isShaking: boolean;
   /** How rigidly links enforce their ideal distance (0..1). */
   linkStrength: number;
   /** Extra pixels added to node radius for collision detection. */
@@ -263,6 +265,13 @@ interface TopicStoreState {
   /** Update simulation parameters. */
   setRepulsionStrength: (value: number) => void;
   setLinkDistance: (value: number) => void;
+  /**
+   * Animate the force layout into a better spread: crank repulsion and link
+   * distance to their extremes (full -> min -> full -> min) and settle at the
+   * midpoint of each range, reheating the simulation at every step. Mirrors
+   * manually slamming both sliders to shake a tangled graph loose.
+   */
+  shakeLayout: () => void;
   setLinkStrength: (value: number) => void;
   setCollisionPadding: (value: number) => void;
   setAlphaDecay: (value: number) => void;
@@ -620,6 +629,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   scaleNodeSizeByDepth: saved.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
   repulsionStrength:    saved.repulsionStrength   ?? cfg.repulsionStrength   ?? -350,
   linkDistance:         saved.linkDistance        ?? cfg.linkDistance        ?? 155,
+  isShaking: false,
   linkStrength:         saved.linkStrength        ?? cfg.linkStrength        ?? 0.3,
   collisionPadding:     saved.collisionPadding    ?? cfg.collisionPadding    ?? 13,
   alphaDecay:           saved.alphaDecay          ?? cfg.alphaDecay          ?? 0.01,
@@ -1339,6 +1349,29 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   setLinkDistance: (value: number) => {
     set({ linkDistance: value });
     persistSettings({ linkDistance: value });
+  },
+  shakeLayout: () => {
+    if (get().isShaking) return;
+    set({ isShaking: true });
+    // Endpoints of the slider ranges (settingsStorage validators):
+    // repulsion [-500,-20], linkDistance [20,300]. "Full" = strongest
+    // repulsion + longest links (fling apart); "min" = collapse together.
+    const FULL: [number, number] = [-500, 300];
+    const MIN: [number, number] = [-20, 20];
+    const MID: [number, number] = [-260, 160]; // midpoint of each range
+    const seq: [number, number][] = [FULL, MIN, FULL, MIN, MID];
+    const DWELL_MS = 550;
+    seq.forEach(([repulsionStrength, linkDistance], i) => {
+      setTimeout(() => {
+        // Drives the TopicGraph effects -> GraphRenderer reheat (alpha 0.3).
+        // Intermediate steps are not persisted; only the final resting MID is.
+        set({ repulsionStrength, linkDistance });
+        if (i === seq.length - 1) {
+          persistSettings({ repulsionStrength, linkDistance });
+          set({ isShaking: false });
+        }
+      }, i * DWELL_MS);
+    });
   },
   setLinkStrength: (value: number) => {
     set({ linkStrength: value });
