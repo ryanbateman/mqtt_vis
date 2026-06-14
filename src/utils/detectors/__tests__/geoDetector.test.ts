@@ -513,4 +513,30 @@ describe("detectGeo", () => {
       expect(results[0].metadata.lon).toBe(0);
     });
   });
+
+  // --- Timestamp (tst) capture, e.g. OwnTracks ---
+  describe("tst timestamp", () => {
+    it("captures a sibling tst in epoch seconds as ms", () => {
+      const results = detectGeo({ _type: "location", lat: 51.5, lon: -0.1, tst: 1700000000 });
+      expect(results).toHaveLength(1);
+      expect(results[0].metadata.timestamp).toBe(1700000000 * 1000);
+      expect(results[0].metadata.tstPath).toBe("tst");
+    });
+
+    it("passes a tst already in ms straight through", () => {
+      const results = detectGeo({ lat: 51.5, lon: -0.1, tst: 1700000000000 });
+      expect(results[0].metadata.timestamp).toBe(1700000000000);
+    });
+
+    it("leaves timestamp absent when there is no tst", () => {
+      const results = detectGeo({ lat: 51.5, lon: -0.1 });
+      expect(results[0].metadata.timestamp).toBeUndefined();
+      expect(results[0].metadata.tstPath).toBeUndefined();
+    });
+
+    it("ignores a non-positive or non-numeric tst", () => {
+      expect(detectGeo({ lat: 51.5, lon: -0.1, tst: 0 })[0].metadata.timestamp).toBeUndefined();
+      expect(detectGeo({ lat: 51.5, lon: -0.1, tst: "soon" })[0].metadata.timestamp).toBeUndefined();
+    });
+  });
 });

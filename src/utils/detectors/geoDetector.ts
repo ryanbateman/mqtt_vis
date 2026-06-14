@@ -36,6 +36,18 @@ function isValidLon(v: unknown): boolean {
 }
 
 /**
+ * Normalise a `tst`-style timestamp to ms since epoch. OwnTracks publishes
+ * `tst` in epoch SECONDS; a value below ~1e12 is treated as seconds and
+ * scaled, while a value already in the ms range passes through. Returns
+ * null for non-positive or non-finite values.
+ */
+function toMsTimestamp(v: unknown): number | null {
+  const n = toNumber(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n < 1e12 ? Math.round(n * 1000) : Math.round(n);
+}
+
+/**
  * Build a dot-separated JSON path from parent path and current key.
  * If inside an array, the key is the numeric index wrapped in brackets.
  */
@@ -132,6 +144,17 @@ function walk(
           latPath,
           lonPath,
         };
+
+        // A sibling `tst` (OwnTracks) carries the reading's own time — keep
+        // it so geo trails can plot the device's GPS time, not arrival time.
+        const tstKey = lowerKeyMap.get("tst");
+        if (tstKey !== undefined) {
+          const ts = toMsTimestamp(obj[tstKey]);
+          if (ts !== null) {
+            metadata.timestamp = ts;
+            metadata.tstPath = buildPath(path, tstKey);
+          }
+        }
 
         results.push({
           tag: "geo",

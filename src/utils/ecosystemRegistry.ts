@@ -51,6 +51,13 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     color: "#2dd4bf",
     topicFilter: "shellies/#",
   },
+  {
+    id: "owntracks",
+    label: "OwnTracks",
+    // Matches the owntracks indicator-ring violet (tagRegistry.ts).
+    color: "#a78bfa",
+    topicFilter: "owntracks/#",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */

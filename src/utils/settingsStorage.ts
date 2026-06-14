@@ -52,6 +52,7 @@ export interface SavedSettings {
   showHomeAssistantIndicators?: boolean;
   showFrigateIndicators?: boolean;
   showShellyIndicators?: boolean;
+  showOwnTracksIndicators?: boolean;
   followEcosystemTopics?: boolean;
   // Panel UI state (ephemeral per-component, but nice to restore)
   settingsCollapsed?: boolean;
@@ -118,6 +119,7 @@ function validate(raw: StoredSettings): SavedSettings {
     showHomeAssistantIndicators: validBoolean(raw.showHomeAssistantIndicators),
     showFrigateIndicators: validBoolean(raw.showFrigateIndicators),
     showShellyIndicators: validBoolean(raw.showShellyIndicators),
+    showOwnTracksIndicators: validBoolean(raw.showOwnTracksIndicators),
     followEcosystemTopics: validBoolean(raw.followEcosystemTopics),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),
     connectionCollapsed: validBoolean(raw.connectionCollapsed),

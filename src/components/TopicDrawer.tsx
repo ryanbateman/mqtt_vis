@@ -32,7 +32,7 @@ interface TopicTrailState {
   trail: TrailPoint[];
   dots: L.CircleMarker[];
   polyline: L.Polyline | null;
-  prevPos: { lat: number; lon: number };
+  prevPos: { lat: number; lon: number; timestamp?: number };
 }
 
 /**
@@ -148,7 +148,7 @@ export function TopicDrawer({
   const polylineRef = useRef<L.Polyline | null>(null);
   const trailMarkersRef = useRef<L.CircleMarker[]>([]);
   const trailRef = useRef<TrailPoint[]>([]);
-  const prevGeoRef = useRef<{ lat: number; lon: number } | null>(null);
+  const prevGeoRef = useRef<{ lat: number; lon: number; timestamp?: number } | null>(null);
 
   // All-mode refs
   const allMarkersRef = useRef<L.Marker[]>([]);
@@ -306,7 +306,7 @@ export function TopicDrawer({
           trail: [],
           dots: [],
           polyline: null,
-          prevPos: { lat: node.geo.lat, lon: node.geo.lon },
+          prevPos: { lat: node.geo.lat, lon: node.geo.lon, timestamp: node.geo.timestamp },
         });
       }
     });
@@ -357,7 +357,7 @@ export function TopicDrawer({
     if (mode === "single") {
       const marker = L.marker([geo.lat, geo.lon], { icon: geoMarkerIcon }).addTo(map);
       markerRef.current = marker;
-      prevGeoRef.current = { lat: geo.lat, lon: geo.lon };
+      prevGeoRef.current = { lat: geo.lat, lon: geo.lon, timestamp: geo.timestamp };
     } else {
       showAllMarkers(geoNodes, geoNavIndex);
     }
@@ -406,7 +406,7 @@ export function TopicDrawer({
     } else {
       // Transition to single-topic mode: clear all markers + trails, add single marker
       clearAllMarkers();
-      prevGeoRef.current = { lat: geo.lat, lon: geo.lon };
+      prevGeoRef.current = { lat: geo.lat, lon: geo.lon, timestamp: geo.timestamp };
       prevGeoTopicsRef.current = "";
 
       if (!markerRef.current) {
@@ -489,9 +489,10 @@ export function TopicDrawer({
         const prev = prevGeoRef.current;
         if (prev && prev.lat === liveGeo.lat && prev.lon === liveGeo.lon) return;
 
-        // Position changed — push previous position to trail
+        // Position changed — push previous position to trail, stamped with
+        // the reading's own time (OwnTracks tst) when we have it.
         if (prev) {
-          addTrailPoint({ lat: prev.lat, lon: prev.lon, timestamp: Date.now() });
+          addTrailPoint({ lat: prev.lat, lon: prev.lon, timestamp: prev.timestamp ?? Date.now() });
         }
 
         // Update current marker
@@ -505,7 +506,7 @@ export function TopicDrawer({
           duration: 0.5,
         });
 
-        prevGeoRef.current = { lat: liveGeo.lat, lon: liveGeo.lon };
+        prevGeoRef.current = { lat: liveGeo.lat, lon: liveGeo.lon, timestamp: liveGeo.timestamp };
 
         // Update coordinate display
         const latEl = document.getElementById("insights-live-lat");
@@ -524,8 +525,9 @@ export function TopicDrawer({
 
           if (ts.prevPos.lat === liveGeo.lat && ts.prevPos.lon === liveGeo.lon) continue;
 
-          // Position changed — add previous position to trail
-          const now = Date.now();
+          // Position changed — add previous position to trail, stamped with
+          // the reading's own time (OwnTracks tst) when we have it.
+          const stamp = ts.prevPos.timestamp ?? Date.now();
           const trail = ts.trail;
 
           // Enforce cap — remove oldest dot if at limit
@@ -535,7 +537,7 @@ export function TopicDrawer({
             trail.shift();
           }
 
-          trail.push({ lat: ts.prevPos.lat, lon: ts.prevPos.lon, timestamp: now });
+          trail.push({ lat: ts.prevPos.lat, lon: ts.prevPos.lon, timestamp: stamp });
 
           // Create trail dot
           const dot = L.circleMarker([ts.prevPos.lat, ts.prevPos.lon], {
@@ -545,7 +547,7 @@ export function TopicDrawer({
             stroke: false,
           }).addTo(map);
 
-          dot.bindTooltip(`${tp}\n${formatTimestamp(now)}`, {
+          dot.bindTooltip(`${tp}\n${formatTimestamp(stamp)}`, {
             direction: "top",
             offset: [0, -6],
             className: "trail-tooltip",
@@ -574,7 +576,7 @@ export function TopicDrawer({
             marker.setLatLng([liveGeo.lat, liveGeo.lon]);
           }
 
-          ts.prevPos = { lat: liveGeo.lat, lon: liveGeo.lon };
+          ts.prevPos = { lat: liveGeo.lat, lon: liveGeo.lon, timestamp: liveGeo.timestamp };
         }
       }
     });

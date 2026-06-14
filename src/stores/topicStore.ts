@@ -26,6 +26,7 @@ import { mqttService } from "../services/mqttService";
 import { isHaDiscoveryTopic } from "../utils/ecosystems/homeassistant/discovery";
 import { recordFrigateMessage } from "../utils/ecosystems/frigate";
 import { recordShellyMessage } from "../utils/ecosystems/shelly";
+import { recordOwnTracksMessage } from "../utils/ecosystems/owntracks";
 import {
   isSparkplugTopic,
   parseSparkplugTopic,
@@ -138,6 +139,8 @@ interface TopicStoreState {
   showFrigateIndicators: boolean;
   /** Whether to show Shelly device indicator rings in the graph. */
   showShellyIndicators: boolean;
+  /** Whether to show OwnTracks tracker indicator rings in the graph. */
+  showOwnTracksIndicators: boolean;
   /**
    * Whether to auto-subscribe to ecosystem-declared state/availability
    * topics that fall outside the primary filter (e.g. HA discovery configs
@@ -624,6 +627,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showHomeAssistantIndicators: saved.showHomeAssistantIndicators ?? cfg.showHomeAssistantIndicators ?? true,
   showFrigateIndicators: saved.showFrigateIndicators ?? cfg.showFrigateIndicators ?? true,
   showShellyIndicators:  saved.showShellyIndicators  ?? cfg.showShellyIndicators  ?? true,
+  showOwnTracksIndicators: saved.showOwnTracksIndicators ?? cfg.showOwnTracksIndicators ?? true,
   followEcosystemTopics: saved.followEcosystemTopics ?? cfg.followEcosystemTopics ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
   showRootPath:         saved.showRootPath        ?? cfg.showRootPath        ?? false,
@@ -768,10 +772,11 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // no defining document round-trip needed.
     const structuralHit =
       recordFrigateMessage(_entityRegistry, topic, node.id, payload) ??
-      recordShellyMessage(_entityRegistry, topic, node.id, payload);
+      recordShellyMessage(_entityRegistry, topic, node.id, payload) ??
+      recordOwnTracksMessage(_entityRegistry, topic, node.id, payload);
     if (structuralHit) {
       mergeNodeTag(node, {
-        tag: structuralHit.entity.ecosystem as "frigate" | "shelly",
+        tag: structuralHit.entity.ecosystem as "frigate" | "shelly" | "owntracks",
         confidence: 1,
         fieldPath: "",
         metadata: {
@@ -1246,6 +1251,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showHomeAssistantIndicators: cfg.showHomeAssistantIndicators ?? true,
       showFrigateIndicators: cfg.showFrigateIndicators ?? true,
       showShellyIndicators: cfg.showShellyIndicators ?? true,
+      showOwnTracksIndicators: cfg.showOwnTracksIndicators ?? true,
       followEcosystemTopics: cfg.followEcosystemTopics ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,
       showRootPath: cfg.showRootPath ?? false,

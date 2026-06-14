@@ -23,7 +23,8 @@ export type IndicatorSettingsKey =
   | "showSparkplugIndicators"
   | "showHomeAssistantIndicators"
   | "showFrigateIndicators"
-  | "showShellyIndicators";
+  | "showShellyIndicators"
+  | "showOwnTracksIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -115,6 +116,18 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
     settingsLabel: "Shelly Indicators",
     settingsTooltip:
       "Show a coloured ring around topics belonging to Shelly devices (Gen1 announce-based)",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "owntracks",
+    label: "OwnTracks",
+    // Violet — distinct from geo cyan (which the same topics also carry).
+    ringColor: "#a78bfa",
+    settingsKey: "showOwnTracksIndicators",
+    settingsLabel: "OwnTracks Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to OwnTracks location trackers",
     defaultEnabled: true,
     drawerTab: null,
   },

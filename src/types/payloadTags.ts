@@ -8,7 +8,8 @@ export type PayloadTagType =
   | "sparkplug"
   | "homeassistant"
   | "frigate"
-  | "shelly";
+  | "shelly"
+  | "owntracks";
 
 /** Detected geo coordinates extracted from a JSON payload. */
 export interface GeoMetadata {
@@ -20,6 +21,14 @@ export interface GeoMetadata {
   latPath: string;
   /** JSON path to the longitude field, e.g. "location.lon". */
   lonPath: string;
+  /**
+   * Timestamp (ms since epoch) the reading was taken, when the payload
+   * carries one (OwnTracks `tst`). Lets geo trails use the device's own
+   * GPS time instead of arrival time. Absent when no timestamp was found.
+   */
+  timestamp?: number;
+  /** JSON path to the timestamp field, when present. */
+  tstPath?: string;
 }
 
 /** Detected image format metadata extracted from a binary payload. */
@@ -62,6 +71,7 @@ export interface TagMetadataMap {
   homeassistant: EntityTagMetadata;
   frigate: EntityTagMetadata;
   shelly: EntityTagMetadata;
+  owntracks: EntityTagMetadata;
 }
 
 /** A single detection result from a payload analyzer detector. */
