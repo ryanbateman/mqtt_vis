@@ -874,7 +874,7 @@ export function TopicDrawer({
       <div className="flex-1 min-h-0" style={{ display: activeTab === "map" && hasGeo ? undefined : "none" }}>
         <div
           ref={mapContainerRef}
-          className="w-full h-72"
+          className="w-full h-full"
           style={{ background: "#1e293b" }}
         />
       </div>
