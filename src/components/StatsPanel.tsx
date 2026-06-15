@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useTopicStore, TOPIC_NODE_CAP, getRecentMessages } from "../stores/topicStore";
+import { useTopicStore, getRecentMessages } from "../stores/topicStore";
 import { useDomainEntities } from "./EcosystemsPanel";
 import type { TopicNode } from "../types";
-import { formatRate, formatUptime, formatPayloadSize } from "../utils/formatters";
+import { formatRate, formatPayloadSize } from "../utils/formatters";
 import { getEcosystemDefinition } from "../utils/ecosystemRegistry";
 import {
   payloadSizeStats,
@@ -193,7 +193,6 @@ export function StatsPanel() {
   }, []);
 
   const s = useTopicStore.getState();
-  const uptime = s.connectionStatus === "connected" ? formatUptime(Date.now() - s.sessionStart) : "—";
 
   // Windowed stats below the chart.
   let noisy: TopicCount[];
@@ -221,17 +220,6 @@ export function StatsPanel() {
 
   return (
     <div className="p-3 space-y-4 overflow-y-auto h-full text-gray-300">
-      {/* Session overview */}
-      <section>
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-          <Row label="Messages" value={s.totalMessages.toLocaleString()} />
-          <Row label="Topics" value={s.totalTopics.toLocaleString()} />
-          <Row label="Graph nodes" value={`${s.graphNodes.length.toLocaleString()}${s.nodeCapReached ? ` / ${TOPIC_NODE_CAP.toLocaleString()} (cap)` : ""}`} />
-          <Row label="Entities" value={entities.length.toLocaleString()} />
-          <Row label="Uptime" value={uptime} />
-        </div>
-      </section>
-
       {/* Throughput over time */}
       <section>
         <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Throughput (msg/s)</div>
