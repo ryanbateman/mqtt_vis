@@ -17,7 +17,8 @@ export type EcosystemId =
   | "shelly"
   | "owntracks"
   | "ttn"
-  | "chirpstack";
+  | "chirpstack"
+  | "homie";
 
 /**
  * One entity parsed from an ecosystem's defining payload (e.g. a Home

@@ -1,6 +1,7 @@
 import type { DomainEntity, EntityDeclaration } from "../../types/entities";
 import { isHaDiscoveryTopic } from "./homeassistant/discovery";
 import { isShellyAnnounceTopic } from "./shelly";
+import { isHomieAttributeTopic } from "./homie";
 
 /**
  * Entity registry operations: pure functions over the registry's maps,
@@ -59,7 +60,7 @@ export function clearEntityRegistry(registry: EntityRegistry): void {
  * the registry.
  */
 export function isEcosystemDefiningTopic(topic: string): boolean {
-  return isHaDiscoveryTopic(topic) || isShellyAnnounceTopic(topic);
+  return isHaDiscoveryTopic(topic) || isShellyAnnounceTopic(topic) || isHomieAttributeTopic(topic);
 }
 
 /**

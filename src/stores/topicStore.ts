@@ -28,6 +28,7 @@ import { recordFrigateMessage } from "../utils/ecosystems/frigate";
 import { recordShellyMessage } from "../utils/ecosystems/shelly";
 import { recordOwnTracksMessage } from "../utils/ecosystems/owntracks";
 import { recordLorawanMessage } from "../utils/ecosystems/lorawan";
+import { recordHomieMessage, createHomieState } from "../utils/ecosystems/homie";
 import {
   isSparkplugTopic,
   parseSparkplugTopic,
@@ -148,6 +149,8 @@ interface TopicStoreState {
   showTtnIndicators: boolean;
   /** Whether to show ChirpStack (LoRaWAN) indicator rings in the graph. */
   showChirpstackIndicators: boolean;
+  /** Whether to show Homie device/node indicator rings in the graph. */
+  showHomieIndicators: boolean;
   /** Whether insight/ecosystem rings fade with node activity, like the bodies. */
   fadeIndicatorRings: boolean;
   /**
@@ -478,6 +481,7 @@ const _sparkplugHistory = new Map<string, MetricSample[]>();
  * by the rAF flush / rebuildGraph exactly like the sparkplug flag.
  */
 const _entityRegistry = createEntityRegistry();
+let _homieState = createHomieState();
 let _entitiesDirty = false;
 
 /**
@@ -649,6 +653,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showOwnTracksIndicators: saved.showOwnTracksIndicators ?? cfg.showOwnTracksIndicators ?? true,
   showTtnIndicators: saved.showTtnIndicators ?? cfg.showTtnIndicators ?? true,
   showChirpstackIndicators: saved.showChirpstackIndicators ?? cfg.showChirpstackIndicators ?? true,
+  showHomieIndicators: saved.showHomieIndicators ?? cfg.showHomieIndicators ?? true,
   fadeIndicatorRings: saved.fadeIndicatorRings ?? cfg.fadeIndicatorRings ?? true,
   followEcosystemTopics: saved.followEcosystemTopics ?? cfg.followEcosystemTopics ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
@@ -776,7 +781,9 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     const hit = recordEntityTopicHit(_entityRegistry, topic, node.id, payload);
     if (hit) {
       mergeNodeTag(node, {
-        tag: "homeassistant",
+        // The reverse index serves every declaration-based ecosystem; tag with
+        // the bound entity's own ecosystem (Home Assistant, Homie, ...).
+        tag: hit.entity.ecosystem as "homeassistant" | "homie",
         confidence: 1,
         fieldPath: "",
         metadata: {
@@ -815,6 +822,25 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         } satisfies EntityTagMetadata,
       });
       if (structuralHit.changed) _entitiesDirty = true;
+    }
+
+    // Homie: a `$`-attribute accumulates the device → node model (declaration
+    // spread across many retained topics). Property value topics bind via the
+    // recordEntityTopicHit path above once declared.
+    const homieHit = recordHomieMessage(_entityRegistry, _homieState, topic, node.id, payload);
+    if (homieHit) {
+      mergeNodeTag(node, {
+        tag: "homie",
+        confidence: 1,
+        fieldPath: "",
+        metadata: {
+          entityKey: homieHit.entity.key,
+          role: homieHit.entity.role,
+          label: homieHit.entity.label,
+          online: homieHit.entity.online,
+        } satisfies EntityTagMetadata,
+      });
+      if (homieHit.changed) _entitiesDirty = true;
     }
 
     // Submit payload for off-thread analysis (geo detection, image detection,
@@ -1217,6 +1243,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _sparkplugHistoryDevice = null;
     _sparkplugHistory.clear();
     clearEntityRegistry(_entityRegistry);
+    _homieState = createHomieState();
     _entitiesDirty = false;
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
@@ -1282,6 +1309,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showOwnTracksIndicators: cfg.showOwnTracksIndicators ?? true,
       showTtnIndicators: cfg.showTtnIndicators ?? true,
       showChirpstackIndicators: cfg.showChirpstackIndicators ?? true,
+      showHomieIndicators: cfg.showHomieIndicators ?? true,
       fadeIndicatorRings: cfg.fadeIndicatorRings ?? true,
       followEcosystemTopics: cfg.followEcosystemTopics ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,

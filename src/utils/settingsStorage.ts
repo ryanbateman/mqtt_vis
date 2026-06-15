@@ -55,6 +55,7 @@ export interface SavedSettings {
   showOwnTracksIndicators?: boolean;
   showTtnIndicators?: boolean;
   showChirpstackIndicators?: boolean;
+  showHomieIndicators?: boolean;
   fadeIndicatorRings?: boolean;
   followEcosystemTopics?: boolean;
   // Panel UI state (ephemeral per-component, but nice to restore)
@@ -125,6 +126,7 @@ function validate(raw: StoredSettings): SavedSettings {
     showOwnTracksIndicators: validBoolean(raw.showOwnTracksIndicators),
     showTtnIndicators: validBoolean(raw.showTtnIndicators),
     showChirpstackIndicators: validBoolean(raw.showChirpstackIndicators),
+    showHomieIndicators: validBoolean(raw.showHomieIndicators),
     fadeIndicatorRings: validBoolean(raw.fadeIndicatorRings),
     followEcosystemTopics: validBoolean(raw.followEcosystemTopics),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),

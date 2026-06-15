@@ -74,6 +74,15 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     // to ChirpStack's device topics (payload shape confirms identity).
     topicFilter: "application/+/device/#",
   },
+  {
+    id: "homie",
+    label: "Homie",
+    // Matches the homie indicator-ring lime (tagRegistry.ts).
+    color: "#a3e635",
+    // The common base; detection is signature-based ($homie) at any base, so
+    // custom-base devices (e.g. Valetudo) need a broader filter.
+    topicFilter: "homie/#",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */

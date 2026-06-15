@@ -26,7 +26,8 @@ export type IndicatorSettingsKey =
   | "showShellyIndicators"
   | "showOwnTracksIndicators"
   | "showTtnIndicators"
-  | "showChirpstackIndicators";
+  | "showChirpstackIndicators"
+  | "showHomieIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -154,6 +155,18 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
     settingsLabel: "ChirpStack Indicators",
     settingsTooltip:
       "Show a coloured ring around topics belonging to ChirpStack (LoRaWAN) applications and devices",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "homie",
+    label: "Homie",
+    // Lime — distinct from Sparkplug emerald and the rest of the palette.
+    ringColor: "#a3e635",
+    settingsKey: "showHomieIndicators",
+    settingsLabel: "Homie Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to Homie-convention devices, nodes, and properties",
     defaultEnabled: true,
     drawerTab: null,
   },
