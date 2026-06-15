@@ -53,7 +53,7 @@ function ThroughputChart({ rates }: { rates: number[] }) {
   const W = 264, H = 116, L = 30, R = 8, T = 8, B = 18;
   const px0 = L, px1 = W - R, py0 = T, py1 = H - B;
   if (rates.length < 2) {
-    return <div className="h-[116px] flex items-center justify-center text-[10px] text-gray-600">collecting throughput…</div>;
+    return <div className="w-full aspect-[264/116] flex items-center justify-center text-[10px] text-gray-600">collecting throughput…</div>;
   }
   const yMax = Math.max(...rates, 0.5);
   const n = rates.length;
@@ -64,7 +64,7 @@ function ThroughputChart({ rates }: { rates: number[] }) {
   const lastX = x(n - 1), lastY = y(rates[n - 1]);
 
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} className="block text-gray-600">
+    <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto text-gray-600">
       {/* gridlines + y labels */}
       {yTicks.map((t, i) => (
         <g key={i}>
@@ -103,7 +103,7 @@ function Histogram({ counts }: { counts: number[] }) {
   const slot = (px1 - px0) / counts.length;
   const barW = slot * 0.7;
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} className="block">
+    <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto">
       <line x1={px0} y1={py1} x2={px1} y2={py1} stroke="#475569" strokeWidth={0.75} />
       {counts.map((c, i) => {
         const h = (c / yMax) * (py1 - py0);
@@ -233,8 +233,11 @@ export function StatsPanel() {
         ) : (
           <>
             <Histogram counts={histo} />
-            <div className="text-[10px] text-gray-500 font-mono mt-1">
-              avg {formatPayloadSize(Math.round(sizeStats.avg))} · med {formatPayloadSize(sizeStats.median)} · p95 {formatPayloadSize(sizeStats.p95)} · max {formatPayloadSize(sizeStats.max)}
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] mt-2">
+              <Row label="Average" value={formatPayloadSize(Math.round(sizeStats.avg))} />
+              <Row label="Median" value={formatPayloadSize(sizeStats.median)} />
+              <Row label="p95" value={formatPayloadSize(sizeStats.p95)} />
+              <Row label="Max" value={formatPayloadSize(sizeStats.max)} />
             </div>
           </>
         )}
