@@ -8,6 +8,8 @@ export function StatusBar() {
   const connectionStatus = useTopicStore((s) => s.connectionStatus);
   const sessionStart = useTopicStore((s) => s.sessionStart);
   const nodeCapReached = useTopicStore((s) => s.nodeCapReached);
+  const shakeLayout = useTopicStore((s) => s.shakeLayout);
+  const isShaking = useTopicStore((s) => s.isShaking);
   const [uptime, setUptime] = useState("0s");
 
   useEffect(() => {
@@ -43,18 +45,45 @@ export function StatusBar() {
           </span>
         </div>
       )}
-      <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg px-6 py-2 shadow-xl flex items-center gap-6 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-gray-400">Messages:</span>
-          <span className="text-gray-100 font-mono">{totalMessages.toLocaleString()}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-gray-400">Topics:</span>
-          <span className="text-gray-100 font-mono">{totalTopics.toLocaleString()}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-gray-400">Uptime:</span>
-          <span className="text-gray-100 font-mono">{uptime}</span>
+      <div className="flex items-center gap-2">
+        {/* Shake layout — standalone box just left of the metrics */}
+        <button
+          type="button"
+          onClick={() => shakeLayout()}
+          disabled={connectionStatus !== "connected" || isShaking}
+          title={
+            connectionStatus === "connected"
+              ? "Shake the layout to spread it out"
+              : "Connect to enable layout shake"
+          }
+          aria-label="Shake layout"
+          className={`bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg px-3 py-2 shadow-xl transition-colors ${
+            connectionStatus !== "connected"
+              ? "text-gray-700 cursor-not-allowed"
+              : isShaking
+                ? "text-blue-400 animate-pulse"
+                : "text-gray-400 hover:text-gray-100"
+          }`}
+        >
+          {/* Arrows-pointing-out — fling/spread the graph apart */}
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+          </svg>
+        </button>
+
+        <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg px-6 py-2 shadow-xl flex items-center gap-6 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400">Messages:</span>
+            <span className="text-gray-100 font-mono">{totalMessages.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400">Topics:</span>
+            <span className="text-gray-100 font-mono">{totalTopics.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400">Uptime:</span>
+            <span className="text-gray-100 font-mono">{uptime}</span>
+          </div>
         </div>
       </div>
     </div>
