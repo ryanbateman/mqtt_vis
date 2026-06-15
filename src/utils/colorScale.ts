@@ -80,8 +80,8 @@ export function linkColor(_rate: number): string {
 
 /** Insight/ecosystem ring opacity at the instant of a pulse (fade-progress t=0). */
 export const RING_PULSE_OPACITY = 1.0;
-/** Ring opacity once fully faded / idle (t>=1). Tunable. */
-export const RING_IDLE_OPACITY = 0.4;
+/** Ring opacity once fully faded / idle (t>=1). Low, for a prominent fade. */
+export const RING_IDLE_OPACITY = 0.1;
 /** Flat ring opacity used when activity fading is disabled (legacy behaviour). */
 export const RING_STATIC_OPACITY = 0.7;
 
