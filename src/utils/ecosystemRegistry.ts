@@ -83,6 +83,15 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     // custom-base devices (e.g. Valetudo) need a broader filter.
     topicFilter: "homie/#",
   },
+  {
+    id: "opendtu",
+    label: "OpenDTU",
+    // Matches the opendtu indicator-ring rose (tagRegistry.ts).
+    color: "#fb7185",
+    // The common default prefix; detection is prefix-agnostic (Hoymiles serial
+    // shape), so custom-prefix gateways need a broader filter.
+    topicFilter: "solar/#",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */

@@ -38,6 +38,7 @@ export interface AppConfig {
   showTtnIndicators?: boolean;
   showChirpstackIndicators?: boolean;
   showHomieIndicators?: boolean;
+  showOpenDtuIndicators?: boolean;
   fadeIndicatorRings?: boolean;
   followEcosystemTopics?: boolean;
 

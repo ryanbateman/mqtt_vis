@@ -29,6 +29,7 @@ import { recordShellyMessage } from "../utils/ecosystems/shelly";
 import { recordOwnTracksMessage } from "../utils/ecosystems/owntracks";
 import { recordLorawanMessage } from "../utils/ecosystems/lorawan";
 import { recordHomieMessage, createHomieState } from "../utils/ecosystems/homie";
+import { recordOpenDtuMessage } from "../utils/ecosystems/opendtu";
 import {
   isSparkplugTopic,
   parseSparkplugTopic,
@@ -151,6 +152,8 @@ interface TopicStoreState {
   showChirpstackIndicators: boolean;
   /** Whether to show Homie device/node indicator rings in the graph. */
   showHomieIndicators: boolean;
+  /** Whether to show OpenDTU gateway/inverter indicator rings in the graph. */
+  showOpenDtuIndicators: boolean;
   /** Whether insight/ecosystem rings fade with node activity, like the bodies. */
   fadeIndicatorRings: boolean;
   /**
@@ -676,6 +679,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showTtnIndicators: saved.showTtnIndicators ?? cfg.showTtnIndicators ?? true,
   showChirpstackIndicators: saved.showChirpstackIndicators ?? cfg.showChirpstackIndicators ?? true,
   showHomieIndicators: saved.showHomieIndicators ?? cfg.showHomieIndicators ?? true,
+  showOpenDtuIndicators: saved.showOpenDtuIndicators ?? cfg.showOpenDtuIndicators ?? true,
   fadeIndicatorRings: saved.fadeIndicatorRings ?? cfg.fadeIndicatorRings ?? true,
   followEcosystemTopics: saved.followEcosystemTopics ?? cfg.followEcosystemTopics ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
@@ -832,7 +836,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       recordFrigateMessage(_entityRegistry, topic, node.id, payload) ??
       recordShellyMessage(_entityRegistry, topic, node.id, payload) ??
       recordOwnTracksMessage(_entityRegistry, topic, node.id, payload) ??
-      recordLorawanMessage(_entityRegistry, topic, node.id, payload);
+      recordLorawanMessage(_entityRegistry, topic, node.id, payload) ??
+      recordOpenDtuMessage(_entityRegistry, topic, node.id, payload);
     if (structuralHit) {
       mergeNodeTag(node, {
         tag: structuralHit.entity.ecosystem as
@@ -840,7 +845,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           | "shelly"
           | "owntracks"
           | "ttn"
-          | "chirpstack",
+          | "chirpstack"
+          | "opendtu",
         confidence: 1,
         fieldPath: "",
         metadata: {
@@ -1340,6 +1346,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showTtnIndicators: cfg.showTtnIndicators ?? true,
       showChirpstackIndicators: cfg.showChirpstackIndicators ?? true,
       showHomieIndicators: cfg.showHomieIndicators ?? true,
+      showOpenDtuIndicators: cfg.showOpenDtuIndicators ?? true,
       fadeIndicatorRings: cfg.fadeIndicatorRings ?? true,
       followEcosystemTopics: cfg.followEcosystemTopics ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,

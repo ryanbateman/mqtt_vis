@@ -12,7 +12,8 @@ export type PayloadTagType =
   | "owntracks"
   | "ttn"
   | "chirpstack"
-  | "homie";
+  | "homie"
+  | "opendtu";
 
 /** Detected geo coordinates extracted from a JSON payload. */
 export interface GeoMetadata {
@@ -78,6 +79,7 @@ export interface TagMetadataMap {
   ttn: EntityTagMetadata;
   chirpstack: EntityTagMetadata;
   homie: EntityTagMetadata;
+  opendtu: EntityTagMetadata;
 }
 
 /** A single detection result from a payload analyzer detector. */

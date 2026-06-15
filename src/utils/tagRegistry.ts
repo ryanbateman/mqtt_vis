@@ -27,7 +27,8 @@ export type IndicatorSettingsKey =
   | "showOwnTracksIndicators"
   | "showTtnIndicators"
   | "showChirpstackIndicators"
-  | "showHomieIndicators";
+  | "showHomieIndicators"
+  | "showOpenDtuIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -167,6 +168,18 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
     settingsLabel: "Homie Indicators",
     settingsTooltip:
       "Show a coloured ring around topics belonging to Homie-convention devices, nodes, and properties",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "opendtu",
+    label: "OpenDTU",
+    // Rose — distinct from every other ring and outside the node heat palette.
+    ringColor: "#fb7185",
+    settingsKey: "showOpenDtuIndicators",
+    settingsLabel: "OpenDTU Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to OpenDTU gateways and Hoymiles inverters",
     defaultEnabled: true,
     drawerTab: null,
   },

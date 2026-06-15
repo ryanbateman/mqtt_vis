@@ -18,7 +18,8 @@ export type EcosystemId =
   | "owntracks"
   | "ttn"
   | "chirpstack"
-  | "homie";
+  | "homie"
+  | "opendtu";
 
 /**
  * One entity parsed from an ecosystem's defining payload (e.g. a Home
