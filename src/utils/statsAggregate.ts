@@ -87,6 +87,25 @@ export function tagTypeCounts(nodes: GraphNode[]): Map<PayloadTagType, number> {
   return counts;
 }
 
+/** One ranked topic with its message count over some window. */
+export interface TopicCount {
+  topic: string;
+  count: number;
+}
+
+/**
+ * The n topics with the most messages in `events`, descending. Used for the
+ * windowed "noisiest topics" view (group recent-message events by topic).
+ */
+export function topByEventCount(events: { topic: string }[], n: number): TopicCount[] {
+  const counts = new Map<string, number>();
+  for (const e of events) counts.set(e.topic, (counts.get(e.topic) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([topic, count]) => ({ topic, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n);
+}
+
 /** Count identified entities grouped by ecosystem. */
 export function entityEcosystemCounts(entities: DomainEntity[]): Map<EcosystemId, number> {
   const counts = new Map<EcosystemId, number>();

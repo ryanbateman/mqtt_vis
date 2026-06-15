@@ -1,74 +1,134 @@
 import { useEffect, useRef, useState } from "react";
-import { useTopicStore, TOPIC_NODE_CAP } from "../stores/topicStore";
+import { useTopicStore, TOPIC_NODE_CAP, getRecentMessages } from "../stores/topicStore";
 import { useDomainEntities } from "./EcosystemsPanel";
 import type { TopicNode } from "../types";
 import { formatRate, formatUptime, formatPayloadSize } from "../utils/formatters";
-import { TAG_REGISTRY } from "../utils/tagRegistry";
 import { getEcosystemDefinition } from "../utils/ecosystemRegistry";
 import {
   payloadSizeStats,
   histogramBuckets,
-  topByRate,
-  tagTypeCounts,
+  topByEventCount,
   entityEcosystemCounts,
   PAYLOAD_HISTOGRAM_EDGES,
+  type TopicCount,
 } from "../utils/statsAggregate";
 
-const THROUGHPUT_SAMPLES = 60; // ~1 minute at 1Hz
-const SPARK_W = 240;
-const SPARK_H = 36;
+const THROUGHPUT_SAMPLES = 120; // ~2 minutes at 1Hz
 
-/** Collect last-payload sizes from every topic that has received a message. */
-function collectSizes(root: TopicNode): number[] {
-  const sizes: number[] = [];
+type Window = "1m" | "5m" | "session";
+const WINDOW_MS: Record<Window, number> = { "1m": 60_000, "5m": 300_000, session: Infinity };
+const WINDOW_LABEL: Record<Window, string> = {
+  "1m": "Previous minute",
+  "5m": "Previous 5 minutes",
+  session: "Since connect",
+};
+
+/** Walk the tree, collecting per-topic message count + last payload size. */
+function collectNodeStats(root: TopicNode): { topic: string; count: number; size: number }[] {
+  const out: { topic: string; count: number; size: number }[] = [];
   const stack: TopicNode[] = [root];
   while (stack.length) {
     const n = stack.pop()!;
-    if (n.messageCount > 0) sizes.push(n.lastPayloadSize);
+    if (n.messageCount > 0) out.push({ topic: n.id, count: n.messageCount, size: n.lastPayloadSize });
     for (const c of n.children.values()) stack.push(c);
   }
-  return sizes;
+  return out;
 }
 
-/** Short label for a histogram bucket, e.g. "16–64", "16K+". */
-function bucketLabel(edges: number[], i: number): string {
+function bucketTick(edges: number[], i: number): string {
   const lo = edges[i];
   const hi = edges[i + 1];
   const fmt = (n: number) => (n >= 1024 ? `${n / 1024}K` : String(n));
-  return hi === Infinity ? `${fmt(lo)}+` : `${fmt(lo)}–${fmt(hi)}`;
+  return hi === Infinity ? `${fmt(lo)}+` : fmt(hi);
 }
 
-function Sparkline({ samples }: { samples: number[] }) {
-  if (samples.length < 2) {
-    return <div className="h-9 flex items-center text-[10px] text-gray-600">collecting…</div>;
+function ageLabel(sec: number): string {
+  if (sec <= 0) return "now";
+  return sec >= 60 ? `-${Math.round(sec / 60)}m` : `-${sec}s`;
+}
+
+// --- Throughput line chart (axes, labels, markers) -------------------------
+
+function ThroughputChart({ rates }: { rates: number[] }) {
+  const W = 264, H = 116, L = 30, R = 8, T = 8, B = 18;
+  const px0 = L, px1 = W - R, py0 = T, py1 = H - B;
+  if (rates.length < 2) {
+    return <div className="h-[116px] flex items-center justify-center text-[10px] text-gray-600">collecting throughput…</div>;
   }
-  const max = Math.max(...samples, 0.001);
-  const x = (i: number) => (i / (THROUGHPUT_SAMPLES - 1)) * SPARK_W;
-  const y = (v: number) => SPARK_H - 2 - (v / max) * (SPARK_H - 4);
-  const pts = samples.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const yMax = Math.max(...rates, 0.5);
+  const n = rates.length;
+  const x = (i: number) => px0 + (i / (n - 1)) * (px1 - px0);
+  const y = (v: number) => py1 - (v / yMax) * (py1 - py0);
+  const yTicks = [0, yMax / 2, yMax];
+  const pts = rates.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const lastX = x(n - 1), lastY = y(rates[n - 1]);
+
   return (
-    <svg width="100%" height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" className="block">
-      <polyline points={pts} fill="none" stroke="#38bdf8" strokeWidth={1.2} strokeOpacity={0.9} strokeLinejoin="round" />
+    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} className="block text-gray-600">
+      {/* gridlines + y labels */}
+      {yTicks.map((t, i) => (
+        <g key={i}>
+          <line x1={px0} y1={y(t)} x2={px1} y2={y(t)} stroke="currentColor" strokeWidth={0.5} strokeOpacity={0.3} />
+          <text x={px0 - 3} y={y(t) + 3} textAnchor="end" className="fill-gray-500" fontSize={8}>
+            {formatRate(t)}
+          </text>
+        </g>
+      ))}
+      {/* axes */}
+      <line x1={px0} y1={py0} x2={px0} y2={py1} stroke="currentColor" strokeWidth={0.75} strokeOpacity={0.6} />
+      <line x1={px0} y1={py1} x2={px1} y2={py1} stroke="currentColor" strokeWidth={0.75} strokeOpacity={0.6} />
+      {/* x labels: oldest … mid … now (1 sample ≈ 1s) */}
+      <text x={px0} y={H - 6} textAnchor="start" className="fill-gray-500" fontSize={8}>{ageLabel(n - 1)}</text>
+      <text x={(px0 + px1) / 2} y={H - 6} textAnchor="middle" className="fill-gray-500" fontSize={8}>{ageLabel(Math.round((n - 1) / 2))}</text>
+      <text x={px1} y={H - 6} textAnchor="end" className="fill-gray-500" fontSize={8}>now</text>
+      {/* series */}
+      <polyline points={pts} fill="none" stroke="#38bdf8" strokeWidth={1.3} strokeOpacity={0.95} strokeLinejoin="round" />
+      {rates.map((v, i) => (
+        <circle key={i} cx={x(i)} cy={y(v)} r={1.1} fill="#38bdf8" fillOpacity={0.55} />
+      ))}
+      <circle cx={lastX} cy={lastY} r={2.4} fill="#38bdf8" />
+      <text x={lastX - 3} y={lastY - 4} textAnchor="end" className="fill-sky-300" fontSize={8}>
+        {formatRate(rates[n - 1])}/s
+      </text>
     </svg>
   );
 }
 
-/** A labelled horizontal bar (count) with a coloured fill. */
-function Bar({ label, count, max, color }: { label: string; count: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.max((count / max) * 100, 2) : 0;
+// --- Payload size histogram ------------------------------------------------
+
+function Histogram({ counts }: { counts: number[] }) {
+  const W = 264, H = 92, L = 4, R = 4, T = 8, B = 20;
+  const px0 = L, px1 = W - R, py0 = T, py1 = H - B;
+  const yMax = Math.max(...counts, 1);
+  const slot = (px1 - px0) / counts.length;
+  const barW = slot * 0.7;
   return (
-    <div className="flex items-center gap-2 text-[11px]">
-      <span className="w-28 shrink-0 truncate text-gray-400">{label}</span>
-      <div className="flex-1 h-2.5 rounded bg-gray-800 overflow-hidden">
-        <div className="h-full rounded" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <span className="w-10 shrink-0 text-right font-mono text-gray-300">{count.toLocaleString()}</span>
-    </div>
+    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} className="block">
+      <line x1={px0} y1={py1} x2={px1} y2={py1} stroke="#475569" strokeWidth={0.75} />
+      {counts.map((c, i) => {
+        const h = (c / yMax) * (py1 - py0);
+        const bx = px0 + i * slot + (slot - barW) / 2;
+        return (
+          <g key={i}>
+            <rect x={bx} y={py1 - h} width={barW} height={h} rx={1} fill="#64748b" />
+            {c > 0 && (
+              <text x={bx + barW / 2} y={py1 - h - 2} textAnchor="middle" className="fill-gray-400" fontSize={7}>
+                {c}
+              </text>
+            )}
+            <text x={bx + barW / 2} y={H - 6} textAnchor="middle" className="fill-gray-500" fontSize={7}>
+              {bucketTick(PAYLOAD_HISTOGRAM_EDGES, i)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
 export function StatsPanel() {
   const [, setTick] = useState(0);
+  const [period, setPeriod] = useState<Window>("1m");
   const throughputRef = useRef<number[]>([]);
   const entities = useDomainEntities();
 
@@ -83,17 +143,23 @@ export function StatsPanel() {
   }, []);
 
   const s = useTopicStore.getState();
-  const nodes = s.graphNodes;
-  const throughput = s.root.aggregateRate;
   const uptime = s.connectionStatus === "connected" ? formatUptime(Date.now() - s.sessionStart) : "—";
 
-  const sizes = collectSizes(s.root);
+  // Windowed stats below the chart.
+  let noisy: TopicCount[];
+  let sizes: number[];
+  if (period === "session") {
+    const nodes = collectNodeStats(s.root);
+    noisy = [...nodes].sort((a, b) => b.count - a.count).slice(0, 10).map((n) => ({ topic: n.topic, count: n.count }));
+    sizes = nodes.map((n) => n.size);
+  } else {
+    const cutoff = Date.now() - WINDOW_MS[period];
+    const events = getRecentMessages().filter((m) => m.ts >= cutoff);
+    noisy = topByEventCount(events, 10);
+    sizes = events.map((e) => e.size);
+  }
   const sizeStats = payloadSizeStats(sizes);
   const histo = histogramBuckets(sizes, PAYLOAD_HISTOGRAM_EDGES);
-  const histoMax = Math.max(...histo, 0);
-  const noisy = topByRate(nodes, 10);
-  const tagCounts = tagTypeCounts(nodes);
-  const tagMax = Math.max(0, ...tagCounts.values());
   const ecoCounts = entityEcosystemCounts(entities);
 
   const Row = ({ label, value }: { label: string; value: string }) => (
@@ -110,75 +176,67 @@ export function StatsPanel() {
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
           <Row label="Messages" value={s.totalMessages.toLocaleString()} />
           <Row label="Topics" value={s.totalTopics.toLocaleString()} />
-          <Row label="Graph nodes" value={`${nodes.length.toLocaleString()}${s.nodeCapReached ? ` / ${TOPIC_NODE_CAP.toLocaleString()} (cap)` : ""}`} />
+          <Row label="Graph nodes" value={`${s.graphNodes.length.toLocaleString()}${s.nodeCapReached ? ` / ${TOPIC_NODE_CAP.toLocaleString()} (cap)` : ""}`} />
           <Row label="Entities" value={entities.length.toLocaleString()} />
-          <Row label="Throughput" value={`${formatRate(throughput)} msg/s`} />
           <Row label="Uptime" value={uptime} />
         </div>
       </section>
 
-      {/* Throughput over the last minute */}
+      {/* Throughput over time */}
       <section>
-        <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Throughput (last minute)</div>
-        <Sparkline samples={throughputRef.current} />
+        <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Throughput (msg/s)</div>
+        <ThroughputChart rates={throughputRef.current} />
       </section>
 
-      {/* Noisiest topics by rate */}
+      {/* Window selector for the stats below */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-gray-500">Period</span>
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value as Window)}
+          className="flex-1 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-[11px] text-gray-100 focus:outline-none focus:border-blue-500 cursor-pointer"
+        >
+          {(Object.keys(WINDOW_LABEL) as Window[]).map((w) => (
+            <option key={w} value={w}>{WINDOW_LABEL[w]}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Noisiest topics (windowed) */}
       <section>
         <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Noisiest Topics</div>
         {noisy.length === 0 ? (
-          <div className="text-[11px] text-gray-600">No active topics.</div>
+          <div className="text-[11px] text-gray-600">No messages in this period.</div>
         ) : (
           <div className="space-y-0.5">
-            {noisy.map((n) => (
+            {noisy.map((t) => (
               <button
-                key={n.id}
+                key={t.topic}
                 type="button"
-                onClick={() => s.setSelectedNodeId(n.id)}
+                onClick={() => s.setSelectedNodeId(t.topic)}
                 className="w-full flex items-center gap-2 px-1.5 py-0.5 rounded text-left hover:bg-gray-700/50 transition-colors"
-                title={n.id}
+                title={t.topic}
               >
-                <span className="flex-1 truncate text-[11px] text-gray-300">{n.id}</span>
-                <span className="shrink-0 font-mono text-[10px] text-sky-300">{formatRate(n.messageRate)}/s</span>
+                <span className="flex-1 truncate text-[11px] text-gray-300">{t.topic}</span>
+                <span className="shrink-0 font-mono text-[10px] text-sky-300">{t.count.toLocaleString()}</span>
               </button>
             ))}
           </div>
         )}
       </section>
 
-      {/* Payload size distribution */}
+      {/* Payload sizes (windowed histogram) */}
       <section>
-        <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Payload Sizes</div>
+        <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Payload Sizes</div>
         {sizeStats.count === 0 ? (
-          <div className="text-[11px] text-gray-600">No payloads yet.</div>
+          <div className="text-[11px] text-gray-600">No payloads in this period.</div>
         ) : (
           <>
-            <div className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-1 text-[11px] mb-2">
-              <Row label="Avg" value={formatPayloadSize(Math.round(sizeStats.avg))} />
-              <Row label="Median" value={formatPayloadSize(sizeStats.median)} />
-              <Row label="p95" value={formatPayloadSize(sizeStats.p95)} />
-              <Row label="Max" value={formatPayloadSize(sizeStats.max)} />
-            </div>
-            <div className="space-y-0.5">
-              {histo.map((count, i) => (
-                <Bar key={i} label={bucketLabel(PAYLOAD_HISTOGRAM_EDGES, i)} count={count} max={histoMax} color="#64748b" />
-              ))}
+            <Histogram counts={histo} />
+            <div className="text-[10px] text-gray-500 font-mono mt-1">
+              avg {formatPayloadSize(Math.round(sizeStats.avg))} · med {formatPayloadSize(sizeStats.median)} · p95 {formatPayloadSize(sizeStats.p95)} · max {formatPayloadSize(sizeStats.max)}
             </div>
           </>
-        )}
-      </section>
-
-      {/* Topic type breakdown (payload tags) */}
-      <section>
-        <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Topic Types</div>
-        {tagMax === 0 ? (
-          <div className="text-[11px] text-gray-600">No tagged topics.</div>
-        ) : (
-          <div className="space-y-0.5">
-            {TAG_REGISTRY.filter((def) => (tagCounts.get(def.id) ?? 0) > 0).map((def) => (
-              <Bar key={def.id} label={def.label} count={tagCounts.get(def.id) ?? 0} max={tagMax} color={def.ringColor} />
-            ))}
-          </div>
         )}
       </section>
 

@@ -3,6 +3,7 @@ import {
   payloadSizeStats,
   histogramBuckets,
   topByRate,
+  topByEventCount,
   tagTypeCounts,
   entityEcosystemCounts,
   PAYLOAD_HISTOGRAM_EDGES,
@@ -73,6 +74,22 @@ describe("topByRate", () => {
     ];
     const top = topByRate(nodes, 2);
     expect(top.map((n) => n.id)).toEqual(["c", "b"]);
+  });
+});
+
+describe("topByEventCount", () => {
+  it("groups events by topic and ranks by count, capped at n", () => {
+    const events = [
+      { topic: "a" }, { topic: "b" }, { topic: "a" }, { topic: "a" }, { topic: "c" }, { topic: "b" },
+    ];
+    expect(topByEventCount(events, 2)).toEqual([
+      { topic: "a", count: 3 },
+      { topic: "b", count: 2 },
+    ]);
+  });
+
+  it("returns empty for no events", () => {
+    expect(topByEventCount([], 5)).toEqual([]);
   });
 });
 

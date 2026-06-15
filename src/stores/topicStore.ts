@@ -595,6 +595,28 @@ let _pendingMessages = 0;
 let _pendingNewTopics = 0;
 
 /**
+ * Bounded rolling buffer of recent messages, for the Stats dashboard's windowed
+ * views (previous minute / 5 minutes). Each entry is tiny ({topic, size, ts}).
+ * The buffer is capped by count (trimmed in batches to keep the push O(1)
+ * amortized); the panel filters by timestamp at read time, so stale entries
+ * beyond a window are simply ignored. "Since connect" stats use cumulative
+ * per-node data instead, so this only needs to span the longest window (5 min).
+ */
+export interface RecentMessage {
+  topic: string;
+  size: number;
+  ts: number;
+}
+const MAX_RECENT_MESSAGES = 50_000;
+const RECENT_TRIM_BATCH = 5_000;
+let _recentMessages: RecentMessage[] = [];
+
+/** Live snapshot of the recent-message buffer (oldest first). Read-only. */
+export function getRecentMessages(): readonly RecentMessage[] {
+  return _recentMessages;
+}
+
+/**
  * Burst throttle — reduces the frequency of structural (D3 data-join) rebuilds
  * during the initial retained-message flood after connecting.
  *
@@ -715,6 +737,13 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     // so size history is always available for debugging and WebMCP queries.
     node.lastPayloadSize = payload.length;
     node.largestPayloadSize = Math.max(node.largestPayloadSize, payload.length);
+
+    // Rolling buffer for the Stats dashboard's windowed views. Trimmed in
+    // batches so the per-message cost stays O(1) amortized.
+    _recentMessages.push({ topic, size: payload.length, ts: node.lastTimestamp });
+    if (_recentMessages.length > MAX_RECENT_MESSAGES) {
+      _recentMessages.splice(0, _recentMessages.length - (MAX_RECENT_MESSAGES - RECENT_TRIM_BATCH));
+    }
 
     // Store image blob URL — revoke the previous one to prevent memory leaks.
     if (imageBlobUrl) {
@@ -1244,6 +1273,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     _sparkplugHistory.clear();
     clearEntityRegistry(_entityRegistry);
     _homieState = createHomieState();
+    _recentMessages = [];
     _entitiesDirty = false;
     // Preserve user's saved visual settings across resets (e.g. on reconnect).
     // reset() clears topic tree data but must not discard localStorage settings.
