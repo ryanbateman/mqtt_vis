@@ -65,9 +65,11 @@ export function StatusBar() {
                 : "text-gray-400 hover:text-gray-100"
           }`}
         >
-          {/* Arrows-pointing-out — fling/spread the graph apart */}
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+          {/* Shake — a node with side-to-side motion trails */}
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="2.75" />
+            <path d="M7.5 9.5v5M5 11v2" />
+            <path d="M16.5 9.5v5M19 11v2" />
           </svg>
         </button>
 
