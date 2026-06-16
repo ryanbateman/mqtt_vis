@@ -855,16 +855,21 @@ export class GraphRenderer {
         .filter((d) => this.activeNodeIds.has(d.id))
         .attr("fill", (d) => {
           if (d.depth === 0) return "#ffffff";
-          // Tagged nodes rest at their ecosystem colour; a message still flashes
-          // warm (heat) before settling back to it.
-          const resting = this.insightColorFor(d) ?? rateToColor(d.messageRate);
           const age = now - d.pulseTimestamp;
+          // Tagged nodes always show their ecosystem colour — active or at rest,
+          // no heat flash. Activity still reads via the glow filter below.
+          const ecoColor = this.insightColorFor(d);
+          if (ecoColor) {
+            if (age >= duration) toRemove.push(d.id);
+            return ecoColor;
+          }
+          // Untagged nodes keep the heat pulse → idle fade.
           const t = Math.min(age / duration, 1);
           if (t >= 1) {
             toRemove.push(d.id);
-            return resting;
+            return rateToColor(d.messageRate);
           }
-          return d3.interpolateRgb(rateToColor(d.pulseRate), resting)(t);
+          return d3.interpolateRgb(rateToColor(d.pulseRate), rateToColor(d.messageRate))(t);
         })
         .attr("stroke", (d) => {
           // Selected node gets a bright ring regardless of pulse state
@@ -1048,7 +1053,10 @@ export class GraphRenderer {
    */
   private repaintInsightNodes(): void {
     const selectedId = this.selectedNodeId;
+    // Only restyle idle nodes; active (pulsing) nodes are re-applied each frame
+    // by updateNodeColors, so repainting them here would fight that and flicker.
     this.nodeElements
+      .filter((d) => !this.activeNodeIds.has(d.id))
       .attr("fill", (d) =>
         d.depth === 0 ? "#ffffff" : (this.insightColorFor(d) ?? rateToColor(d.messageRate))
       )
