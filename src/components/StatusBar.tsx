@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTopicStore, TOPIC_NODE_CAP } from "../stores/topicStore";
 import { formatUptime } from "../utils/formatters";
+import { useDomainEntities } from "./EcosystemsPanel";
+import { entityEcosystemCounts } from "../utils/statsAggregate";
+import { ECOSYSTEM_REGISTRY } from "../utils/ecosystemRegistry";
 
 export function StatusBar() {
   const totalMessages = useTopicStore((s) => s.totalMessages);
@@ -10,7 +13,13 @@ export function StatusBar() {
   const nodeCapReached = useTopicStore((s) => s.nodeCapReached);
   const shakeLayout = useTopicStore((s) => s.shakeLayout);
   const isShaking = useTopicStore((s) => s.isShaking);
+  const entities = useDomainEntities();
   const [uptime, setUptime] = useState("0s");
+
+  // One small block per discovered ecosystem, in registry order so blocks
+  // don't reshuffle as counts change. Colour matches the ecosystem's nodes.
+  const ecoCounts = entityEcosystemCounts(entities);
+  const ecoBlocks = ECOSYSTEM_REGISTRY.filter((eco) => (ecoCounts.get(eco.id) ?? 0) > 0);
 
   useEffect(() => {
     if (connectionStatus !== "connected") {
@@ -45,7 +54,7 @@ export function StatusBar() {
           </span>
         </div>
       )}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2 max-w-[92vw]">
         {/* Shake layout — standalone box just left of the metrics */}
         <button
           type="button"
@@ -87,6 +96,23 @@ export function StatusBar() {
             <span className="text-gray-100 font-mono">{uptime}</span>
           </div>
         </div>
+
+        {/* One block per discovered ecosystem — name, device count, colour dot */}
+        {ecoBlocks.map((eco) => (
+          <div
+            key={eco.id}
+            className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg px-3 py-2 shadow-xl flex items-center gap-2 text-sm"
+            title={`${eco.label} — ${ecoCounts.get(eco.id)} discovered`}
+          >
+            <span className="text-gray-200">
+              {eco.label} <span className="text-gray-400">({ecoCounts.get(eco.id)})</span>
+            </span>
+            <span
+              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: eco.color }}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );
