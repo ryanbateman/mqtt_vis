@@ -5,8 +5,6 @@ import {
   pulseColor,
   IDLE_COLOR,
   IDLE_STROKE,
-  ringFadeOpacity,
-  RING_STATIC_OPACITY,
 } from "../utils/colorScale";
 import { depthScale } from "../utils/formatters";
 import {
@@ -30,18 +28,6 @@ import {
 const IS_TOUCH_ONLY =
   typeof window !== "undefined" &&
   window.matchMedia("(hover: none)").matches;
-
-/** One insight ring: a (node × enabled tag) pair, drawn concentrically. */
-interface InsightRingDatum {
-  /** Node id the ring belongs to. */
-  id: string;
-  /** The payload tag this ring represents. */
-  tag: string;
-  /** Ring stroke colour. */
-  color: string;
-  /** Concentric position (0 = innermost). */
-  ringIndex: number;
-}
 
 /** Base blur stdDeviation for the glow SVG filter (at zoom scale 1.0). */
 const BASE_GLOW_STD_DEV = 4;
@@ -136,16 +122,11 @@ export class GraphRenderer {
   // Map of nodeId → colour hex for externally highlighted nodes.
   private highlightedNodes: Map<string, string> = new Map();
 
-  // Insight ring elements — one <circle> per node with a detected payload tag.
-  private insightRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
-  private insightRingElements!: d3.Selection<SVGCircleElement, InsightRingDatum, SVGGElement, unknown>;
-  private insightRingNodeIds = new Set<string>();
-  /** Node ids whose sparkplug entity is offline — rings restyle red/dashed. */
+  /** Node ids whose sparkplug entity is offline — shown with a red-dashed outline. */
   private sparkplugOfflineNodes = new Set<string>();
-  // Which insight tag types are enabled for ring display.  Map of tag → colour.
+  // Which insight tag types are enabled.  Map of tag → colour (registry order);
+  // a node's body is coloured by the first enabled tag it carries.
   private enabledInsightTags = new Map<string, string>();
-  // Whether insight rings fade with node activity (same envelope as the bodies).
-  private fadeRings = true;
 
   // Selection state — the currently selected/pinned node ID.
   private selectedNodeId: string | null = null;
@@ -226,13 +207,13 @@ export class GraphRenderer {
       }
     });
 
-    // Layer ordering: links → highlight rings → insight rings → nodes → labels → hit areas
-    // Highlight rings sit below node circles so the selection ring (on the node itself)
-    // is always visually on top.  Insight rings sit between highlight rings and nodes.
+    // Layer ordering: links → highlight rings → nodes → labels → hit areas
+    // Highlight rings sit below node circles so the selection ring (on the node
+    // itself) is always visually on top. Insight membership is shown by the node
+    // body colour + a thin outline (no separate ring layer).
     // Hit areas are the topmost layer — invisible circles that handle all pointer events.
     this.linkGroup = this.container.append("g").attr("class", "links");
     this.highlightRingGroup = this.container.append("g").attr("class", "highlight-rings");
-    this.insightRingGroup = this.container.append("g").attr("class", "insight-rings");
     this.nodeGroup = this.container.append("g").attr("class", "nodes");
     this.labelGroup = this.container.append("g").attr("class", "labels");
     this.hitAreaGroup = this.container.append("g").attr("class", "hit-areas");
@@ -240,7 +221,6 @@ export class GraphRenderer {
     // Initialize empty selections
     this.linkElements = this.linkGroup.selectAll<SVGLineElement, GraphLink>("line");
     this.highlightRingElements = this.highlightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
-    this.insightRingElements = this.insightRingGroup.selectAll<SVGCircleElement, InsightRingDatum>("circle");
     this.nodeElements = this.nodeGroup.selectAll<SVGCircleElement, GraphNode>("circle");
     this.labelElements = this.labelGroup.selectAll<SVGTextElement, GraphNode>("text");
     this.hitAreaElements = this.hitAreaGroup.selectAll<SVGCircleElement, GraphNode>("circle");
@@ -490,9 +470,9 @@ export class GraphRenderer {
     // Reapply depth-based label visibility for newly entered labels
     this.updateLabelVisibility();
 
-    // Rebuild insight rings (payload tag indicators) for new/changed nodes
+    // Repaint node body colour + outline for new/changed nodes' insight tags
     if (this.enabledInsightTags.size > 0) {
-      this.refreshInsightRings();
+      this.repaintInsightNodes();
     }
 
     // Burst-aware simulation reheat.
@@ -536,7 +516,7 @@ export class GraphRenderer {
         simNode.pulseTimestamp = fresh.pulseTimestamp;
         simNode.pulseRate = fresh.pulseRate;
         simNode.radius = fresh.radius;
-        // Track payload tag changes for insight ring refresh
+        // Track payload tag changes for the insight node repaint
         if (simNode.payloadTags !== fresh.payloadTags) {
           simNode.payloadTags = fresh.payloadTags;
           insightTagsChanged = true;
@@ -545,9 +525,9 @@ export class GraphRenderer {
       }
     });
 
-    // Refresh insight rings if tag data changed
+    // Repaint node colours/outlines if tag data changed
     if (insightTagsChanged && this.enabledInsightTags.size > 0) {
-      this.refreshInsightRings();
+      this.repaintInsightNodes();
     }
 
     // Update link pulse data in-place
@@ -616,10 +596,6 @@ export class GraphRenderer {
     // Sync highlight rings with animated node positions (only when rings exist)
     if (this.highlightedNodes.size > 0) {
       this.syncHighlightRingPositions();
-    }
-    // Sync insight rings with animated node positions
-    if (this.insightRingNodeIds.size > 0) {
-      this.syncInsightRingPositions();
     }
 
     // Counter-scale so labels stay a constant screen size
@@ -879,20 +855,23 @@ export class GraphRenderer {
         .filter((d) => this.activeNodeIds.has(d.id))
         .attr("fill", (d) => {
           if (d.depth === 0) return "#ffffff";
+          // Tagged nodes rest at their ecosystem colour; a message still flashes
+          // warm (heat) before settling back to it.
+          const resting = this.insightColorFor(d) ?? rateToColor(d.messageRate);
           const age = now - d.pulseTimestamp;
           const t = Math.min(age / duration, 1);
           if (t >= 1) {
             toRemove.push(d.id);
-            return rateToColor(d.messageRate);
+            return resting;
           }
-          const warmColor = rateToColor(d.pulseRate);
-          const idleColor = rateToColor(d.messageRate);
-          return d3.interpolateRgb(warmColor, idleColor)(t);
+          return d3.interpolateRgb(rateToColor(d.pulseRate), resting)(t);
         })
         .attr("stroke", (d) => {
           // Selected node gets a bright ring regardless of pulse state
           if (d.id === selectedId) return "#60a5fa";
           if (d.depth === 0) return "#ffffff";
+          const outline = this.insightOutlineFor(d);
+          if (outline) return outline.color; // thin white (red-dashed when offline)
           const age = now - d.pulseTimestamp;
           const t = Math.min(age / duration, 1);
           if (t >= 1) return IDLE_STROKE;
@@ -900,8 +879,10 @@ export class GraphRenderer {
         })
         .attr("stroke-width", (d) => {
           if (d.id === selectedId) return 3.5 / this.currentZoomScale;
-          return d.depth === 0 ? 2.5 : 2;
+          if (d.depth === 0) return 2.5;
+          return this.insightOutlineFor(d) ? 1.5 : 2;
         })
+        .attr("stroke-dasharray", (d) => this.insightOutlineFor(d)?.dash ?? null)
         .attr("filter", (d) => {
           if (d.depth === 0) return "none";
           const age = now - d.pulseTimestamp;
@@ -911,6 +892,7 @@ export class GraphRenderer {
           // Selected node always has full opacity stroke
           if (d.id === selectedId) return 1;
           if (d.depth === 0) return 1;
+          if (this.insightOutlineFor(d)) return 1; // crisp outline
           const age = now - d.pulseTimestamp;
           const t = Math.min(age / duration, 1);
           return 1 - 0.4 * t; // 1.0 → 0.6
@@ -998,26 +980,13 @@ export class GraphRenderer {
    */
   setEnabledInsightTags(tags: Map<string, string>): void {
     this.enabledInsightTags = tags;
-    this.refreshInsightRings();
+    this.repaintInsightNodes();
   }
 
   /**
-   * Toggle whether insight rings fade with node activity. When on, ring
-   * opacity tracks each node's pulse-decay (same as the body); when off,
-   * rings hold a flat opacity. Applied per frame in syncInsightRingPositions.
-   */
-  setFadeRings(value: boolean): void {
-    this.fadeRings = value;
-  }
-
-  /**
-   * Set the node ids whose sparkplug entity is currently offline.
-   * Their sparkplug rings render red and dashed instead of the tag colour.
-   * Node fill stays untouched — it belongs to the heat-map/pulse pipeline.
-   *
-   * Offline status only affects stroke styling, never ring MEMBERSHIP
-   * (which is a function of payloadTags), so no D3 data join is needed:
-   * unchanged sets return early and changed sets restyle in place.
+   * Set the node ids whose sparkplug entity is currently offline. Offline
+   * nodes get a red-dashed outline instead of the white one; membership
+   * (which tags a node carries) is unchanged, so just repaint.
    */
   setSparkplugOfflineNodes(ids: Set<string>): void {
     const prev = this.sparkplugOfflineNodes;
@@ -1033,100 +1002,70 @@ export class GraphRenderer {
     }
 
     this.sparkplugOfflineNodes = ids;
-    this.insightRingElements
-      .attr("stroke", (d) =>
-        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "#ef4444" : d.color
-      )
-      .attr("stroke-dasharray", (d) =>
-        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "4 2" : null
-      );
+    this.repaintInsightNodes();
   }
 
   /**
-   * Rebuild the insight ring layer from the current simulation nodes.
-   * Nodes whose payloadTags include enabled tag types get one ring per
-   * matching tag, drawn concentrically (ringIndex offsets the radius).
-   * Ring order follows the enabled-tags Map insertion order (registry order).
+   * The body colour for a node from its insight tags: the first enabled tag
+   * (registry order) it carries, or null when it has none.
    */
-  private refreshInsightRings(): void {
-    const data: InsightRingDatum[] = [];
-    this.insightRingNodeIds.clear();
-
-    if (this.enabledInsightTags.size > 0) {
-      this.simulation.nodes().forEach((n) => {
-        if (!n.payloadTags || n.payloadTags.length === 0) return;
-        const nodeTags = new Set(n.payloadTags);
-        let ringIndex = 0;
-        for (const [tag, color] of this.enabledInsightTags) {
-          if (nodeTags.has(tag)) {
-            data.push({ id: n.id, tag, color, ringIndex });
-            this.insightRingNodeIds.add(n.id);
-            ringIndex++;
-          }
-        }
-      });
+  private insightColorFor(node: GraphNode): string | null {
+    const tags = node.payloadTags;
+    if (!tags || tags.length === 0 || this.enabledInsightTags.size === 0) return null;
+    for (const [tag, color] of this.enabledInsightTags) {
+      if (tags.includes(tag)) return color;
     }
-
-    this.insightRingElements = this.insightRingGroup
-      .selectAll<SVGCircleElement, InsightRingDatum>("circle")
-      .data(data, (d) => `${d.id}:${d.tag}`);
-
-    this.insightRingElements.exit().remove();
-
-    this.insightRingElements = this.insightRingElements
-      .enter()
-      .append("circle")
-      .attr("fill", "none")
-      .attr("stroke-opacity", RING_STATIC_OPACITY)
-      .attr("pointer-events", "none")
-      .merge(this.insightRingElements)
-      .attr("stroke", (d) =>
-        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "#ef4444" : d.color
-      )
-      .attr("stroke-dasharray", (d) =>
-        d.tag === "sparkplug" && this.sparkplugOfflineNodes.has(d.id) ? "4 2" : null
-      );
-
-    this.syncInsightRingPositions();
+    return null;
   }
 
   /**
-   * Sync insight ring positions and sizes from current simulation nodes.
+   * The outline for a tagged node: thin white normally, red-dashed for an
+   * offline Sparkplug entity. Null when the node carries no enabled tag.
    */
-  private syncInsightRingPositions(): void {
-    if (this.insightRingNodeIds.size === 0) return;
+  private insightOutlineFor(node: GraphNode): { color: string; dash: string | null } | null {
+    const tags = node.payloadTags;
+    if (!tags || tags.length === 0 || this.enabledInsightTags.size === 0) return null;
+    let tagged = false;
+    for (const tag of this.enabledInsightTags.keys()) {
+      if (tags.includes(tag)) {
+        tagged = true;
+        break;
+      }
+    }
+    if (!tagged) return null;
+    if (tags.includes("sparkplug") && this.sparkplugOfflineNodes.has(node.id)) {
+      return { color: "#ef4444", dash: "4 2" };
+    }
+    return { color: "#ffffff", dash: null };
+  }
 
-    const nodePositions = new Map<
-      string,
-      { x: number; y: number; r: number; pulseTimestamp: number }
-    >();
-    this.simulation.nodes().forEach((n) => {
-      nodePositions.set(n.id, {
-        x: n.x ?? 0,
-        y: n.y ?? 0,
-        r: n.displayRadius,
-        pulseTimestamp: n.pulseTimestamp,
-      });
-    });
-
-    const ringStrokeWidth = 1.5 / this.currentZoomScale;
-    const now = Date.now();
-    const duration = this.fadeDuration;
-
-    this.insightRingElements
-      .attr("cx", (d) => nodePositions.get(d.id)?.x ?? 0)
-      .attr("cy", (d) => nodePositions.get(d.id)?.y ?? 0)
-      .attr("r", (d) =>
-        (nodePositions.get(d.id)?.r ?? 0) + (6 + d.ringIndex * 4) / this.currentZoomScale
+  /**
+   * Paint every node's resting body colour + outline from its insight tags:
+   * tagged nodes take their ecosystem colour and a thin white outline (offline
+   * Sparkplug keeps a red-dashed outline); untagged nodes fall back to the heat
+   * colour and the slate stroke. Active (pulsing) nodes are re-applied each
+   * frame by updateNodeColors; this covers idle / newly-tagged nodes.
+   */
+  private repaintInsightNodes(): void {
+    const selectedId = this.selectedNodeId;
+    this.nodeElements
+      .attr("fill", (d) =>
+        d.depth === 0 ? "#ffffff" : (this.insightColorFor(d) ?? rateToColor(d.messageRate))
       )
-      .attr("stroke-width", ringStrokeWidth)
-      // Fade with the same pulse-decay envelope the node body uses, so rings
-      // and bodies brighten and dim in lockstep. Flat opacity when disabled.
+      .attr("stroke", (d) => {
+        if (d.id === selectedId) return "#60a5fa";
+        if (d.depth === 0) return "#ffffff";
+        return this.insightOutlineFor(d)?.color ?? IDLE_STROKE;
+      })
+      .attr("stroke-width", (d) => {
+        if (d.id === selectedId) return 3.5 / this.currentZoomScale;
+        if (d.depth === 0) return 2.5;
+        return this.insightOutlineFor(d) ? 1.5 : 2;
+      })
+      .attr("stroke-dasharray", (d) => this.insightOutlineFor(d)?.dash ?? null)
       .attr("stroke-opacity", (d) => {
-        if (!this.fadeRings) return RING_STATIC_OPACITY;
-        const ts = nodePositions.get(d.id)?.pulseTimestamp ?? 0;
-        const t = Math.min((now - ts) / duration, 1);
-        return ringFadeOpacity(t);
+        if (d.id === selectedId || d.depth === 0) return 1;
+        return this.insightOutlineFor(d) ? 1 : 0.6;
       });
   }
 
@@ -1248,10 +1187,6 @@ export class GraphRenderer {
       // Sync highlight ring radii with lerped displayRadius each frame
       if (this.highlightedNodes.size > 0) {
         this.syncHighlightRingPositions();
-      }
-      // Sync insight ring radii with lerped displayRadius each frame
-      if (this.insightRingNodeIds.size > 0) {
-        this.syncInsightRingPositions();
       }
 
       // --- Frame measurement + periodic summary ---

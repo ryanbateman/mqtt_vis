@@ -31,7 +31,6 @@ export function TopicGraph() {
   const linkStrength = useTopicStore((s) => s.linkStrength);
   const collisionPadding = useTopicStore((s) => s.collisionPadding);
   const alphaDecay = useTopicStore((s) => s.alphaDecay);
-  const fadeIndicatorRings = useTopicStore((s) => s.fadeIndicatorRings);
   const showTooltips = useTopicStore((s) => s.showTooltips);
   const exportRequested = useTopicStore((s) => s.exportRequested);
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
@@ -160,11 +159,6 @@ export function TopicGraph() {
     }
   }, [emaTau]);
 
-  useEffect(() => {
-    if (rendererRef.current) {
-      rendererRef.current.setFadeRings(fadeIndicatorRings);
-    }
-  }, [fadeIndicatorRings]);
 
   useEffect(() => {
     if (rendererRef.current) {
