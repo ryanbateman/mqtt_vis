@@ -13,7 +13,8 @@ export type PayloadTagType =
   | "ttn"
   | "chirpstack"
   | "homie"
-  | "opendtu";
+  | "opendtu"
+  | "tasmota";
 
 /** Detected geo coordinates extracted from a JSON payload. */
 export interface GeoMetadata {
@@ -80,6 +81,7 @@ export interface TagMetadataMap {
   chirpstack: EntityTagMetadata;
   homie: EntityTagMetadata;
   opendtu: EntityTagMetadata;
+  tasmota: EntityTagMetadata;
 }
 
 /** A single detection result from a payload analyzer detector. */

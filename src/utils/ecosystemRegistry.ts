@@ -92,6 +92,14 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     // shape), so custom-prefix gateways need a broader filter.
     topicFilter: "solar/#",
   },
+  {
+    id: "tasmota",
+    label: "Tasmota",
+    // Matches the tasmota indicator colour amber (tagRegistry.ts).
+    color: "#f59e0b",
+    // Telemetry namespace (LWT/STATE/SENSOR/INFO); detection spans tele/stat/cmnd.
+    topicFilter: "tele/#",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */

@@ -19,7 +19,8 @@ export type EcosystemId =
   | "ttn"
   | "chirpstack"
   | "homie"
-  | "opendtu";
+  | "opendtu"
+  | "tasmota";
 
 /**
  * One entity parsed from an ecosystem's defining payload (e.g. a Home

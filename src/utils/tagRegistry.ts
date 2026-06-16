@@ -28,7 +28,8 @@ export type IndicatorSettingsKey =
   | "showTtnIndicators"
   | "showChirpstackIndicators"
   | "showHomieIndicators"
-  | "showOpenDtuIndicators";
+  | "showOpenDtuIndicators"
+  | "showTasmotaIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -180,6 +181,18 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
     settingsLabel: "OpenDTU Indicators",
     settingsTooltip:
       "Show a coloured ring around topics belonging to OpenDTU gateways and Hoymiles inverters",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "tasmota",
+    label: "Tasmota",
+    // Amber — distinct from every other ecosystem colour.
+    ringColor: "#f59e0b",
+    settingsKey: "showTasmotaIndicators",
+    settingsLabel: "Tasmota Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to Tasmota devices (tele/stat/cmnd)",
     defaultEnabled: true,
     drawerTab: null,
   },

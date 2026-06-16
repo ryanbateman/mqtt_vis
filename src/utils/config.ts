@@ -39,6 +39,7 @@ export interface AppConfig {
   showChirpstackIndicators?: boolean;
   showHomieIndicators?: boolean;
   showOpenDtuIndicators?: boolean;
+  showTasmotaIndicators?: boolean;
   fadeIndicatorRings?: boolean;
   followEcosystemTopics?: boolean;
 
