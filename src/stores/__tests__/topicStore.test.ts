@@ -1721,6 +1721,39 @@ describe("topicStore — drop retained burst", () => {
     expect(findGraphNode("a/b")).toBeUndefined();
   });
 
+  it("ingests a retained HA discovery config into the registry without a node", () => {
+    simulateConnection();
+    const cfg = JSON.stringify({ name: "Temp", state_topic: "home/temp", unique_id: "abc123" });
+    state().handleMessage("homeassistant/sensor/abc123/config", cfg, 0, true);
+    state().rebuildGraph();
+
+    // No graph node for the config topic...
+    expect(findTopicNode("homeassistant/sensor/abc123/config")).toBeUndefined();
+    expect(state().totalTopics).toBe(0);
+    // ...but the entity is identified in the registry.
+    const keys = [...state().domainEntities.keys()];
+    expect(keys.some((k) => k.startsWith("homeassistant:"))).toBe(true);
+  });
+
+  it("ingests a retained Shelly announce into the registry without a node", () => {
+    simulateConnection();
+    const announce = JSON.stringify({ id: "shelly1-AABBCC", model: "SHSW-1", mac: "AABBCC", ip: "1.2.3.4", fw_ver: "1.0" });
+    state().handleMessage("shellies/shelly1-AABBCC/announce", announce, 0, true);
+    state().rebuildGraph();
+
+    expect(findTopicNode("shellies/shelly1-AABBCC/announce")).toBeUndefined();
+    expect(state().domainEntities.has("shelly:dev:shelly1-AABBCC")).toBe(true);
+  });
+
+  it("ingests a retained Homie attribute into the registry without a node", () => {
+    simulateConnection();
+    state().handleMessage("homie/example/$homie", "4.0.0", 0, true);
+    state().rebuildGraph();
+
+    expect(findTopicNode("homie/example/$homie")).toBeUndefined();
+    expect(state().domainEntities.has("homie:dev:homie/example")).toBe(true);
+  });
+
   it("does not increment counters for dropped retained messages", () => {
     simulateConnection();
     state().handleMessage("a/b", "msg1", 0, true);
@@ -1777,6 +1810,16 @@ describe("topicStore — drop retained burst", () => {
     expect(node).toBeDefined();
     expect(node!.messageRate).toBe(1);
     expect(node!.lastTimestamp).toBeGreaterThan(0);
+  });
+
+  it("still renders a defining (HA config) node when dropRetainedBurst is off", () => {
+    simulateConnection();
+    state().setDropRetainedBurst(false);
+    const cfg = JSON.stringify({ name: "Temp", state_topic: "home/temp", unique_id: "xyz" });
+    state().handleMessage("homeassistant/sensor/xyz/config", cfg, 0, true);
+    state().rebuildGraph();
+
+    expect(findTopicNode("homeassistant/sensor/xyz/config")).toBeDefined();
   });
 
   it("allows retained messages when dropRetainedBurst is disabled", () => {

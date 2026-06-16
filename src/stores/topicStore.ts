@@ -9,7 +9,7 @@ import type {
 } from "../types";
 import type { DetectorResult, EntityTagMetadata } from "../types/payloadTags";
 import type { SparkplugDeviceState, SparkplugMetadata, SparkplugTopicInfo } from "../types/sparkplug";
-import type { DomainEntity } from "../types/entities";
+import type { DomainEntity, EntityDeclaration } from "../types/entities";
 import type { IndicatorSettingsKey } from "../utils/tagRegistry";
 import {
   createEntityRegistry,
@@ -23,12 +23,12 @@ import {
 } from "../utils/ecosystems/entityOps";
 import { mqttTopicMatches } from "../utils/mqttMatch";
 import { mqttService } from "../services/mqttService";
-import { isHaDiscoveryTopic } from "../utils/ecosystems/homeassistant/discovery";
+import { isHaDiscoveryTopic, parseHaDiscovery } from "../utils/ecosystems/homeassistant/discovery";
 import { recordFrigateMessage } from "../utils/ecosystems/frigate";
-import { recordShellyMessage } from "../utils/ecosystems/shelly";
+import { recordShellyMessage, isShellyAnnounceTopic, parseShellyAnnounce } from "../utils/ecosystems/shelly";
 import { recordOwnTracksMessage } from "../utils/ecosystems/owntracks";
 import { recordLorawanMessage } from "../utils/ecosystems/lorawan";
-import { recordHomieMessage, createHomieState } from "../utils/ecosystems/homie";
+import { recordHomieMessage, createHomieState, isHomieAttributeTopic } from "../utils/ecosystems/homie";
 import { recordOpenDtuMessage } from "../utils/ecosystems/opendtu";
 import {
   isSparkplugTopic,
@@ -620,6 +620,48 @@ export function getRecentMessages(): readonly RecentMessage[] {
 }
 
 /**
+ * Apply parsed entity declarations to the registry and, when following is
+ * enabled, subscribe to declared state/availability topics the primary filter
+ * doesn't already cover. Shared by the worker result path (setPayloadTags) and
+ * the registry-only burst ingest below. Returns whether the registry changed.
+ */
+function applyDeclarationsAndFollow(
+  declarations: EntityDeclaration[],
+  state: TopicStoreState,
+): boolean {
+  if (declarations.length === 0) return false;
+  const changed = applyEntityDeclarations(_entityRegistry, declarations);
+  if (state.followEcosystemTopics) {
+    const uncovered = collectDeclaredTopics(declarations).filter(
+      (topic) => !mqttTopicMatches(state.topicFilter, topic),
+    );
+    if (uncovered.length > 0) mqttService.followTopics(uncovered);
+  }
+  return changed;
+}
+
+/**
+ * Feed an ecosystem-defining topic into the entity registry WITHOUT creating a
+ * graph node — used during the retained-burst drop so identity is captured but
+ * the config topics don't clutter the graph. The topic is passed as the node id
+ * (node ids are topic paths), so any future real node binds consistently.
+ * Returns whether the registry changed.
+ */
+function ingestDefiningTopic(topic: string, payload: string, state: TopicStoreState): boolean {
+  if (isHaDiscoveryTopic(topic)) {
+    if (payload.length === 0) return applyConfigTombstone(_entityRegistry, topic);
+    return applyDeclarationsAndFollow(parseHaDiscovery(topic, payload), state);
+  }
+  if (isShellyAnnounceTopic(topic)) {
+    return applyDeclarationsAndFollow(parseShellyAnnounce(topic, payload), state);
+  }
+  if (isHomieAttributeTopic(topic)) {
+    return recordHomieMessage(_entityRegistry, _homieState, topic, topic, payload)?.changed ?? false;
+  }
+  return false;
+}
+
+/**
  * Burst throttle — reduces the frequency of structural (D3 data-join) rebuilds
  * during the initial retained-message flood after connecting.
  *
@@ -703,15 +745,18 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     perfMark("handle-msg-start");
     const state = get();
 
-    // Fully drop retained messages during the post-subscribe burst window.
-    // No node creation, no counters, no visual effects — the message is
-    // silently ignored so the graph doesn't explode with stale retained data.
-    // Ecosystem-defining topics (HA discovery configs) are exempt: they are
-    // always retained, so dropping them would blind the entity registry.
+    // Fully drop retained messages during the post-subscribe burst window so
+    // the graph doesn't explode with stale retained data. Ecosystem-defining
+    // topics (HA discovery configs, Shelly announces, Homie attributes) are
+    // still fed into the entity registry — but WITHOUT a graph node — so
+    // identity is captured while the config topics stay out of the graph.
     const inBurstWindow = _burstWindowStart > 0
       && (Date.now() - _burstWindowStart < state.burstWindowDuration);
-    if (state.dropRetainedBurst && retain && inBurstWindow
-        && !isEcosystemDefiningTopic(topic)) {
+    if (state.dropRetainedBurst && retain && inBurstWindow) {
+      if (isEcosystemDefiningTopic(topic) && ingestDefiningTopic(topic, payload, state)) {
+        _entitiesDirty = true;
+        get().scheduleRebuild(false); // batched; drains _entitiesDirty → bumps entitiesVersion
+      }
       if (imageBlobUrl) URL.revokeObjectURL(imageBlobUrl);
       return;
     }
@@ -1530,20 +1575,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         if (t.tag === "homeassistant" || t.tag === "shelly") {
           const meta = t.metadata as EntityTagMetadata;
           if (meta.declarations && meta.declarations.length > 0) {
-            if (applyEntityDeclarations(_entityRegistry, meta.declarations)) {
+            // Apply declarations + follow uncovered declared topics (shared with
+            // the registry-only burst ingest).
+            if (applyDeclarationsAndFollow(meta.declarations, get())) {
               _entitiesDirty = true;
-            }
-            // Follow declared state/availability topics that the primary
-            // filter doesn't cover — otherwise entities stay static
-            // (HA configs point at zigbee2mqtt/... etc.). Covered topics
-            // are skipped: overlapping subscriptions mean duplicate
-            // deliveries on most brokers.
-            const state = get();
-            if (state.followEcosystemTopics) {
-              const uncovered = collectDeclaredTopics(meta.declarations).filter(
-                (topic) => !mqttTopicMatches(state.topicFilter, topic),
-              );
-              if (uncovered.length > 0) mqttService.followTopics(uncovered);
             }
           }
           const entity = _entityRegistry.entities.get(meta.entityKey);
