@@ -8,14 +8,18 @@ No backend required — it's a static SPA. Host it anywhere, and the MQTT connec
 
 ## Features
 
-- **Live topic graph** — topics appear as nodes in a force-directed layout, sized by message rate and coloured by activity
+- **Live topic graph** — topics appear as nodes in a force-directed layout, sized by message rate and coloured by activity; a one-click "shake" spreads a tangled layout apart
 - **Wildcard subscriptions** — subscribe with `#` or `+` and watch the tree grow in real-time
 - **Payload insights** — automatic detection of geo coordinates (map view with movement trails) and image payloads (inline preview), surfaced in a tabbed topic drawer alongside the raw payload and per-topic stats
-- **Ecosystem awareness** — identifies domain objects from known MQTT ecosystems and presents them as a device/entity tree with online/offline state, colour-coded indicator rings on the graph, and one-click topic-filter presets:
+- **Ecosystem awareness** — identifies domain objects from known MQTT ecosystems and presents them as a device/entity tree in an Ecosystems panel, with online/offline state, a one-click topic-filter preset per ecosystem, and member nodes coloured by ecosystem on the graph (node body + a thin outline):
   - **Sparkplug B** — edge nodes and devices decoded from protobuf, with BIRTH/DEATH lifecycle and a live metric table
   - **Home Assistant** — MQTT discovery (devices and entities), with follow-on subscriptions that bind live state published in other namespaces
-  - **Frigate, Shelly, OwnTracks** — cameras, devices, and location trackers identified structurally from their topic shapes (OwnTracks trackers also plot on the map)
-- **Expanding side rails** — connection and settings on the left, payload/insight/ecosystem detail on the right; the right rail is drag-resizable
+  - **Homie** — the Homie convention (device → node → property), detected by its retained `$`-attributes at any base topic (so it also covers Valetudo robots)
+  - **LoRaWAN** — The Things Network (v3) and ChirpStack: applications → devices, with gateway GPS picked up by the map
+  - **Frigate, Shelly, OwnTracks, OpenDTU** — cameras, devices, location trackers (also plotted on the map), and Hoymiles solar inverters, identified structurally from their topic shapes
+- **Stats dashboard** — a right-rail panel with a live throughput chart, noisiest topics, a payload-size histogram, and a per-ecosystem entity breakdown — windowed by previous minute / 5 minutes / since connect
+- **Expanding side rails** — connection and settings on the left, topic / ecosystem / stats detail on the right; the right rail is drag-resizable
+- **Retained-burst handling** — optionally drop the retained flood on connect to keep the graph clean, while still folding ecosystem discovery/config topics into the registry so devices are identified without cluttering the graph
 - **Fully configurable** — tune the graph physics, labels, colours, and behaviour via the UI or a `config.json` file
 - **WebMCP support** — exposes tools for browser AI agents to query the topic tree (Chrome 146+)
 
