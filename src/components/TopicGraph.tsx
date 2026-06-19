@@ -6,6 +6,9 @@ import { findNode } from "../utils/topicParser";
 import { TAG_REGISTRY } from "../utils/tagRegistry";
 import type { TooltipData } from "../types";
 
+/** Zoom level the kiosk tour zooms in to when focusing a highlighted node. */
+const KIOSK_FOCUS_SCALE = 1.4;
+
 /**
  * React component that owns the SVG container.
  * D3 (via GraphRenderer) manages all SVG content inside the ref.
@@ -36,6 +39,11 @@ export function TopicGraph() {
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
   const highlightedNodes = useTopicStore((s) => s.highlightedNodes);
+  const centerNodeId = useTopicStore((s) => s.centerNodeId);
+  const centerNodeNonce = useTopicStore((s) => s.centerNodeNonce);
+  const fitViewNonce = useTopicStore((s) => s.fitViewNonce);
+  const fitViewDuration = useTopicStore((s) => s.fitViewDuration);
+  const displayMode = useTopicStore((s) => s.displayMode);
   // Joined ids of enabled insight tags — a primitive selector result, so the
   // component only re-renders when the enabled set actually changes.
   const enabledTagIds = useTopicStore((s) =>
@@ -217,6 +225,22 @@ export function TopicGraph() {
       rendererRef.current.setSelectedNodeId(selectedNodeId);
     }
   }, [selectedNodeId]);
+
+  // Pan + zoom-in to centre a requested node (kiosk auto-tour). Keyed on the
+  // nonce so repeated requests for the same id still fire. In embed/kiosk the
+  // floating drawer covers the right ~320px, so bias the centre left of it.
+  // A fixed focus scale zooms in on the node (the rest-phase fitView zooms out).
+  useEffect(() => {
+    if (centerNodeNonce === 0 || !centerNodeId || !rendererRef.current) return;
+    const xBias = displayMode === "kiosk" ? -240 : displayMode === "embed" ? -160 : 0;
+    rendererRef.current.centerOnNode(centerNodeId, 3600, xBias, KIOSK_FOCUS_SCALE);
+  }, [centerNodeNonce, centerNodeId, displayMode]);
+
+  // Slow zoom-out to an overview while the kiosk tour is between highlights.
+  useEffect(() => {
+    if (fitViewNonce === 0 || !rendererRef.current) return;
+    rendererRef.current.fitView(fitViewDuration);
+  }, [fitViewNonce, fitViewDuration]);
 
   // Sync highlighted nodes to the renderer
   useEffect(() => {

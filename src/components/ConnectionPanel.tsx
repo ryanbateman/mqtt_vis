@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, type FormEvent } from "react";
-import type { ConnectionParams, ConnectionStatus } from "../types";
+import type { ConnectionParams, ConnectionStatus, DisplayMode } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 import { getConfig } from "../utils/config";
 import { getBrokerIcon, CUSTOM_BROKER_ICON } from "../utils/brokerIcons";
@@ -14,6 +14,13 @@ import { SelectOrCustom } from "./SelectOrCustom";
 function generateClientId(): string {
   return "mqtt_visualiser_" + Math.random().toString(16).slice(2, 10);
 }
+
+/** Display-mode options for the segmented selector. */
+const DISPLAY_MODES: { value: DisplayMode; label: string }[] = [
+  { value: "normal", label: "Normal" },
+  { value: "embed", label: "Embed" },
+  { value: "kiosk", label: "Kiosk" },
+];
 
 interface ConnectionPanelProps {
   onConnect: (params: ConnectionParams) => void;
@@ -71,7 +78,9 @@ export function ConnectionPanel({
   // the field is left empty), not a pre-filled value.
   const topicPlaceholder = cfg.topicFilter || "#";
 
-  const [activeTab, setActiveTab] = useState<"connect" | "filter" | "log">("connect");
+  const [activeTab, setActiveTab] = useState<"connect" | "filter" | "display" | "log">("connect");
+  const displayMode = useTopicStore((s) => s.displayMode);
+  const setDisplayMode = useTopicStore((s) => s.setDisplayMode);
   const dropRetainedBurst = useTopicStore((s) => s.dropRetainedBurst);
   const setDropRetainedBurst = useTopicStore((s) => s.setDropRetainedBurst);
   const burstWindowActive = useTopicStore((s) => s.burstWindowActive);
@@ -264,6 +273,17 @@ export function ConnectionPanel({
               }`}
             >
               Filter
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("display")}
+              className={`pb-1.5 text-xs font-medium transition-colors ${
+                activeTab === "display"
+                  ? "text-blue-400 border-b-2 border-blue-400 -mb-px"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              Display
             </button>
             <button
               type="button"
@@ -530,6 +550,39 @@ export function ConnectionPanel({
                 maxLabel="Never"
                 onChange={(v) => setPruneTimeout(v >= 6 ? 0 : v * 60_000)}
               />
+            </div>
+          )}
+
+          {/* Display tab — strip chrome for embedding / kiosk signage. Press Esc to exit. */}
+          {activeTab === "display" && (
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-gray-400">Display Mode</label>
+                    <InfoTooltip text="Embed hides all panels (click still opens a floating detail view). Kiosk adds an auto-tour of active topics. Press Esc to return to Normal." />
+                  </div>
+                </div>
+                <div className="flex rounded overflow-hidden border border-gray-600">
+                  {DISPLAY_MODES.map((m) => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => setDisplayMode(m.value)}
+                      className={`flex-1 px-2 py-1 text-[11px] font-medium transition-colors ${
+                        displayMode === m.value
+                          ? "bg-blue-600 text-white"
+                          : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1.5 leading-snug">
+                  Embed and Kiosk hide all panels. Press <kbd className="px-1 py-0.5 rounded bg-gray-700 text-gray-300">Esc</kbd> to return.
+                </p>
+              </div>
             </div>
           )}
 

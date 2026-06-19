@@ -5,6 +5,7 @@ import type {
   GraphNode,
   GraphLink,
   LabelMode,
+  DisplayMode,
   MqttUserProperties,
 } from "../types";
 import type { DetectorResult, EntityTagMetadata } from "../types/payloadTags";
@@ -57,7 +58,7 @@ import {
   findNode,
 } from "../utils/topicParser";
 import { calculateRadius } from "../utils/sizeCalculator";
-import { getConfig } from "../utils/config";
+import { getConfig, type AppConfig } from "../utils/config";
 import { perfMark, perfMeasure, perfStats } from "../utils/perfDebug";
 import {
   loadSavedSettings,
@@ -67,6 +68,23 @@ import {
 
 /** Default EMA time constant in seconds. Controls how quickly rates respond. */
 const DEFAULT_EMA_TAU = 5;
+
+/**
+ * Resolve the initial display mode. Precedence: URL param (?kiosk > ?embed) >
+ * config.displayMode > legacy config.embed > "normal".
+ */
+function resolveInitialDisplayMode(cfg: AppConfig): DisplayMode {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("kiosk")) return "kiosk";
+    if (params.has("embed")) return "embed";
+  } catch {
+    // window.location unavailable — fall through to config
+  }
+  if (cfg.displayMode === "embed" || cfg.displayMode === "kiosk") return cfg.displayMode;
+  if (cfg.embed === true) return "embed";
+  return "normal";
+}
 
 /** Decay interval in milliseconds. */
 const DECAY_INTERVAL = 500;
@@ -205,6 +223,17 @@ interface TopicStoreState {
   nodeCapReached: boolean;
   /** ID of the currently selected/pinned node, or null if nothing is selected. */
   selectedNodeId: string | null;
+  /** Chrome-stripping display mode: "normal" | "embed" | "kiosk". Session-only
+   *  (not persisted) — durable activation is via URL param or config.json. */
+  displayMode: DisplayMode;
+  /** Node the graph view should pan to centre (set by the kiosk auto-tour). */
+  centerNodeId: string | null;
+  /** Bumped on each centre request so repeats on the same id still fire. */
+  centerNodeNonce: number;
+  /** Bumped to request a slow zoom-out-to-overview (kiosk graph-only phases). */
+  fitViewNonce: number;
+  /** Duration (ms) for the requested overview drift. */
+  fitViewDuration: number;
   /**
    * Map of nodeId → CSS colour hex for externally highlighted nodes.
    * Populated by WebMCP tools or other internal consumers.
@@ -300,6 +329,12 @@ interface TopicStoreState {
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
   setSelectedNodeId: (id: string | null) => void;
+  /** Switch the chrome-stripping display mode (e.g. Esc to exit, or the Settings button). */
+  setDisplayMode: (mode: DisplayMode) => void;
+  /** Request the graph view pan to centre the given node (kiosk auto-tour). */
+  requestCenterOnNode: (id: string) => void;
+  /** Request a slow zoom-out to an overview over `durationMs` (kiosk graph-only phases). */
+  requestFitView: (durationMs: number) => void;
   /**
    * Replace the full highlighted-node set. Entries beyond MAX_HIGHLIGHTED_NODES
    * are silently dropped. Pass an empty Map (or call clearHighlights) to remove all highlights.
@@ -741,6 +776,11 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   entitiesVersion: 0,
   nodeCapReached: false,
   selectedNodeId: null,
+  displayMode: resolveInitialDisplayMode(cfg),
+  centerNodeId: null,
+  centerNodeNonce: 0,
+  fitViewNonce: 0,
+  fitViewDuration: 1000,
   highlightedNodes: new Map<string, string>(),
   burstWindowActive: false,
   burstSettingsLocked: false,
@@ -1550,6 +1590,15 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   setSelectedNodeId: (id: string | null) => {
     set({ selectedNodeId: id });
+  },
+  setDisplayMode: (mode: DisplayMode) => {
+    set({ displayMode: mode });
+  },
+  requestCenterOnNode: (id: string) => {
+    set((s) => ({ centerNodeId: id, centerNodeNonce: s.centerNodeNonce + 1 }));
+  },
+  requestFitView: (durationMs: number) => {
+    set((s) => ({ fitViewDuration: durationMs, fitViewNonce: s.fitViewNonce + 1 }));
   },
   setHighlightedNodes: (nodes: Map<string, string>) => {
     // Enforce cap: keep only the first MAX_HIGHLIGHTED_NODES entries

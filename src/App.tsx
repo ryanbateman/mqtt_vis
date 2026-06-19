@@ -9,10 +9,13 @@ import { SideRail, type RailSection } from "./components/SideRail";
 import { TopicDrawer, type TopicTab } from "./components/TopicDrawer";
 import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
+import { EmbedOverlay } from "./components/EmbedOverlay";
 import { getConfig } from "./utils/config";
 import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
 import { getTag, TAG_REGISTRY } from "./utils/tagRegistry";
+import { useIdle } from "./hooks/useIdle";
+import { useKioskTour } from "./hooks/useKioskTour";
 import { loadSavedSettings, persistSettings } from "./utils/settingsStorage";
 import type { GeoMetadata, GeoNode } from "./types/payloadTags";
 import type { SparkplugMetadata } from "./types/sparkplug";
@@ -60,10 +63,21 @@ function App() {
   const errorMessage = useTopicStore((s) => s.errorMessage);
   const selectedNodeId = useTopicStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useTopicStore((s) => s.setSelectedNodeId);
+  const requestCenterOnNode = useTopicStore((s) => s.requestCenterOnNode);
+  const requestFitView = useTopicStore((s) => s.requestFitView);
+  const shakeLayout = useTopicStore((s) => s.shakeLayout);
   const graphNodes = useTopicStore((s) => s.graphNodes);
   const autoconnectFired = useRef(false);
   const entities = useDomainEntities();
   const totalTopics = useTopicStore((s) => s.totalTopics);
+
+  // Embed / kiosk mode. `isEmbed` strips all chrome; kiosk adds the auto-tour.
+  const displayMode = useTopicStore((s) => s.displayMode);
+  const setDisplayMode = useTopicStore((s) => s.setDisplayMode);
+  const isEmbed = displayMode !== "normal";
+  // True while the kiosk auto-tour is driving selection — the selection effect
+  // below defers to it so its sticky tab logic doesn't fight the tour.
+  const tourActiveRef = useRef(false);
   // shakeLayout/isShaking moved to StatusBar (button now sits beside the metrics).
 
   // Rail state — one expanded section per side, null = collapsed.
@@ -138,6 +152,22 @@ function App() {
     setDrawerState((prev) => prev ? { ...prev, activeTab: tab } : null);
   }, []);
 
+  /** Look up a node's detected content (geo / image / sparkplug) for the drawer. */
+  const resolveNodeContent = useCallback((nodeId: string): {
+    geo: GeoMetadata | null;
+    imageBlobUrl: string | null;
+    sparkplug: SparkplugMetadata | null;
+  } => {
+    const root = useTopicStore.getState().root;
+    const segments = nodeId === "" ? [] : nodeId.split("/");
+    const node = findNode(root, segments);
+    return {
+      geo: getTag(node?.payloadTags, "geo")?.metadata ?? null,
+      imageBlobUrl: node?.lastImageBlobUrl ?? null,
+      sparkplug: getTag(node?.payloadTags, "sparkplug")?.metadata ?? null,
+    };
+  }, []);
+
   // Sync geoNavIndex when the drawer's topic changes
   useEffect(() => {
     if (!drawerState) return;
@@ -164,6 +194,7 @@ function App() {
   // node whose blob was evicted (LRU) won't surface an Image tab until a new
   // image message arrives.
   useEffect(() => {
+    if (tourActiveRef.current) return; // kiosk auto-tour drives the drawer directly
     if (isPinned) return; // pinned — ignore node selection changes
     if (drawerMode === "all") return; // all-geo mode — ignore node selection changes
 
@@ -174,12 +205,8 @@ function App() {
     }
 
     // Look up the newly selected node's topic data
-    const root = useTopicStore.getState().root;
-    const segments = selectedNodeId === "" ? [] : selectedNodeId.split("/");
-    const node = findNode(root, segments);
-    const newGeo = getTag(node?.payloadTags, "geo")?.metadata ?? null;
-    const newImage = node?.lastImageBlobUrl ?? null;
-    const newSparkplug = getTag(node?.payloadTags, "sparkplug")?.metadata ?? null;
+    const { geo: newGeo, imageBlobUrl: newImage, sparkplug: newSparkplug } =
+      resolveNodeContent(selectedNodeId);
 
     setDrawerState((prev) => ({
       topicPath: selectedNodeId,
@@ -193,7 +220,7 @@ function App() {
       }),
     }));
     setRightActive("topic");
-  }, [selectedNodeId, isPinned, drawerMode]);
+  }, [selectedNodeId, isPinned, drawerMode, resolveNodeContent]);
 
   // Look up the drawer topic's nodes for the Payload tab. Keyed on the
   // drawer's topicPath (not selectedNodeId) so the payload follows pinning
@@ -217,6 +244,62 @@ function App() {
       return prev;
     });
   }, [drawerState, entities.length]);
+
+  // --- Embed / kiosk wiring -------------------------------------------------
+
+  // In embed/kiosk mode, treat the user as idle after a few seconds of no
+  // activity. Drives cursor auto-hide and pauses/resumes the kiosk auto-tour.
+  const idle = useIdle(isEmbed, 4000);
+
+  // The kiosk auto-tour runs only while connected and idle; any interaction
+  // pauses it (and keeps whatever is on screen) until the user goes idle again.
+  const tourActive = displayMode === "kiosk" && connectionStatus === "connected" && idle;
+  useEffect(() => {
+    tourActiveRef.current = tourActive;
+  }, [tourActive]);
+
+  // Tour: select a node and populate the floating drawer directly (bypassing the
+  // sticky selection effect). Returns whether the node has a dedicated entity
+  // tab (map/image/device) so the tour shows it first, then flips to payload.
+  const handleTourSelect = useCallback((nodeId: string): boolean => {
+    const { geo, imageBlobUrl, sparkplug } = resolveNodeContent(nodeId);
+    const initialTab = resolveTopicTab("payload", true, {
+      geo: geo !== null,
+      image: imageBlobUrl !== null,
+      sparkplug: sparkplug !== null,
+    });
+    setDrawerState({ topicPath: nodeId, geo, imageBlobUrl, sparkplug, activeTab: initialTab });
+    setSelectedNodeId(nodeId);
+    requestCenterOnNode(nodeId); // pan the graph to centre the toured node
+    return initialTab !== "payload";
+  }, [resolveNodeContent, setSelectedNodeId, requestCenterOnNode]);
+
+  const handleTourClear = useCallback(() => {
+    setSelectedNodeId(null);
+    setDrawerState(null);
+  }, [setSelectedNodeId]);
+
+  const handleTourOverview = useCallback((durationMs: number) => {
+    requestFitView(durationMs);
+  }, [requestFitView]);
+
+  useKioskTour(tourActive, {
+    onSelectNode: handleTourSelect,
+    onSetTab: handleSetTab,
+    onClear: handleTourClear,
+    onShowOverview: handleTourOverview,
+    onShake: shakeLayout,
+  });
+
+  // Escape hatch: Esc reveals all panels (exits embed/kiosk to normal).
+  useEffect(() => {
+    if (!isEmbed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDisplayMode("normal");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isEmbed, setDisplayMode]);
 
   // Autoconnect on initial mount if enabled
   useEffect(() => {
@@ -272,6 +355,29 @@ function App() {
           ? "bg-red-500"
           : "bg-gray-600";
 
+  // The topic detail drawer — shared by the right rail (normal mode) and the
+  // floating overlay (embed/kiosk mode).
+  const drawerElement = drawerState ? (
+    <TopicDrawer
+      topicPath={drawerState.topicPath}
+      topicNode={drawerNodes?.topicNode ?? null}
+      graphNode={drawerNodes?.graphNode ?? null}
+      geo={drawerState.geo}
+      imageBlobUrl={drawerState.imageBlobUrl}
+      sparkplug={drawerState.sparkplug}
+      activeTab={drawerState.activeTab}
+      onSetTab={handleSetTab}
+      isPinned={isPinned}
+      onTogglePin={handleTogglePin}
+      mode={drawerMode}
+      onSetMode={handleSetMode}
+      geoNodes={geoNodes}
+      geoNavIndex={geoNavIndex}
+      onNavigate={handleNavigate}
+      onClose={handleCloseDrawer}
+    />
+  ) : null;
+
   const leftSections: RailSection<LeftSection>[] = [
     {
       id: "connection",
@@ -317,26 +423,7 @@ function App() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
         </svg>
       ),
-      content: drawerState ? (
-        <TopicDrawer
-          topicPath={drawerState.topicPath}
-          topicNode={drawerNodes?.topicNode ?? null}
-          graphNode={drawerNodes?.graphNode ?? null}
-          geo={drawerState.geo}
-          imageBlobUrl={drawerState.imageBlobUrl}
-          sparkplug={drawerState.sparkplug}
-          activeTab={drawerState.activeTab}
-          onSetTab={handleSetTab}
-          isPinned={isPinned}
-          onTogglePin={handleTogglePin}
-          mode={drawerMode}
-          onSetMode={handleSetMode}
-          geoNodes={geoNodes}
-          geoNavIndex={geoNavIndex}
-          onNavigate={handleNavigate}
-          onClose={handleCloseDrawer}
-        />
-      ) : null,
+      content: drawerElement,
     },
     {
       id: "ecosystems",
@@ -366,35 +453,51 @@ function App() {
   ];
 
   return (
-    <div className="relative w-full h-screen bg-slate-900">
+    <div className={`relative w-full h-screen bg-slate-900 ${isEmbed && idle ? "cursor-none" : ""}`}>
       <TopicGraph />
-      <SideRail
-        side="left"
-        sections={leftSections}
-        activeId={leftActive}
-        onSelect={handleLeftSelect}
-        footer={
-          <a
-            href="https://github.com/ryanbateman/mqtt_vis"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block p-2 text-gray-600 hover:text-gray-400 transition-colors"
-            title="View on GitHub"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
-            </svg>
-          </a>
-        }
-      />
-      <SideRail
-        side="right"
-        sections={rightSections}
-        activeId={rightActive}
-        onSelect={setRightActive}
-        resizable
-      />
-      <StatusBar />
+      {!isEmbed && (
+        <>
+          <SideRail
+            side="left"
+            sections={leftSections}
+            activeId={leftActive}
+            onSelect={handleLeftSelect}
+            footer={
+              <a
+                href="https://github.com/ryanbateman/mqtt_vis"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block p-2 text-gray-600 hover:text-gray-400 transition-colors"
+                title="View on GitHub"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
+                </svg>
+              </a>
+            }
+          />
+          <SideRail
+            side="right"
+            sections={rightSections}
+            activeId={rightActive}
+            onSelect={setRightActive}
+            resizable
+          />
+          <StatusBar />
+        </>
+      )}
+      {/* Embed/kiosk: float the detail drawer over the graph instead of the rail.
+          Kiosk (auto-tour) uses a wider panel (half-again) for legibility at distance. */}
+      {isEmbed && drawerElement && (
+        <div
+          className={`absolute right-0 top-0 bottom-0 z-10 flex flex-col bg-slate-900/95 border-l border-gray-700 backdrop-blur-sm shadow-2xl ${
+            displayMode === "kiosk" ? "w-[30rem]" : "w-80"
+          }`}
+        >
+          {drawerElement}
+        </div>
+      )}
+      {isEmbed && <EmbedOverlay />}
     </div>
   );
 }

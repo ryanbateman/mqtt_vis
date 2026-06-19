@@ -73,6 +73,7 @@ const DEFAULT_LABEL_DEPTH_FACTOR = 5;
 export class GraphRenderer {
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private zoom!: d3.ZoomBehavior<SVGSVGElement, unknown>;
   private simulation!: d3.Simulation<GraphNode, GraphLink>;
   private nodeElements!: d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown>;
   private linkElements!: d3.Selection<SVGLineElement, GraphLink, SVGGElement, unknown>;
@@ -183,7 +184,7 @@ export class GraphRenderer {
     // Zoom & pan container
     this.container = this.svg.append("g");
 
-    const zoom = d3
+    this.zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 10])
       .on("zoom", (event) => {
@@ -195,7 +196,7 @@ export class GraphRenderer {
         this.hitAreaElements.attr("r", (d) => this.hitRadius(d));
       });
 
-    this.svg.call(zoom);
+    this.svg.call(this.zoom);
 
     // Background click: deselect when clicking empty space.
     // Use mousedown + check target to distinguish from drags and node clicks.
@@ -765,6 +766,52 @@ export class GraphRenderer {
     if (prev !== null && prev !== id) {
       this.clearSelectionRing(prev);
     }
+  }
+
+  /**
+   * Smoothly pan the view so the given node sits at the centre of the canvas.
+   * `xBias` shifts the target centre — e.g. a negative bias keeps the node clear
+   * of a right-side overlay panel. `targetScale` sets the zoom level (defaults to
+   * the current scale). No-op if the node is unknown or not yet positioned.
+   */
+  centerOnNode(nodeId: string, durationMs = 600, xBias = 0, targetScale?: number): void {
+    const node = this.simulation.nodes().find((n) => n.id === nodeId);
+    if (!node || node.x === undefined || node.y === undefined) return;
+    const k = targetScale ?? this.currentZoomScale;
+    const transform = d3.zoomIdentity
+      .translate(this.width / 2 + xBias - node.x * k, this.height / 2 - node.y * k)
+      .scale(k);
+    this.svg.transition().duration(durationMs).call(this.zoom.transform, transform);
+  }
+
+  /**
+   * Smoothly zoom/pan to an overview that frames all nodes, centred on the
+   * graph. Used during kiosk graph-only phases to drift back from a highlighted
+   * node. `xBias` shifts the centre; scale is capped so it reads as a zoom-out.
+   */
+  fitView(durationMs = 1000, xBias = 0): void {
+    const nodes = this.simulation.nodes();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      if (n.x === undefined || n.y === undefined) continue;
+      const r = n.displayRadius ?? 0;
+      minX = Math.min(minX, n.x - r);
+      minY = Math.min(minY, n.y - r);
+      maxX = Math.max(maxX, n.x + r);
+      maxY = Math.max(maxY, n.y + r);
+    }
+    if (!Number.isFinite(minX)) return;
+    const pad = 80;
+    const w = Math.max(1, maxX - minX);
+    const h = Math.max(1, maxY - minY);
+    // Cap at 1.2 so a small graph still reads as an overview, not a zoom-in.
+    const scale = Math.max(0.1, Math.min(1.2, (this.width - pad) / w, (this.height - pad) / h));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const transform = d3.zoomIdentity
+      .translate(this.width / 2 + xBias - cx * scale, this.height / 2 - cy * scale)
+      .scale(scale);
+    this.svg.transition().duration(durationMs).ease(d3.easeQuadInOut).call(this.zoom.transform, transform);
   }
 
   /**

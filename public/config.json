@@ -40,5 +40,14 @@
 
   "webmcpEnabled": true,
 
+  "displayMode": "normal",
+  "kioskEntityDwellMs": 8000,
+  "kioskPayloadDwellMs": 5000,
+  "kioskPlainDwellMs": 5000,
+  "kioskIntervalMs": 12000,
+  "kioskRestEvery": 3,
+  "kioskRestMs": 36000,
+  "kioskShakeEvery": 5,
+
   "description": "Discover, monitor, and understand your MQTT traffic in real time. See which topics are active, how fast they publish, and how your topic tree is structured."
 }
