@@ -70,19 +70,17 @@ import {
 const DEFAULT_EMA_TAU = 5;
 
 /**
- * Resolve the initial display mode. Precedence: URL param (?kiosk > ?embed) >
- * config.displayMode > legacy config.embed > "normal".
+ * Resolve the initial display mode. Precedence: URL param (?autotour) >
+ * config.displayMode > "normal".
  */
 function resolveInitialDisplayMode(cfg: AppConfig): DisplayMode {
   try {
     const params = new URLSearchParams(window.location.search);
-    if (params.has("kiosk")) return "kiosk";
-    if (params.has("embed")) return "embed";
+    if (params.has("autotour")) return "autotour";
   } catch {
     // window.location unavailable — fall through to config
   }
-  if (cfg.displayMode === "embed" || cfg.displayMode === "kiosk") return cfg.displayMode;
-  if (cfg.embed === true) return "embed";
+  if (cfg.displayMode === "autotour") return "autotour";
   return "normal";
 }
 
@@ -127,6 +125,8 @@ interface TopicStoreState {
   scaleTextByDepth: boolean;
   /** Whether to show tooltips on node hover. */
   showTooltips: boolean;
+  /** Whether to clear the graph when disconnecting from the broker. */
+  clearOnDisconnect: boolean;
   /** Multiplier for node radius (0.5–4.0). Scales both min and max radius proportionally. */
   nodeScale: number;
   /** Whether to scale node display radius inversely with tree depth. */
@@ -223,14 +223,14 @@ interface TopicStoreState {
   nodeCapReached: boolean;
   /** ID of the currently selected/pinned node, or null if nothing is selected. */
   selectedNodeId: string | null;
-  /** Chrome-stripping display mode: "normal" | "embed" | "kiosk". Session-only
-   *  (not persisted) — durable activation is via URL param or config.json. */
+  /** Display mode: "normal" | "autotour". Session-only (not persisted) — durable
+   *  activation is via URL param (?autotour) or config.json. */
   displayMode: DisplayMode;
-  /** Node the graph view should pan to centre (set by the kiosk auto-tour). */
+  /** Node the graph view should pan to centre (set by the auto-tour). */
   centerNodeId: string | null;
   /** Bumped on each centre request so repeats on the same id still fire. */
   centerNodeNonce: number;
-  /** Bumped to request a slow zoom-out-to-overview (kiosk graph-only phases). */
+  /** Bumped to request a slow zoom-out-to-overview (auto-tour graph-only phases). */
   fitViewNonce: number;
   /** Duration (ms) for the requested overview drift. */
   fitViewDuration: number;
@@ -298,6 +298,8 @@ interface TopicStoreState {
   setScaleTextByDepth: (enabled: boolean) => void;
   /** Toggle hover tooltips on nodes. */
   setShowTooltips: (show: boolean) => void;
+  /** Toggle clearing the graph on disconnect. */
+  setClearOnDisconnect: (clear: boolean) => void;
   /** Update the node radius scale multiplier. */
   setNodeScale: (scale: number) => void;
   /** Toggle depth-based node size scaling. */
@@ -331,9 +333,9 @@ interface TopicStoreState {
   setSelectedNodeId: (id: string | null) => void;
   /** Switch the chrome-stripping display mode (e.g. Esc to exit, or the Settings button). */
   setDisplayMode: (mode: DisplayMode) => void;
-  /** Request the graph view pan to centre the given node (kiosk auto-tour). */
+  /** Request the graph view pan to centre the given node (auto-tour). */
   requestCenterOnNode: (id: string) => void;
-  /** Request a slow zoom-out to an overview over `durationMs` (kiosk graph-only phases). */
+  /** Request a slow zoom-out to an overview over `durationMs` (auto-tour graph-only phases). */
   requestFitView: (durationMs: number) => void;
   /**
    * Replace the full highlighted-node set. Entries beyond MAX_HIGHLIGHTED_NODES
@@ -738,6 +740,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   labelStrokeWidth:     saved.labelStrokeWidth    ?? cfg.labelStrokeWidth    ?? 9.0,
   scaleTextByDepth:     saved.scaleTextByDepth    ?? cfg.scaleTextByDepth    ?? true,
   showTooltips:         saved.showTooltips        ?? cfg.showTooltips        ?? true,
+  clearOnDisconnect:    saved.clearOnDisconnect   ?? cfg.clearOnDisconnect   ?? true,
   nodeScale:            saved.nodeScale           ?? cfg.nodeScale           ?? 2.5,
   scaleNodeSizeByDepth: saved.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
   repulsionStrength:    saved.repulsionStrength   ?? cfg.repulsionStrength   ?? -350,
@@ -1417,6 +1420,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       labelStrokeWidth: cfg.labelStrokeWidth ?? 9.0,
       scaleTextByDepth: cfg.scaleTextByDepth ?? true,
       showTooltips: cfg.showTooltips ?? true,
+      clearOnDisconnect: cfg.clearOnDisconnect ?? true,
       nodeScale: cfg.nodeScale ?? 2.5,
       scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? true,
       repulsionStrength: cfg.repulsionStrength ?? -350,
@@ -1492,6 +1496,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
       _payloadLru.clear();
     }
+  },
+  setClearOnDisconnect: (clear: boolean) => {
+    set({ clearOnDisconnect: clear });
+    persistSettings({ clearOnDisconnect: clear });
   },
 
   setNodeScale: (scale: number) => {

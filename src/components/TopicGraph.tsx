@@ -6,8 +6,8 @@ import { findNode } from "../utils/topicParser";
 import { TAG_REGISTRY } from "../utils/tagRegistry";
 import type { TooltipData } from "../types";
 
-/** Zoom level the kiosk tour zooms in to when focusing a highlighted node. */
-const KIOSK_FOCUS_SCALE = 1.4;
+/** Zoom level the auto-tour zooms in to when focusing a highlighted node. */
+const AUTO_TOUR_FOCUS_SCALE = 1.4;
 
 /**
  * React component that owns the SVG container.
@@ -226,17 +226,17 @@ export function TopicGraph() {
     }
   }, [selectedNodeId]);
 
-  // Pan + zoom-in to centre a requested node (kiosk auto-tour). Keyed on the
-  // nonce so repeated requests for the same id still fire. In embed/kiosk the
-  // floating drawer covers the right ~320px, so bias the centre left of it.
+  // Pan + zoom-in to centre a requested node (auto-tour). Keyed on the
+  // nonce so repeated requests for the same id still fire. In auto-tour the floating
+  // drawer covers the right side, so bias the centre left of it.
   // A fixed focus scale zooms in on the node (the rest-phase fitView zooms out).
   useEffect(() => {
     if (centerNodeNonce === 0 || !centerNodeId || !rendererRef.current) return;
-    const xBias = displayMode === "kiosk" ? -240 : displayMode === "embed" ? -160 : 0;
-    rendererRef.current.centerOnNode(centerNodeId, 3600, xBias, KIOSK_FOCUS_SCALE);
+    const xBias = displayMode === "autotour" ? -240 : 0;
+    rendererRef.current.centerOnNode(centerNodeId, 3600, xBias, AUTO_TOUR_FOCUS_SCALE);
   }, [centerNodeNonce, centerNodeId, displayMode]);
 
-  // Slow zoom-out to an overview while the kiosk tour is between highlights.
+  // Slow zoom-out to an overview while the auto-tour is between highlights.
   useEffect(() => {
     if (fitViewNonce === 0 || !rendererRef.current) return;
     rendererRef.current.fitView(fitViewDuration);
@@ -248,6 +248,11 @@ export function TopicGraph() {
       rendererRef.current.setHighlightedNodes(highlightedNodes);
     }
   }, [highlightedNodes]);
+
+  // Enable the animated pulse ring on the selected node only in auto-tour mode.
+  useEffect(() => {
+    rendererRef.current?.setAutoTourMode(displayMode === "autotour");
+  }, [displayMode]);
 
   // Sync sparkplug offline state to the renderer. Offline devices contribute
   // every topic node their messages have arrived on (NBIRTH/NDATA/... are

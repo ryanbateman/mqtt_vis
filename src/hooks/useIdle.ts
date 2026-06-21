@@ -9,8 +9,8 @@ const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "whe
  * next interaction. When `enabled` is false the hook detaches its listeners and
  * always reports `false` (active).
  *
- * Used in embed/kiosk mode to auto-hide the cursor and to pause/resume the
- * kiosk auto-tour while someone is interacting with the graph.
+ * Used in auto-tour mode to auto-hide the cursor and to pause/resume the
+ * auto-tour while someone is interacting with the graph.
  */
 export function useIdle(enabled: boolean, timeoutMs: number): boolean {
   const [idle, setIdle] = useState(false);

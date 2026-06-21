@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { useTopicStore } from "../stores/topicStore";
-import { getKioskTiming } from "../utils/config";
+import { getAutoTourTiming } from "../utils/config";
 import { findNode } from "../utils/topicParser";
 import type { GraphNode } from "../types";
 import type { TopicTab } from "../components/TopicDrawer";
 
 /** Callbacks the tour uses to drive the floating drawer (owned by App). */
-export interface KioskTourHandlers {
+export interface AutoTourHandlers {
   /** Select a node and populate the drawer; returns true if it has an entity tab. */
   onSelectNode: (nodeId: string) => boolean;
   /** Switch the drawer's active tab. */
@@ -30,6 +30,13 @@ function hasStoredPayload(nodeId: string): boolean {
 const RICH_WEIGHT = 3;
 /** Selection weight for plain nodes. */
 const PLAIN_WEIGHT = 1;
+
+/**
+ * Above this node count the periodic layout "shake" is skipped: a full
+ * force-simulation reheat is the most expensive op in the tour and stutters
+ * badly on large graphs (where the rearrange also reads as visual chaos).
+ */
+const SHAKE_MAX_NODES = 1000;
 
 /**
  * Pick the next tour node from the live graph, biasing toward "rich" nodes
@@ -65,18 +72,18 @@ function pickCandidate(prevId: string | null): GraphNode | null {
 }
 
 /**
- * Kiosk auto-tour. While `active`, cycles through the graph: pick a node,
+ * Auto-tour. While `active`, cycles through the graph: pick a node,
  * highlight it, show its entity panel (then payload) or just its payload,
  * then deselect. Inserts a graph-only rest after every `restEvery` highlights.
  * All timers are torn down when `active` goes false (e.g. user interaction).
  */
-export function useKioskTour(active: boolean, handlers: KioskTourHandlers): void {
+export function useAutoTour(active: boolean, handlers: AutoTourHandlers): void {
   const { onSelectNode, onSetTab, onClear, onShowOverview, onShake } = handlers;
 
   useEffect(() => {
     if (!active) return;
 
-    const t = getKioskTiming();
+    const t = getAutoTourTiming();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
     let sinceRest = 0;
@@ -94,7 +101,13 @@ export function useKioskTour(active: boolean, handlers: KioskTourHandlers): void
       sinceRest += 1;
       totalHighlights += 1;
       // Periodically shake the layout loose so the graph keeps re-arranging.
-      if (totalHighlights % t.shakeEvery === 0) onShake();
+      // Skipped on large graphs where a full reheat is too costly (and chaotic).
+      if (
+        totalHighlights % t.shakeEvery === 0 &&
+        useTopicStore.getState().graphNodes.length <= SHAKE_MAX_NODES
+      ) {
+        onShake();
+      }
       // While no node is highlighted, slowly drift the view out to an overview.
       const span = sinceRest >= t.restEvery ? t.restMs : t.intervalMs;
       onShowOverview(span);

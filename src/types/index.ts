@@ -87,8 +87,8 @@ export interface TooltipData {
 /** How label visibility is determined. */
 export type LabelMode = "zoom" | "depth" | "activity";
 
-/** Chrome-stripping display mode. "kiosk" is "embed" plus the auto-tour. */
-export type DisplayMode = "normal" | "embed" | "kiosk";
+/** Display mode. "autotour" strips all chrome and runs the auto-tour (Esc to exit). */
+export type DisplayMode = "normal" | "autotour";
 
 /** Connection status of the MQTT client. */
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";

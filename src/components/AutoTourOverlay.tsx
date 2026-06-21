@@ -3,11 +3,11 @@ import { mqttService } from "../services/mqttService";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 
 /**
- * Minimal corner overlay for embed/kiosk mode: a top-left watermark showing the
+ * Minimal corner overlay for auto-tour mode: a top-left watermark showing the
  * connected broker URL and subscribed topic, and (when pruning is enabled) a
- * caption explaining why inactive topics disappear. Caller-gated to embed/kiosk.
+ * caption explaining why inactive topics disappear. Caller-gated to auto-tour.
  */
-export function EmbedOverlay() {
+export function AutoTourOverlay() {
   const pruneTimeout = useTopicStore((s) => s.pruneTimeout);
   const topicFilter = useTopicStore((s) => s.topicFilter);
   // Re-render when the connection state changes so the broker URL appears once connected.

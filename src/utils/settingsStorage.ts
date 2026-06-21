@@ -29,6 +29,7 @@ export interface SavedSettings {
   ancestorPulse?: boolean;
   showRootPath?: boolean;
   showTooltips?: boolean;
+  clearOnDisconnect?: boolean;
   // Labels
   showLabels?: boolean;
   labelDepthFactor?: number;
@@ -105,6 +106,7 @@ function validate(raw: StoredSettings): SavedSettings {
     ancestorPulse:      validBoolean(raw.ancestorPulse),
     showRootPath:       validBoolean(raw.showRootPath),
     showTooltips:       validBoolean(raw.showTooltips),
+    clearOnDisconnect:  validBoolean(raw.clearOnDisconnect),
     showLabels:         validBoolean(raw.showLabels),
     labelDepthFactor:   validNumber(raw.labelDepthFactor,    1,   20),
     labelMode:          validLabelMode(raw.labelMode),

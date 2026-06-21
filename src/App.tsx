@@ -9,13 +9,13 @@ import { SideRail, type RailSection } from "./components/SideRail";
 import { TopicDrawer, type TopicTab } from "./components/TopicDrawer";
 import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
-import { EmbedOverlay } from "./components/EmbedOverlay";
+import { AutoTourOverlay } from "./components/AutoTourOverlay";
 import { getConfig } from "./utils/config";
 import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
 import { getTag, TAG_REGISTRY } from "./utils/tagRegistry";
 import { useIdle } from "./hooks/useIdle";
-import { useKioskTour } from "./hooks/useKioskTour";
+import { useAutoTour } from "./hooks/useAutoTour";
 import { loadSavedSettings, persistSettings } from "./utils/settingsStorage";
 import type { GeoMetadata, GeoNode } from "./types/payloadTags";
 import type { SparkplugMetadata } from "./types/sparkplug";
@@ -71,11 +71,11 @@ function App() {
   const entities = useDomainEntities();
   const totalTopics = useTopicStore((s) => s.totalTopics);
 
-  // Embed / kiosk mode. `isEmbed` strips all chrome; kiosk adds the auto-tour.
+  // Auto-tour mode strips all chrome and runs the auto-tour (Esc to exit).
   const displayMode = useTopicStore((s) => s.displayMode);
   const setDisplayMode = useTopicStore((s) => s.setDisplayMode);
-  const isEmbed = displayMode !== "normal";
-  // True while the kiosk auto-tour is driving selection — the selection effect
+  const isAutoTour = displayMode === "autotour";
+  // True while the auto-tour is driving selection — the selection effect
   // below defers to it so its sticky tab logic doesn't fight the tour.
   const tourActiveRef = useRef(false);
   // shakeLayout/isShaking moved to StatusBar (button now sits beside the metrics).
@@ -194,7 +194,7 @@ function App() {
   // node whose blob was evicted (LRU) won't surface an Image tab until a new
   // image message arrives.
   useEffect(() => {
-    if (tourActiveRef.current) return; // kiosk auto-tour drives the drawer directly
+    if (tourActiveRef.current) return; // auto-tour drives the drawer directly
     if (isPinned) return; // pinned — ignore node selection changes
     if (drawerMode === "all") return; // all-geo mode — ignore node selection changes
 
@@ -245,15 +245,15 @@ function App() {
     });
   }, [drawerState, entities.length]);
 
-  // --- Embed / kiosk wiring -------------------------------------------------
+  // --- Auto-tour wiring ---------------------------------------------------------
 
-  // In embed/kiosk mode, treat the user as idle after a few seconds of no
-  // activity. Drives cursor auto-hide and pauses/resumes the kiosk auto-tour.
-  const idle = useIdle(isEmbed, 4000);
+  // In auto-tour mode, treat the user as idle after a few seconds of no activity.
+  // Drives cursor auto-hide and pauses/resumes the auto-tour.
+  const idle = useIdle(isAutoTour, 4000);
 
-  // The kiosk auto-tour runs only while connected and idle; any interaction
+  // The auto-tour runs only while connected and idle; any interaction
   // pauses it (and keeps whatever is on screen) until the user goes idle again.
-  const tourActive = displayMode === "kiosk" && connectionStatus === "connected" && idle;
+  const tourActive = displayMode === "autotour" && connectionStatus === "connected" && idle;
   useEffect(() => {
     tourActiveRef.current = tourActive;
   }, [tourActive]);
@@ -283,7 +283,7 @@ function App() {
     requestFitView(durationMs);
   }, [requestFitView]);
 
-  useKioskTour(tourActive, {
+  useAutoTour(tourActive, {
     onSelectNode: handleTourSelect,
     onSetTab: handleSetTab,
     onClear: handleTourClear,
@@ -291,15 +291,15 @@ function App() {
     onShake: shakeLayout,
   });
 
-  // Escape hatch: Esc reveals all panels (exits embed/kiosk to normal).
+  // Escape hatch: Esc reveals all panels (exits auto-tour to normal).
   useEffect(() => {
-    if (!isEmbed) return;
+    if (!isAutoTour) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setDisplayMode("normal");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isEmbed, setDisplayMode]);
+  }, [isAutoTour, setDisplayMode]);
 
   // Autoconnect on initial mount if enabled
   useEffect(() => {
@@ -356,7 +356,7 @@ function App() {
           : "bg-gray-600";
 
   // The topic detail drawer — shared by the right rail (normal mode) and the
-  // floating overlay (embed/kiosk mode).
+  // floating overlay (auto-tour mode).
   const drawerElement = drawerState ? (
     <TopicDrawer
       topicPath={drawerState.topicPath}
@@ -453,9 +453,9 @@ function App() {
   ];
 
   return (
-    <div className={`relative w-full h-screen bg-slate-900 ${isEmbed && idle ? "cursor-none" : ""}`}>
+    <div className={`relative w-full h-screen bg-slate-900 ${isAutoTour && idle ? "cursor-none" : ""}`}>
       <TopicGraph />
-      {!isEmbed && (
+      {!isAutoTour && (
         <>
           <SideRail
             side="left"
@@ -486,18 +486,14 @@ function App() {
           <StatusBar />
         </>
       )}
-      {/* Embed/kiosk: float the detail drawer over the graph instead of the rail.
-          Kiosk (auto-tour) uses a wider panel (half-again) for legibility at distance. */}
-      {isEmbed && drawerElement && (
-        <div
-          className={`absolute right-0 top-0 bottom-0 z-10 flex flex-col bg-slate-900/95 border-l border-gray-700 backdrop-blur-sm shadow-2xl ${
-            displayMode === "kiosk" ? "w-[30rem]" : "w-80"
-          }`}
-        >
+      {/* Auto-tour: float the detail drawer over the graph instead of the rail.
+          A wider panel keeps it legible at distance during the auto-tour. */}
+      {isAutoTour && drawerElement && (
+        <div className="absolute right-0 top-0 bottom-0 z-10 flex flex-col bg-slate-900/95 border-l border-gray-700 backdrop-blur-sm shadow-2xl w-[30rem]">
           {drawerElement}
         </div>
       )}
-      {isEmbed && <EmbedOverlay />}
+      {isAutoTour && <AutoTourOverlay />}
     </div>
   );
 }

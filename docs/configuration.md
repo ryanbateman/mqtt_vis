@@ -12,7 +12,7 @@ Edit `public/config.json` before building, or `dist/config.json` after building.
 
 When the app resolves a setting, it checks these sources in order:
 
-1. **URL query params** (`?broker=...&topic=...`, plus `?embed` / `?kiosk`) — highest priority, one-time override for `brokerUrl`, `topicFilter`, and the display mode (not persisted)
+1. **URL query params** (`?broker=...&topic=...`, plus `?embed` / `?autotour`) — highest priority, one-time override for `brokerUrl`, `topicFilter`, and the display mode (not persisted)
 2. **localStorage** — the user's saved preferences from a previous session
 3. **config.json** — deployment defaults
 4. **Hardcoded defaults** — lowest priority
@@ -51,15 +51,15 @@ When the app resolves a setting, it checks these sources in order:
 | `settingsCollapsed` | boolean | `false` | Start with settings panel collapsed |
 | `connectionCollapsed` | boolean | `false` | Start with connection panel collapsed |
 | `webmcpEnabled` | boolean | `true` | Enable WebMCP tool registration for browser AI agents. Set to `false` to disable. |
-| `displayMode` | `"normal"` \| `"embed"` \| `"kiosk"` | `"normal"` | Chrome-stripping mode (see [Embed & Kiosk mode](#embed--kiosk-mode)). `embed` hides all panels; `kiosk` adds an auto-tour. Overridden by the `?embed` / `?kiosk` URL params. |
-| `kioskEntityDwellMs` | number | `8000` | Kiosk auto-tour: ms an entity panel (map/image/device) is shown before flipping to the payload tab. |
-| `kioskPayloadDwellMs` | number | `5000` | Kiosk auto-tour: ms the payload tab is shown after the entity phase (entity nodes). |
-| `kioskPlainDwellMs` | number | `5000` | Kiosk auto-tour: total ms an entity-less node is shown (payload only, shorter). |
-| `kioskIntervalMs` | number | `12000` | Kiosk auto-tour: ms gap between picks (graph-only; the view drifts to an overview during this gap). |
-| `kioskRestEvery` | number | `3` | Kiosk auto-tour: insert a longer graph-only rest after this many highlights. |
-| `kioskRestMs` | number | `36000` | Kiosk auto-tour: length (ms) of the graph-only rest period. |
-| `kioskShakeEvery` | number | `5` | Kiosk auto-tour: auto-shake the layout after this many highlights. |
-| `description` | string \| null | *(see below)* | Description shown in the connection panel below the title when expanded. Also used as the embed/kiosk watermark. Set to `""` to hide. Omit or set to `null` to use the built-in default. |
+| `displayMode` | `"normal"` \| `"embed"` \| `"autotour"` | `"normal"` | Chrome-stripping mode (see [Embed & Auto-tour mode](#embed--auto-tour-mode)). `embed` hides all panels; `auto-tour` adds an auto-tour. Overridden by the `?embed` / `?autotour` URL params. |
+| `autoTourEntityDwellMs` | number | `8000` | Auto-tour: ms an entity panel (map/image/device) is shown before flipping to the payload tab. |
+| `autoTourPayloadDwellMs` | number | `5000` | Auto-tour: ms the payload tab is shown after the entity phase (entity nodes). |
+| `autoTourPlainDwellMs` | number | `5000` | Auto-tour: total ms an entity-less node is shown (payload only, shorter). |
+| `autoTourIntervalMs` | number | `12000` | Auto-tour: ms gap between picks (graph-only; the view drifts to an overview during this gap). |
+| `autoTourRestEvery` | number | `3` | Auto-tour: insert a longer graph-only rest after this many highlights. |
+| `autoTourRestMs` | number | `36000` | Auto-tour: length (ms) of the graph-only rest period. |
+| `autoTourShakeEvery` | number | `5` | Auto-tour: auto-shake the layout after this many highlights. |
+| `description` | string \| null | *(see below)* | Description shown in the connection panel below the title when expanded. Also used as the embed/auto-tour watermark. Set to `""` to hide. Omit or set to `null` to use the built-in default. |
 
 ## Example
 
@@ -96,14 +96,14 @@ The default `config.json` ships with three public brokers (HiveMQ, EMQX, Mosquit
 
 To hide the dropdown entirely, set `"brokers": []` or omit the field.
 
-## Embed & Kiosk mode
+## Embed & Auto-tour mode
 
 For embedding the visualiser in dashboards, iframes, digital signage, or a conference-booth display, two stripped-down display modes hide all UI chrome (connection/settings/stats rails, status bar, GitHub link) and show just the full-screen graph.
 
 - **Embed** (`?embed` or `"displayMode": "embed"`) — bare graph; clicking a node still highlights it and opens a floating detail view (geo map, image, Sparkplug device, or raw payload).
-- **Kiosk** (`?kiosk` or `"displayMode": "kiosk"`) — embed plus an **auto-tour**: periodically highlights a recently-active node (biasing toward "richer" nodes that belong to an ecosystem or carry a detected entity), shows its entity panel then payload, then returns to the graph. After every `kioskRestEvery` highlights it rests on the bare graph for `kioskRestMs`.
+- **Auto-tour** (`?autotour` or `"displayMode": "autotour"`) — embed plus an **auto-tour**: periodically highlights a recently-active node (biasing toward "richer" nodes that belong to an ecosystem or carry a detected entity), shows its entity panel then payload, then returns to the graph. After every `autoTourRestEvery` highlights it rests on the bare graph for `autoTourRestMs`.
 
-Both modes auto-hide the cursor after a few idle seconds and show a subtle watermark (from `description`). User interaction pauses the kiosk tour until idle again. **Press `Esc` to return to Normal mode** (or use the Display Mode selector in the Settings panel). The mode set via URL/config is not persisted — reloading restores it.
+Both modes auto-hide the cursor after a few idle seconds and show a subtle watermark (from `description`). User interaction pauses the auto-tour until idle again. **Press `Esc` to return to Normal mode** (or use the Display Mode selector in the Settings panel). The mode set via URL/config is not persisted — reloading restores it.
 
 These modes pair naturally with `autoconnect: true` and a configured broker so the display comes up live with no interaction:
 
@@ -112,7 +112,7 @@ These modes pair naturally with `autoconnect: true` and a configured broker so t
   "brokers": [{ "name": "Wall Display", "url": "wss://mqtt.internal.example.com/mqtt" }],
   "topicFilter": "#",
   "autoconnect": true,
-  "displayMode": "kiosk",
+  "displayMode": "autotour",
   "pruneTimeout": 60000
 }
 ```
