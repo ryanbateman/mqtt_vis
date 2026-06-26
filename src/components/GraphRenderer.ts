@@ -1226,24 +1226,21 @@ export class GraphRenderer {
   /**
    * Sync highlight ring positions and sizes from the current simulation nodes.
    * Called in refreshHighlightRings() and every tick() while rings exist.
+   * Uses the cached nodeById map for O(1) lookups instead of rebuilding.
    */
   private syncHighlightRingPositions(): void {
     if (this.highlightedNodes.size === 0) return;
 
-    // Build a lookup of simulated node positions
-    const nodePositions = new Map<string, { x: number; y: number; r: number }>();
-    this.simulation.nodes().forEach((n) => {
-      nodePositions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, r: n.displayRadius });
-    });
-
     // Counter-scale stroke-width so the ring stays visually consistent at any zoom level.
     // 1.5px at zoom 1.0 → thicker when zoomed in, thinner when zoomed out, always readable.
     const ringStrokeWidth = 1.5 / this.currentZoomScale;
+    const zoomOffset = 4 / this.currentZoomScale;
 
+    // Use cached nodeById for O(1) position lookup instead of rebuilding a map
     this.highlightRingElements
-      .attr("cx", (d) => nodePositions.get(d.id)?.x ?? 0)
-      .attr("cy", (d) => nodePositions.get(d.id)?.y ?? 0)
-      .attr("r", (d) => (nodePositions.get(d.id)?.r ?? 0) + 4 / this.currentZoomScale)
+      .attr("cx", (d) => this.nodeById.get(d.id)?.x ?? 0)
+      .attr("cy", (d) => this.nodeById.get(d.id)?.y ?? 0)
+      .attr("r", (d) => (this.nodeById.get(d.id)?.displayRadius ?? 0) + zoomOffset)
       .attr("stroke-width", ringStrokeWidth);
   }
 
