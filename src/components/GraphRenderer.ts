@@ -153,6 +153,11 @@ export class GraphRenderer {
   // pan/zoom transition (auto-tour); recomputed once when the transition ends.
   private suppressHitRadius = false;
 
+  // Suppresses expensive O(n) label updates during programmatic transitions.
+  private suppressLabelUpdates = false;
+  // RAF throttle for label updates during user-driven zoom/pan.
+  private labelUpdateScheduled = false;
+
   // Per-tick counters/caches to avoid redundant O(n) attribute writes.
   private tickCount = 0;
   // Last zoom scale that label font-size was computed for; skip the per-tick
@@ -226,13 +231,13 @@ export class GraphRenderer {
         this.currentZoomScale = event.transform.k;
         this.container.attr("transform", event.transform);
         this.glowBlur.attr("stdDeviation", String(BASE_GLOW_STD_DEV / this.currentZoomScale));
-        this.updateLabelVisibility();
-        // Label font-size is counter-scaled to stay constant screen size — it
-        // only changes with zoom, so maintain it here (skip on pure pans where
-        // the scale is unchanged) rather than on every simulation tick.
-        if (this.currentZoomScale !== this.lastLabelFontScale) {
-          this.updateLabelFontSizes();
+
+        // Throttle expensive O(n) label updates during programmatic transitions.
+        // During auto-tour pan/zoom, labels are updated once when transition completes.
+        if (!this.suppressLabelUpdates) {
+          this.scheduleLabelUpdate();
         }
+
         // Recalculate hit area radii — the floor is zoom-dependent. Skipped during
         // a programmatic auto-tour pan (no pointer interaction); recomputed once
         // when the transition ends. Removes an O(n) write from every pan frame.
@@ -936,15 +941,47 @@ export class GraphRenderer {
       .translate(this.width / 2 + xBias - node.x * k, this.height / 2 - node.y * k)
       .scale(k);
     this.suppressHitRadius = true;
+    this.suppressLabelUpdates = true;
     this.svg.transition().duration(durationMs)
       .call(this.zoom.transform, transform)
-      .on("end interrupt", () => this.resumeHitRadius());
+      .on("end interrupt", () => {
+        this.resumeHitRadius();
+        this.resumeLabelUpdates();
+      });
   }
 
   /** Re-enable and recompute zoom-dependent hit-area radii after a pan transition. */
   private resumeHitRadius(): void {
     this.suppressHitRadius = false;
     this.hitAreaElements.attr("r", (d) => this.hitRadius(d));
+  }
+
+  /**
+   * Schedule a throttled label update using RAF. Multiple calls within one frame
+   * batch into a single update. This prevents expensive O(n) label operations from
+   * running on every zoom event during rapid pan/zoom.
+   */
+  private scheduleLabelUpdate(): void {
+    if (this.labelUpdateScheduled) return;
+    this.labelUpdateScheduled = true;
+    requestAnimationFrame(() => {
+      this.labelUpdateScheduled = false;
+      this.updateLabelVisibility();
+      if (this.currentZoomScale !== this.lastLabelFontScale) {
+        this.updateLabelFontSizes();
+      }
+    });
+  }
+
+  /**
+   * Re-enable label updates and apply them immediately after a programmatic transition.
+   */
+  private resumeLabelUpdates(): void {
+    this.suppressLabelUpdates = false;
+    this.updateLabelVisibility();
+    if (this.currentZoomScale !== this.lastLabelFontScale) {
+      this.updateLabelFontSizes();
+    }
   }
 
   /** Fully resync hit-area position + radius — used when leaving the auto-tour,
@@ -985,9 +1022,13 @@ export class GraphRenderer {
       .translate(this.width / 2 + xBias - cx * scale, this.height / 2 - cy * scale)
       .scale(scale);
     this.suppressHitRadius = true;
+    this.suppressLabelUpdates = true;
     this.svg.transition().duration(durationMs).ease(d3.easeQuadInOut)
       .call(this.zoom.transform, transform)
-      .on("end interrupt", () => this.resumeHitRadius());
+      .on("end interrupt", () => {
+        this.resumeHitRadius();
+        this.resumeLabelUpdates();
+      });
   }
 
   /**
