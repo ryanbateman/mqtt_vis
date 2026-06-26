@@ -96,16 +96,15 @@ The default `config.json` ships with three public brokers (HiveMQ, EMQX, Mosquit
 
 To hide the dropdown entirely, set `"brokers": []` or omit the field.
 
-## Embed & Auto-tour mode
+## Auto-tour mode
 
-For embedding the visualiser in dashboards, iframes, digital signage, or a conference-booth display, two stripped-down display modes hide all UI chrome (connection/settings/stats rails, status bar, GitHub link) and show just the full-screen graph.
+For embedding the visualiser in dashboards, iframes, digital signage, or a conference-booth display, a stripped-down display mode hides all UI chrome (connection/settings/stats rails, status bar, GitHub link) and shows just the full-screen graph.
 
-- **Embed** (`?embed` or `"displayMode": "embed"`) — bare graph; clicking a node still highlights it and opens a floating detail view (geo map, image, Sparkplug device, or raw payload).
-- **Auto-tour** (`?autotour` or `"displayMode": "autotour"`) — embed plus an **auto-tour**: periodically highlights a recently-active node (biasing toward "richer" nodes that belong to an ecosystem or carry a detected entity), shows its entity panel then payload, then returns to the graph. After every `autoTourRestEvery` highlights it rests on the bare graph for `autoTourRestMs`.
+- **Auto-tour** (`?autotour` or `"displayMode": "autotour"`) — Full-screen mode with an **auto-tour**: periodically highlights a recently-active node (biasing toward "richer" nodes that belong to an ecosystem or carry a detected entity), shows its entity panel then payload, then returns to the graph. After every `autoTourRestEvery` highlights it rests on the bare graph for `autoTourRestMs`.
 
-Both modes auto-hide the cursor after a few idle seconds and show a subtle watermark (from `description`). User interaction pauses the auto-tour until idle again. **Press `Esc` to return to Normal mode** (or use the Display Mode selector in the Settings panel). The mode set via URL/config is not persisted — reloading restores it.
+This mode auto-hides the cursor after a few idle seconds and shows a subtle watermark (from `description`). User interaction pauses the auto-tour until idle again. **Press `Esc` to return to Normal mode** (or use the Display Mode selector in the Settings panel). The mode set via URL/config is not persisted — reloading restores it.
 
-These modes pair naturally with `autoconnect: true` and a configured broker so the display comes up live with no interaction:
+This mode pairs naturally with `autoconnect: true` and a configured broker so the display comes up live with no interaction:
 
 ```json
 {
