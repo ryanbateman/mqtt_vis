@@ -5,6 +5,7 @@ import type {
   GraphNode,
   GraphLink,
   LabelMode,
+  DisplayMode,
   MqttUserProperties,
 } from "../types";
 import type { DetectorResult, EntityTagMetadata } from "../types/payloadTags";
@@ -57,7 +58,7 @@ import {
   findNode,
 } from "../utils/topicParser";
 import { calculateRadius } from "../utils/sizeCalculator";
-import { getConfig } from "../utils/config";
+import { getConfig, type AppConfig } from "../utils/config";
 import { perfMark, perfMeasure, perfStats } from "../utils/perfDebug";
 import {
   loadSavedSettings,
@@ -67,6 +68,21 @@ import {
 
 /** Default EMA time constant in seconds. Controls how quickly rates respond. */
 const DEFAULT_EMA_TAU = 5;
+
+/**
+ * Resolve the initial display mode. Precedence: URL param (?autotour) >
+ * config.displayMode > "normal".
+ */
+function resolveInitialDisplayMode(cfg: AppConfig): DisplayMode {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("autotour")) return "autotour";
+  } catch {
+    // window.location unavailable — fall through to config
+  }
+  if (cfg.displayMode === "autotour") return "autotour";
+  return "normal";
+}
 
 /** Decay interval in milliseconds. */
 const DECAY_INTERVAL = 500;
@@ -109,6 +125,8 @@ interface TopicStoreState {
   scaleTextByDepth: boolean;
   /** Whether to show tooltips on node hover. */
   showTooltips: boolean;
+  /** Whether to clear the graph when disconnecting from the broker. */
+  clearOnDisconnect: boolean;
   /** Multiplier for node radius (0.5–4.0). Scales both min and max radius proportionally. */
   nodeScale: number;
   /** Whether to scale node display radius inversely with tree depth. */
@@ -205,6 +223,17 @@ interface TopicStoreState {
   nodeCapReached: boolean;
   /** ID of the currently selected/pinned node, or null if nothing is selected. */
   selectedNodeId: string | null;
+  /** Display mode: "normal" | "autotour". Session-only (not persisted) — durable
+   *  activation is via URL param (?autotour) or config.json. */
+  displayMode: DisplayMode;
+  /** Node the graph view should pan to centre (set by the auto-tour). */
+  centerNodeId: string | null;
+  /** Bumped on each centre request so repeats on the same id still fire. */
+  centerNodeNonce: number;
+  /** Bumped to request a slow zoom-out-to-overview (auto-tour graph-only phases). */
+  fitViewNonce: number;
+  /** Duration (ms) for the requested overview drift. */
+  fitViewDuration: number;
   /**
    * Map of nodeId → CSS colour hex for externally highlighted nodes.
    * Populated by WebMCP tools or other internal consumers.
@@ -269,6 +298,8 @@ interface TopicStoreState {
   setScaleTextByDepth: (enabled: boolean) => void;
   /** Toggle hover tooltips on nodes. */
   setShowTooltips: (show: boolean) => void;
+  /** Toggle clearing the graph on disconnect. */
+  setClearOnDisconnect: (clear: boolean) => void;
   /** Update the node radius scale multiplier. */
   setNodeScale: (scale: number) => void;
   /** Toggle depth-based node size scaling. */
@@ -300,6 +331,12 @@ interface TopicStoreState {
   requestExport: () => void;
   /** Set the currently selected/pinned node (or null to deselect). */
   setSelectedNodeId: (id: string | null) => void;
+  /** Switch the chrome-stripping display mode (e.g. Esc to exit, or the Settings button). */
+  setDisplayMode: (mode: DisplayMode) => void;
+  /** Request the graph view pan to centre the given node (auto-tour). */
+  requestCenterOnNode: (id: string) => void;
+  /** Request a slow zoom-out to an overview over `durationMs` (auto-tour graph-only phases). */
+  requestFitView: (durationMs: number) => void;
   /**
    * Replace the full highlighted-node set. Entries beyond MAX_HIGHLIGHTED_NODES
    * are silently dropped. Pass an empty Map (or call clearHighlights) to remove all highlights.
@@ -703,6 +740,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   labelStrokeWidth:     saved.labelStrokeWidth    ?? cfg.labelStrokeWidth    ?? 9.0,
   scaleTextByDepth:     saved.scaleTextByDepth    ?? cfg.scaleTextByDepth    ?? true,
   showTooltips:         saved.showTooltips        ?? cfg.showTooltips        ?? true,
+  clearOnDisconnect:    saved.clearOnDisconnect   ?? cfg.clearOnDisconnect   ?? true,
   nodeScale:            saved.nodeScale           ?? cfg.nodeScale           ?? 2.5,
   scaleNodeSizeByDepth: saved.scaleNodeSizeByDepth ?? cfg.scaleNodeSizeByDepth ?? true,
   repulsionStrength:    saved.repulsionStrength   ?? cfg.repulsionStrength   ?? -350,
@@ -741,6 +779,11 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   entitiesVersion: 0,
   nodeCapReached: false,
   selectedNodeId: null,
+  displayMode: resolveInitialDisplayMode(cfg),
+  centerNodeId: null,
+  centerNodeNonce: 0,
+  fitViewNonce: 0,
+  fitViewDuration: 1000,
   highlightedNodes: new Map<string, string>(),
   burstWindowActive: false,
   burstSettingsLocked: false,
@@ -1377,6 +1420,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       labelStrokeWidth: cfg.labelStrokeWidth ?? 9.0,
       scaleTextByDepth: cfg.scaleTextByDepth ?? true,
       showTooltips: cfg.showTooltips ?? true,
+      clearOnDisconnect: cfg.clearOnDisconnect ?? true,
       nodeScale: cfg.nodeScale ?? 2.5,
       scaleNodeSizeByDepth: cfg.scaleNodeSizeByDepth ?? true,
       repulsionStrength: cfg.repulsionStrength ?? -350,
@@ -1452,6 +1496,10 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       }
       _payloadLru.clear();
     }
+  },
+  setClearOnDisconnect: (clear: boolean) => {
+    set({ clearOnDisconnect: clear });
+    persistSettings({ clearOnDisconnect: clear });
   },
 
   setNodeScale: (scale: number) => {
@@ -1550,6 +1598,15 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   },
   setSelectedNodeId: (id: string | null) => {
     set({ selectedNodeId: id });
+  },
+  setDisplayMode: (mode: DisplayMode) => {
+    set({ displayMode: mode });
+  },
+  requestCenterOnNode: (id: string) => {
+    set((s) => ({ centerNodeId: id, centerNodeNonce: s.centerNodeNonce + 1 }));
+  },
+  requestFitView: (durationMs: number) => {
+    set((s) => ({ fitViewDuration: durationMs, fitViewNonce: s.fitViewNonce + 1 }));
   },
   setHighlightedNodes: (nodes: Map<string, string>) => {
     // Enforce cap: keep only the first MAX_HIGHLIGHTED_NODES entries

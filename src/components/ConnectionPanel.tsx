@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, type FormEvent } from "react";
+import { useState, useCallback, useMemo, useEffect, type FormEvent, type ReactNode } from "react";
 import type { ConnectionParams, ConnectionStatus } from "../types";
 import { loadSavedConnection } from "../hooks/useMqttClient";
 import { getConfig } from "../utils/config";
@@ -14,6 +14,43 @@ import { SelectOrCustom } from "./SelectOrCustom";
 function generateClientId(): string {
   return "mqtt_visualiser_" + Math.random().toString(16).slice(2, 10);
 }
+
+/** Collapsible section with a rotating-chevron header. Collapsed unless `open`. */
+function Disclosure({
+  label,
+  open,
+  onToggle,
+  children,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="border-t border-gray-700/60 pt-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-gray-200 transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${open ? "rotate-90" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        {label}
+      </button>
+      {open && <div className="space-y-3 mt-3">{children}</div>}
+    </div>
+  );
+}
+
 
 interface ConnectionPanelProps {
   onConnect: (params: ConnectionParams) => void;
@@ -71,7 +108,8 @@ export function ConnectionPanel({
   // the field is left empty), not a pre-filled value.
   const topicPlaceholder = cfg.topicFilter || "#";
 
-  const [activeTab, setActiveTab] = useState<"connect" | "filter" | "log">("connect");
+  const [activeTab, setActiveTab] = useState<"connect" | "log" | "share">("connect");
+  const setDisplayMode = useTopicStore((s) => s.setDisplayMode);
   const dropRetainedBurst = useTopicStore((s) => s.dropRetainedBurst);
   const setDropRetainedBurst = useTopicStore((s) => s.setDropRetainedBurst);
   const burstWindowActive = useTopicStore((s) => s.burstWindowActive);
@@ -97,7 +135,9 @@ export function ConnectionPanel({
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
   const [showAuth, setShowAuth] = useState(false);
-  const [clearOnDisconnect, setClearOnDisconnect] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  // Clear-graph-on-disconnect now lives in the settings store (Settings → Visual).
+  const clearOnDisconnect = useTopicStore((s) => s.clearOnDisconnect);
   const [autoconnect, setAutoconnect] = useState(saved.autoconnect ?? cfg.autoconnect ?? false);
   const [copied, setCopied] = useState(false);
 
@@ -256,17 +296,6 @@ export function ConnectionPanel({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab("filter")}
-              className={`pb-1.5 text-xs font-medium transition-colors ${
-                activeTab === "filter"
-                  ? "text-blue-400 border-b-2 border-blue-400 -mb-px"
-                  : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              Filter
-            </button>
-            <button
-              type="button"
               onClick={() => setActiveTab("log")}
               className={`pb-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
                 activeTab === "log"
@@ -279,6 +308,17 @@ export function ConnectionPanel({
               {errorMessage && activeTab !== "log" && (
                 <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
               )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("share")}
+              className={`pb-1.5 text-xs font-medium transition-colors ${
+                activeTab === "share"
+                  ? "text-blue-400 border-b-2 border-blue-400 -mb-px"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              Share
             </button>
           </div>
 
@@ -336,86 +376,6 @@ export function ConnectionPanel({
                 </p>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-medium text-gray-400">
-                    Client ID
-                  </label>
-                  {!configForcesClientId && (
-                    <label
-                      className={`flex items-center gap-1.5 ${
-                        isConnected
-                          ? "opacity-50 cursor-not-allowed"
-                          : "cursor-pointer"
-                      }`}
-                    >
-                      <span className="text-[10px] text-gray-500">Custom</span>
-                      <input
-                        type="checkbox"
-                        checked={customClientId}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setCustomClientId(checked);
-                          if (!checked) {
-                            setClientId(generateClientId());
-                          }
-                          // Persist the toggle state to localStorage
-                          try {
-                            const raw = localStorage.getItem("mqtt_connection");
-                            const data = raw ? JSON.parse(raw) : {};
-                            data.customClientId = checked;
-                            localStorage.setItem("mqtt_connection", JSON.stringify(data));
-                          } catch { /* ignore */ }
-                        }}
-                        onFocus={cancelReconnect}
-                        disabled={isConnected}
-                        className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-blue-500 accent-blue-500 cursor-pointer disabled:cursor-not-allowed"
-                      />
-                    </label>
-                  )}
-                </div>
-                <input
-                  type="text"
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  onFocus={cancelReconnect}
-                  disabled={configForcesClientId || !customClientId || isConnected}
-                  placeholder="mqtt_visualiser_..."
-                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowAuth(!showAuth)}
-                className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
-              >
-                {showAuth ? "Hide" : "Show"} authentication
-              </button>
-
-              {showAuth && (
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    onFocus={cancelReconnect}
-                    disabled={isConnected}
-                    placeholder="Username (optional)"
-                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                  />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onFocus={cancelReconnect}
-                    disabled={isConnected}
-                    placeholder="Password (optional)"
-                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                  />
-                </div>
-              )}
-
               <button
                 type="submit"
                 disabled={!isConnected && !isConnecting && brokerUrl.trim() === ""}
@@ -424,112 +384,205 @@ export function ConnectionPanel({
                 {buttonLabel}
               </button>
 
-              <label className="flex items-center gap-2 cursor-pointer">
+              {/* Auto-tour — enter auto-tour mode: hide all chrome and cycle active topics.
+                  Only available once connected (the tour needs live topics). */}
+              <div className="border-t border-gray-700/60 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setDisplayMode("autotour")}
+                  disabled={!isConnected}
+                  className="w-full py-2 rounded text-sm font-medium bg-gray-800 text-gray-200 border border-gray-600 hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-800"
+                >
+                  Auto-tour
+                </button>
+                <p className="text-[10px] text-gray-500 mt-1.5 leading-snug">
+                  Hides all panels and cycles through active topics. Press <kbd className="px-1 py-0.5 rounded bg-gray-700 text-gray-300">Esc</kbd> to exit.
+                </p>
+              </div>
+
+              {/* Authentication — optional broker credentials, collapsed by default */}
+              <Disclosure label="Authentication" open={showAuth} onToggle={() => setShowAuth((v) => !v)}>
                 <input
-                  type="checkbox"
-                  checked={autoconnect}
-                  onChange={(e) => {
-                    setAutoconnect(e.target.checked);
-                    persistAutoconnect(e.target.checked);
-                  }}
-                  className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  onFocus={cancelReconnect}
+                  disabled={isConnected}
+                  placeholder="Username (optional)"
+                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
                 />
-                <span className="text-xs text-gray-400">Auto-connect on load</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  type="checkbox"
-                  checked={clearOnDisconnect}
-                  onChange={(e) => setClearOnDisconnect(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onFocus={cancelReconnect}
+                  disabled={isConnected}
+                  placeholder="Password (optional)"
+                  className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
                 />
-                <span className="text-xs text-gray-400">Clear graph on disconnect</span>
-              </label>
 
-              <button
-                type="button"
-                onClick={handleCopyShareLink}
-                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                {copied ? "Copied!" : "Copy connection share link"}
-              </button>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-400">
+                      Client ID
+                    </label>
+                    {!configForcesClientId && (
+                      <label
+                        className={`flex items-center gap-1.5 ${
+                          isConnected
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer"
+                        }`}
+                      >
+                        <span className="text-[10px] text-gray-500">Custom</span>
+                        <input
+                          type="checkbox"
+                          checked={customClientId}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setCustomClientId(checked);
+                            if (!checked) {
+                              setClientId(generateClientId());
+                            }
+                            // Persist the toggle state to localStorage
+                            try {
+                              const raw = localStorage.getItem("mqtt_connection");
+                              const data = raw ? JSON.parse(raw) : {};
+                              data.customClientId = checked;
+                              localStorage.setItem("mqtt_connection", JSON.stringify(data));
+                            } catch { /* ignore */ }
+                          }}
+                          onFocus={cancelReconnect}
+                          disabled={isConnected}
+                          className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-blue-500 accent-blue-500 cursor-pointer disabled:cursor-not-allowed"
+                        />
+                      </label>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
+                    onFocus={cancelReconnect}
+                    disabled={configForcesClientId || !customClientId || isConnected}
+                    placeholder="mqtt_visualiser_..."
+                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
+                  />
+                </div>
+              </Disclosure>
 
-              <button
-                type="button"
-                onClick={() => useTopicStore.getState().requestExport()}
-                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                </svg>
-                Export graph as PNG
-              </button>
+              {/* Filter — disconnect behaviour and subscription / pruning filters */}
+              <Disclosure label="Filter" open={showFilters} onToggle={() => setShowFilters((v) => !v)}>
+                {/* Retained data — drop-on-connect burst handling and ecosystem follow */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className={`flex items-center gap-1.5 ${burstSettingsLocked ? "opacity-50" : ""}`}>
+                      <label className="text-xs font-medium text-gray-400">
+                        Drop Retained Messages
+                      </label>
+                      <InfoTooltip text="Completely ignore retained messages during the burst window after connecting. No nodes are created, no counters incremented. Prevents the graph from exploding with stale retained data on subscribe." />
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={dropRetainedBurst}
+                      onChange={(e) => setDropRetainedBurst(e.target.checked)}
+                      disabled={burstSettingsLocked}
+                      className={`h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 ${burstSettingsLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                    />
+                  </div>
+                  {dropRetainedBurst && (
+                    <SliderRow
+                      label="Burst Window"
+                      tooltip="How long after connecting to drop retained messages. Longer windows catch slower brokers with large retained sets."
+                      value={burstWindowDuration / 1000}
+                      displayValue={`${burstWindowDuration / 1000}s`}
+                      min={5}
+                      max={30}
+                      step={1}
+                      minLabel="5s"
+                      maxLabel="30s"
+                      onChange={(v) => setBurstWindowDuration(v * 1000)}
+                      disabled={burstSettingsLocked}
+                    />
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-gray-400">
+                        Follow Ecosystem Topics
+                      </label>
+                      <InfoTooltip text="Auto-subscribe to state and availability topics declared by ecosystem documents (e.g. Home Assistant discovery configs pointing at zigbee2mqtt/...) so entities show live data even when those topics fall outside the topic filter. Capped at 2000 extra topics." />
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={followEcosystemTopics}
+                      onChange={(e) => setFollowEcosystemTopics(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Pruning — drop idle nodes over time */}
+                <div className="border-t border-gray-700/60 pt-3">
+                  <SliderRow
+                    label="Prune Idle Nodes"
+                    tooltip="Remove nodes that stop receiving messages after this time. Helps clear retained message clutter after initial connect."
+                    value={pruneTimeout === 0 ? 6 : pruneTimeout / 60_000}
+                    displayValue={pruneTimeout === 0 ? "Never" : `${pruneTimeout / 60_000} min`}
+                    min={1}
+                    max={6}
+                    step={1}
+                    minLabel="1 min"
+                    maxLabel="Never"
+                    onChange={(v) => setPruneTimeout(v >= 6 ? 0 : v * 60_000)}
+                  />
+                </div>
+              </Disclosure>
             </form>
           )}
 
-          {/* Filter tab */}
-          {activeTab === "filter" && (
+          {/* Share tab — connection sharing and graph export */}
+          {activeTab === "share" && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className={`flex items-center gap-1.5 ${burstSettingsLocked ? "opacity-50" : ""}`}>
-                  <label className="text-xs font-medium text-gray-400">
-                    Drop Retained Messages
-                  </label>
-                  <InfoTooltip text="Completely ignore retained messages during the burst window after connecting. No nodes are created, no counters incremented. Prevents the graph from exploding with stale retained data on subscribe." />
-                </div>
-                <input
-                  type="checkbox"
-                  checked={dropRetainedBurst}
-                  onChange={(e) => setDropRetainedBurst(e.target.checked)}
-                  disabled={burstSettingsLocked}
-                  className={`h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 ${burstSettingsLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                />
+              {/* Connection — copy a shareable link and auto-connect on load */}
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={handleCopyShareLink}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                  {copied ? "Copied!" : "Copy connection share link"}
+                </button>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoconnect}
+                    onChange={(e) => {
+                      setAutoconnect(e.target.checked);
+                      persistAutoconnect(e.target.checked);
+                    }}
+                    className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer accent-blue-500"
+                  />
+                  <span className="text-xs text-gray-400">Auto-connect on load</span>
+                </label>
               </div>
-              {dropRetainedBurst && (
-                <SliderRow
-                  label="Burst Window"
-                  tooltip="How long after connecting to drop retained messages. Longer windows catch slower brokers with large retained sets."
-                  value={burstWindowDuration / 1000}
-                  displayValue={`${burstWindowDuration / 1000}s`}
-                  min={5}
-                  max={30}
-                  step={1}
-                  minLabel="5s"
-                  maxLabel="30s"
-                  onChange={(v) => setBurstWindowDuration(v * 1000)}
-                  disabled={burstSettingsLocked}
-                />
-              )}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <label className="text-xs font-medium text-gray-400">
-                    Follow Ecosystem Topics
-                  </label>
-                  <InfoTooltip text="Auto-subscribe to state and availability topics declared by ecosystem documents (e.g. Home Assistant discovery configs pointing at zigbee2mqtt/...) so entities show live data even when those topics fall outside the topic filter. Capped at 2000 extra topics." />
-                </div>
-                <input
-                  type="checkbox"
-                  checked={followEcosystemTopics}
-                  onChange={(e) => setFollowEcosystemTopics(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
-                />
+
+              {/* Export */}
+              <div className="border-t border-gray-700/60 pt-3">
+                <button
+                  type="button"
+                  onClick={() => useTopicStore.getState().requestExport()}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Export graph as PNG
+                </button>
               </div>
-              <SliderRow
-                label="Prune Idle Nodes"
-                tooltip="Remove nodes that stop receiving messages after this time. Helps clear retained message clutter after initial connect."
-                value={pruneTimeout === 0 ? 6 : pruneTimeout / 60_000}
-                displayValue={pruneTimeout === 0 ? "Never" : `${pruneTimeout / 60_000} min`}
-                min={1}
-                max={6}
-                step={1}
-                minLabel="1 min"
-                maxLabel="Never"
-                onChange={(v) => setPruneTimeout(v >= 6 ? 0 : v * 60_000)}
-              />
             </div>
           )}
 

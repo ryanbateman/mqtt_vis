@@ -12,7 +12,7 @@ Edit `public/config.json` before building, or `dist/config.json` after building.
 
 When the app resolves a setting, it checks these sources in order:
 
-1. **URL query params** (`?broker=...&topic=...`) — highest priority, one-time override for `brokerUrl` and `topicFilter` only (not persisted)
+1. **URL query params** (`?broker=...&topic=...`, plus `?embed` / `?autotour`) — highest priority, one-time override for `brokerUrl`, `topicFilter`, and the display mode (not persisted)
 2. **localStorage** — the user's saved preferences from a previous session
 3. **config.json** — deployment defaults
 4. **Hardcoded defaults** — lowest priority
@@ -51,7 +51,15 @@ When the app resolves a setting, it checks these sources in order:
 | `settingsCollapsed` | boolean | `false` | Start with settings panel collapsed |
 | `connectionCollapsed` | boolean | `false` | Start with connection panel collapsed |
 | `webmcpEnabled` | boolean | `true` | Enable WebMCP tool registration for browser AI agents. Set to `false` to disable. |
-| `description` | string \| null | *(see below)* | Description shown in the connection panel below the title when expanded. Set to `""` to hide. Omit or set to `null` to use the built-in default. |
+| `displayMode` | `"normal"` \| `"embed"` \| `"autotour"` | `"normal"` | Chrome-stripping mode (see [Embed & Auto-tour mode](#embed--auto-tour-mode)). `embed` hides all panels; `auto-tour` adds an auto-tour. Overridden by the `?embed` / `?autotour` URL params. |
+| `autoTourEntityDwellMs` | number | `8000` | Auto-tour: ms an entity panel (map/image/device) is shown before flipping to the payload tab. |
+| `autoTourPayloadDwellMs` | number | `5000` | Auto-tour: ms the payload tab is shown after the entity phase (entity nodes). |
+| `autoTourPlainDwellMs` | number | `5000` | Auto-tour: total ms an entity-less node is shown (payload only, shorter). |
+| `autoTourIntervalMs` | number | `12000` | Auto-tour: ms gap between picks (graph-only; the view drifts to an overview during this gap). |
+| `autoTourRestEvery` | number | `3` | Auto-tour: insert a longer graph-only rest after this many highlights. |
+| `autoTourRestMs` | number | `36000` | Auto-tour: length (ms) of the graph-only rest period. |
+| `autoTourShakeEvery` | number | `5` | Auto-tour: auto-shake the layout after this many highlights. |
+| `description` | string \| null | *(see below)* | Description shown in the connection panel below the title when expanded. Also used as the embed/auto-tour watermark. Set to `""` to hide. Omit or set to `null` to use the built-in default. |
 
 ## Example
 
@@ -87,3 +95,25 @@ The default `config.json` ships with three public brokers (HiveMQ, EMQX, Mosquit
 ```
 
 To hide the dropdown entirely, set `"brokers": []` or omit the field.
+
+## Auto-tour mode
+
+For embedding the visualiser in dashboards, iframes, digital signage, or a conference-booth display, a stripped-down display mode hides all UI chrome (connection/settings/stats rails, status bar, GitHub link) and shows just the full-screen graph.
+
+- **Auto-tour** (`?autotour` or `"displayMode": "autotour"`) — Full-screen mode with an **auto-tour**: periodically highlights a recently-active node (biasing toward "richer" nodes that belong to an ecosystem or carry a detected entity), shows its entity panel then payload, then returns to the graph. After every `autoTourRestEvery` highlights it rests on the bare graph for `autoTourRestMs`.
+
+This mode auto-hides the cursor after a few idle seconds and shows a subtle watermark (from `description`). User interaction pauses the auto-tour until idle again. **Press `Esc` to return to Normal mode** (or use the Display Mode selector in the Settings panel). The mode set via URL/config is not persisted — reloading restores it.
+
+This mode pairs naturally with `autoconnect: true` and a configured broker so the display comes up live with no interaction:
+
+```json
+{
+  "brokers": [{ "name": "Wall Display", "url": "wss://mqtt.internal.example.com/mqtt" }],
+  "topicFilter": "#",
+  "autoconnect": true,
+  "displayMode": "autotour",
+  "pruneTimeout": 60000
+}
+```
+
+When `pruneTimeout > 0`, a small caption explains that inactive topics are removed after the timeout, so viewers understand why nodes disappear.

@@ -39,6 +39,9 @@ const BASE_GLOW_STD_DEV = 4;
  * a constant screen-space size.
  */
 const MIN_HIT_RADIUS_PX = 12;
+/** During the auto-tour, sync invisible hit-area positions only every Nth tick
+ *  (no pointer interaction, so bounded staleness is fine; resynced fully on exit). */
+const HITAREA_TOUR_STRIDE = 6;
 
 /**
  * Compute the idle stroke-opacity for a link based on the child (target) node's
@@ -73,6 +76,7 @@ const DEFAULT_LABEL_DEPTH_FACTOR = 5;
 export class GraphRenderer {
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private zoom!: d3.ZoomBehavior<SVGSVGElement, unknown>;
   private simulation!: d3.Simulation<GraphNode, GraphLink>;
   private nodeElements!: d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown>;
   private linkElements!: d3.Selection<SVGLineElement, GraphLink, SVGGElement, unknown>;
@@ -88,6 +92,9 @@ export class GraphRenderer {
 
   private glowBlur!: d3.Selection<SVGFEGaussianBlurElement, unknown, null, undefined>;
   private animationFrame: number | null = null;
+  // Whether the rAF loop is currently scheduled. The loop sleeps when idle and is
+  // restarted via ensureAnimating(); this guards against double-scheduling.
+  private animationRunning = false;
   private width = 0;
   private height = 0;
   private currentZoomScale = 1;
@@ -130,6 +137,35 @@ export class GraphRenderer {
 
   // Selection state — the currently selected/pinned node ID.
   private selectedNodeId: string | null = null;
+  // Cached D3 selection of just the selected node's <circle>, so the per-frame
+  // selection-ring refresh is O(1) instead of filtering all nodes each frame.
+  private selectedNodeElement: d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown> | null = null;
+
+  // id → node lookup, rebuilt on structural update(); O(1) access for the pulse
+  // ring and centering instead of simulation.nodes().find() every frame.
+  private nodeById = new Map<string, GraphNode>();
+
+  // True once all node radii have reached their targets — lets updateNodeSizes()
+  // skip its O(n) lerp pass while sizes are at rest (common during the auto-tour).
+  private sizesSettled = false;
+
+  // Suppresses the O(n) per-frame hit-area radius recompute during a programmatic
+  // pan/zoom transition (auto-tour); recomputed once when the transition ends.
+  private suppressHitRadius = false;
+
+  // Per-tick counters/caches to avoid redundant O(n) attribute writes.
+  private tickCount = 0;
+  // Last zoom scale that label font-size was computed for; skip the per-tick
+  // font-size pass while the scale is unchanged (it only varies with zoom).
+  private lastLabelFontScale = -1;
+
+  // Auto-tour mode: when true, the selected (toured) node gets an animated pulse ring.
+  private autoTourMode = false;
+  // Persistent group + dynamic <circle> for the auto-tour pulse ring. The circle is
+  // created/removed via a D3 data-join (refreshPulseRing) so it only exists in
+  // the DOM while a node is selected in auto-tour mode. Datum is the node id.
+  private pulseRingGroup!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private pulseRingElement!: d3.Selection<SVGCircleElement, string, SVGGElement, unknown>;
 
   // Callback invoked when a node is clicked (D3 → React bridge).
   private onNodeClick: ((nodeId: string) => void) | null = null;
@@ -183,7 +219,7 @@ export class GraphRenderer {
     // Zoom & pan container
     this.container = this.svg.append("g");
 
-    const zoom = d3
+    this.zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 10])
       .on("zoom", (event) => {
@@ -191,11 +227,25 @@ export class GraphRenderer {
         this.container.attr("transform", event.transform);
         this.glowBlur.attr("stdDeviation", String(BASE_GLOW_STD_DEV / this.currentZoomScale));
         this.updateLabelVisibility();
-        // Recalculate hit area radii — the floor is zoom-dependent
-        this.hitAreaElements.attr("r", (d) => this.hitRadius(d));
+        // Label font-size is counter-scaled to stay constant screen size — it
+        // only changes with zoom, so maintain it here (skip on pure pans where
+        // the scale is unchanged) rather than on every simulation tick.
+        if (this.currentZoomScale !== this.lastLabelFontScale) {
+          this.updateLabelFontSizes();
+        }
+        // Recalculate hit area radii — the floor is zoom-dependent. Skipped during
+        // a programmatic auto-tour pan (no pointer interaction); recomputed once
+        // when the transition ends. Removes an O(n) write from every pan frame.
+        if (!this.suppressHitRadius) {
+          this.hitAreaElements.attr("r", (d) => this.hitRadius(d));
+        }
+        // Rings counter-scale with zoom in the rAF loop; wake it if any are shown.
+        if (this.highlightedNodes.size > 0 || (this.autoTourMode && this.selectedNodeId !== null)) {
+          this.ensureAnimating();
+        }
       });
 
-    this.svg.call(zoom);
+    this.svg.call(this.zoom);
 
     // Background click: deselect when clicking empty space.
     // Use mousedown + check target to distinguish from drags and node clicks.
@@ -214,6 +264,7 @@ export class GraphRenderer {
     // Hit areas are the topmost layer — invisible circles that handle all pointer events.
     this.linkGroup = this.container.append("g").attr("class", "links");
     this.highlightRingGroup = this.container.append("g").attr("class", "highlight-rings");
+    this.pulseRingGroup = this.container.append("g").attr("class", "pulse-ring");
     this.nodeGroup = this.container.append("g").attr("class", "nodes");
     this.labelGroup = this.container.append("g").attr("class", "labels");
     this.hitAreaGroup = this.container.append("g").attr("class", "hit-areas");
@@ -221,6 +272,8 @@ export class GraphRenderer {
     // Initialize empty selections
     this.linkElements = this.linkGroup.selectAll<SVGLineElement, GraphLink>("line");
     this.highlightRingElements = this.highlightRingGroup.selectAll<SVGCircleElement, { id: string; color: string }>("circle");
+    // Pulse ring starts empty; the circle is created on demand by refreshPulseRing().
+    this.pulseRingElement = this.pulseRingGroup.selectAll<SVGCircleElement, string>("circle");
     this.nodeElements = this.nodeGroup.selectAll<SVGCircleElement, GraphNode>("circle");
     this.labelElements = this.labelGroup.selectAll<SVGTextElement, GraphNode>("text");
     this.hitAreaElements = this.hitAreaGroup.selectAll<SVGCircleElement, GraphNode>("circle");
@@ -310,6 +363,9 @@ export class GraphRenderer {
 
     // Update simulation data
     this.simulation.nodes(nodes);
+    // Rebuild the id→node map (membership changed) and re-arm size lerping.
+    this.nodeById = new Map(nodes.map((n) => [n.id, n]));
+    this.sizesSettled = false;
     (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>).links(links);
 
     // Update collide force with current displayed radii
@@ -469,6 +525,9 @@ export class GraphRenderer {
 
     // Reapply depth-based label visibility for newly entered labels
     this.updateLabelVisibility();
+    // New labels entered with an unscaled font-size — apply the zoom-counter-scaled
+    // size now (font-size is no longer maintained per simulation tick).
+    this.updateLabelFontSizes();
 
     // Repaint node body colour + outline for new/changed nodes' insight tags
     if (this.enabledInsightTags.size > 0) {
@@ -491,6 +550,9 @@ export class GraphRenderer {
       // Normal update: full reheat so new nodes find their place
       this.simulation.alpha(0.3).restart();
     }
+    // nodeElements was re-joined above — refresh the cached selected-node element.
+    this.cacheSelectedElement();
+    this.ensureAnimating();
   }
 
   /**
@@ -550,6 +612,11 @@ export class GraphRenderer {
     // Check for new pulses and mark nodes/links as active for per-frame colour updates
     this.checkPulses(nodes);
     this.checkLinkPulses(links);
+
+    // Radii may have changed (rate-driven) — re-arm the size lerp.
+    this.sizesSettled = false;
+    // New rate/pulse data means fades and size lerps to animate — wake the loop.
+    this.ensureAnimating();
   }
 
   /** Check nodes for new pulse timestamps and mark as active for per-frame colour updates. */
@@ -578,6 +645,7 @@ export class GraphRenderer {
   /** Position elements on each simulation tick. */
   private tick(): void {
     perfMark("d3-tick-start");
+    this.tickCount++;
 
     this.linkElements
       .attr("x1", (d) => (d.source as GraphNode).x ?? 0)
@@ -589,27 +657,27 @@ export class GraphRenderer {
       .attr("cx", (d) => d.x ?? 0)
       .attr("cy", (d) => d.y ?? 0);
 
-    this.hitAreaElements
-      .attr("cx", (d) => d.x ?? 0)
-      .attr("cy", (d) => d.y ?? 0);
+    // Hit areas are pointer-only. During the auto-tour (no pointer interaction)
+    // throttle their position sync to every Nth tick — bounded staleness, big
+    // saving — and resync fully on exit (setAutoTourMode). Full rate otherwise.
+    if (!this.autoTourMode || this.tickCount % HITAREA_TOUR_STRIDE === 0) {
+      this.hitAreaElements
+        .attr("cx", (d) => d.x ?? 0)
+        .attr("cy", (d) => d.y ?? 0);
+    }
 
     // Sync highlight rings with animated node positions (only when rings exist)
     if (this.highlightedNodes.size > 0) {
       this.syncHighlightRingPositions();
     }
 
-    // Counter-scale so labels stay a constant screen size
-    const baseSize = this.baseFontSize / this.currentZoomScale;
+    // Labels follow their node every tick (positions only). Font-size depends
+    // solely on zoom, so it's maintained in the zoom handler + on structural
+    // update — NOT here — to keep the per-tick cost off the hot path.
     const labelGap = 14 / this.currentZoomScale;
-    const useDepthText = this.scaleTextByDepth;
-
     this.labelElements
       .attr("x", (d) => d.x ?? 0)
-      .attr("y", (d) => (d.y ?? 0) + d.displayRadius + labelGap)
-      .attr("font-size", (d) => {
-        const size = useDepthText ? depthScale(baseSize, d.depth, 0.25) : baseSize;
-        return `${size}px`;
-      });
+      .attr("y", (d) => (d.y ?? 0) + d.displayRadius + labelGap);
 
     perfMark("d3-tick-end");
     const dur = perfMeasure("d3-tick", "d3-tick-start", "d3-tick-end");
@@ -740,6 +808,9 @@ export class GraphRenderer {
   /** Toggle depth-based node size scaling. */
   setScaleNodeSizeByDepth(enabled: boolean): void {
     this.scaleNodeSizeByDepth = enabled;
+    // Targets change at render time (depthScale) — re-arm the size lerp.
+    this.sizesSettled = false;
+    this.ensureAnimating();
   }
 
   /** Register a callback for node hover tooltip events. */
@@ -765,6 +836,158 @@ export class GraphRenderer {
     if (prev !== null && prev !== id) {
       this.clearSelectionRing(prev);
     }
+    // Cache the selected node's <circle> so the per-frame selection ring is O(1).
+    this.cacheSelectedElement();
+    // Create/remove the auto-tour pulse ring to match the new selection.
+    this.refreshPulseRing();
+    this.ensureAnimating();
+  }
+
+  /** Cache a one-element D3 selection of the selected node's circle (or null). */
+  private cacheSelectedElement(): void {
+    this.selectedNodeElement =
+      this.selectedNodeId === null
+        ? null
+        : this.nodeElements.filter((d) => d.id === this.selectedNodeId);
+  }
+
+  /**
+   * Toggle auto-tour mode. When on, the selected (toured) node gets an animated
+   * pulse ring that expands and contracts. Removes the ring entirely when off.
+   */
+  setAutoTourMode(on: boolean): void {
+    this.autoTourMode = on;
+    this.refreshPulseRing();
+    if (on) {
+      this.ensureAnimating();
+    } else {
+      // Hit-area position/size were throttled/suppressed during the tour — fully
+      // resync so pointer hit-testing is correct the moment the user takes over.
+      this.syncHitAreas();
+    }
+  }
+
+  /**
+   * D3 data-join for the auto-tour pulse ring: bind a single circle when auto-tour mode
+   * is on and a node is selected, otherwise none. Mirrors refreshHighlightRings
+   * so the element only exists in the DOM while it's actually shown.
+   */
+  private refreshPulseRing(): void {
+    const data = this.autoTourMode && this.selectedNodeId !== null ? [this.selectedNodeId] : [];
+
+    this.pulseRingElement = this.pulseRingGroup
+      .selectAll<SVGCircleElement, string>("circle")
+      .data(data, (d) => d);
+
+    this.pulseRingElement.exit().remove();
+
+    this.pulseRingElement = this.pulseRingElement
+      .enter()
+      .append("circle")
+      .attr("fill", "none")
+      .attr("stroke", "#60a5fa")
+      .attr("pointer-events", "none")
+      .merge(this.pulseRingElement);
+  }
+
+  /**
+   * Drive the auto-tour pulse ring around the selected node. Expands/contracts the
+   * radius on a sine cycle and fades opacity as it grows, like a slow radar
+   * ping. Only called while auto-tour mode is on and a node is selected; no-ops if
+   * the selected node has no position yet (the circle stays where it was).
+   */
+  private updatePulseRing(timestamp: DOMHighResTimeStamp): void {
+    if (this.selectedNodeId === null) return;
+    const node = this.nodeById.get(this.selectedNodeId);
+    if (!node || node.x === undefined || node.y === undefined) return;
+
+    // Eased 0→1→0 oscillation over PULSE_PERIOD_MS.
+    const PULSE_PERIOD_MS = 1600;
+    const phase = (timestamp % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
+    const s = 0.5 - 0.5 * Math.cos(phase * 2 * Math.PI);
+
+    // Counter-scale offsets/stroke so the ring reads consistently at any zoom.
+    const z = this.currentZoomScale;
+    const baseR = node.displayRadius + 6 / z;
+    const amplitude = 12 / z;
+    const radius = baseR + s * amplitude;
+    // Brightest when contracted, fading as it expands outward.
+    const opacity = 0.85 - 0.55 * s;
+
+    this.pulseRingElement
+      .attr("cx", node.x)
+      .attr("cy", node.y)
+      .attr("r", radius)
+      .attr("stroke-width", 2 / z)
+      .attr("opacity", opacity);
+  }
+
+  /**
+   * Smoothly pan the view so the given node sits at the centre of the canvas.
+   * `xBias` shifts the target centre — e.g. a negative bias keeps the node clear
+   * of a right-side overlay panel. `targetScale` sets the zoom level (defaults to
+   * the current scale). No-op if the node is unknown or not yet positioned.
+   */
+  centerOnNode(nodeId: string, durationMs = 600, xBias = 0, targetScale?: number): void {
+    const node = this.nodeById.get(nodeId);
+    if (!node || node.x === undefined || node.y === undefined) return;
+    const k = targetScale ?? this.currentZoomScale;
+    const transform = d3.zoomIdentity
+      .translate(this.width / 2 + xBias - node.x * k, this.height / 2 - node.y * k)
+      .scale(k);
+    this.suppressHitRadius = true;
+    this.svg.transition().duration(durationMs)
+      .call(this.zoom.transform, transform)
+      .on("end interrupt", () => this.resumeHitRadius());
+  }
+
+  /** Re-enable and recompute zoom-dependent hit-area radii after a pan transition. */
+  private resumeHitRadius(): void {
+    this.suppressHitRadius = false;
+    this.hitAreaElements.attr("r", (d) => this.hitRadius(d));
+  }
+
+  /** Fully resync hit-area position + radius — used when leaving the auto-tour,
+   *  where per-tick position sync was throttled. */
+  private syncHitAreas(): void {
+    this.suppressHitRadius = false;
+    this.hitAreaElements
+      .attr("cx", (d) => d.x ?? 0)
+      .attr("cy", (d) => d.y ?? 0)
+      .attr("r", (d) => this.hitRadius(d));
+  }
+
+  /**
+   * Smoothly zoom/pan to an overview that frames all nodes, centred on the
+   * graph. Used during auto-tour graph-only phases to drift back from a highlighted
+   * node. `xBias` shifts the centre; scale is capped so it reads as a zoom-out.
+   */
+  fitView(durationMs = 1000, xBias = 0): void {
+    const nodes = this.simulation.nodes();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      if (n.x === undefined || n.y === undefined) continue;
+      const r = n.displayRadius ?? 0;
+      minX = Math.min(minX, n.x - r);
+      minY = Math.min(minY, n.y - r);
+      maxX = Math.max(maxX, n.x + r);
+      maxY = Math.max(maxY, n.y + r);
+    }
+    if (!Number.isFinite(minX)) return;
+    const pad = 80;
+    const w = Math.max(1, maxX - minX);
+    const h = Math.max(1, maxY - minY);
+    // Cap at 1.2 so a small graph still reads as an overview, not a zoom-in.
+    const scale = Math.max(0.1, Math.min(1.2, (this.width - pad) / w, (this.height - pad) / h));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const transform = d3.zoomIdentity
+      .translate(this.width / 2 + xBias - cx * scale, this.height / 2 - cy * scale)
+      .scale(scale);
+    this.suppressHitRadius = true;
+    this.svg.transition().duration(durationMs).ease(d3.easeQuadInOut)
+      .call(this.zoom.transform, transform)
+      .on("end interrupt", () => this.resumeHitRadius());
   }
 
   /**
@@ -774,6 +997,7 @@ export class GraphRenderer {
   setHighlightedNodes(nodes: Map<string, string>): void {
     this.highlightedNodes = nodes;
     this.refreshHighlightRings();
+    this.ensureAnimating();
   }
 
   /** Toggle whether hover tooltips are enabled. */
@@ -797,24 +1021,29 @@ export class GraphRenderer {
       const size = useDepthText ? depthScale(baseSize, d.depth, 0.25) : baseSize;
       return `${size}px`;
     });
+    // Mark the scale this font-size pass covers so tick() can skip redundant ones.
+    this.lastLabelFontScale = this.currentZoomScale;
   }
 
   /** Update the repulsion strength between all nodes. */
   setRepulsionStrength(value: number): void {
     (this.simulation.force("charge") as d3.ForceManyBody<GraphNode>).strength(value);
     this.simulation.alpha(0.3).restart();
+    this.ensureAnimating();
   }
 
   /** Update the ideal distance between linked parent-child nodes. */
   setLinkDistance(value: number): void {
     (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>).distance(value);
     this.simulation.alpha(0.3).restart();
+    this.ensureAnimating();
   }
 
   /** Update how rigidly links enforce their ideal distance. */
   setLinkStrength(value: number): void {
     (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>).strength(value);
     this.simulation.alpha(0.3).restart();
+    this.ensureAnimating();
   }
 
   /** Update the collision padding around each node. */
@@ -824,6 +1053,7 @@ export class GraphRenderer {
       (d) => d.displayRadius + value
     );
     this.simulation.alpha(0.3).restart();
+    this.ensureAnimating();
   }
 
   /** Update how quickly the simulation settles after changes. */
@@ -910,10 +1140,10 @@ export class GraphRenderer {
     }
 
     // Apply selection ring to the selected node even when it's not actively fading.
-    // This ensures the ring persists after the pulse animation completes.
-    if (selectedId !== null) {
-      this.nodeElements
-        .filter((d) => d.id === selectedId && !this.activeNodeIds.has(d.id))
+    // This ensures the ring persists after the pulse animation completes. Uses the
+    // cached single-element selection so this is O(1) per frame, not an O(n) filter.
+    if (selectedId !== null && this.selectedNodeElement && !this.activeNodeIds.has(selectedId)) {
+      this.selectedNodeElement
         .attr("stroke", "#60a5fa")
         .attr("stroke-width", 3.5 / this.currentZoomScale)
         .attr("stroke-opacity", 1);
@@ -1107,6 +1337,7 @@ export class GraphRenderer {
       .drag<SVGCircleElement, GraphNode>()
       .on("start", (event, d) => {
         if (!event.active) this.simulation.alphaTarget(0.3).restart();
+        this.ensureAnimating();
         d.fx = d.x;
         d.fy = d.y;
       })
@@ -1131,7 +1362,11 @@ export class GraphRenderer {
    * Uses an exponential lerp — each frame moves ~12% of the remaining distance.
    * At 60fps this gives a smooth ~150ms transition feel.
    */
-  private updateNodeSizes(): void {
+  /** Lerp node radii toward their targets. Returns true while any size is still animating. */
+  private updateNodeSizes(): boolean {
+    // Skip the O(n) pass entirely while every radius is at rest. Re-armed by
+    // update()/updateData() whenever radii change.
+    if (this.sizesSettled) return false;
     const LERP_FACTOR = 0.12;
     const SNAP_THRESHOLD = 0.3; // snap when within 0.3px to avoid endless micro-updates
     const scaleByDepth = this.scaleNodeSizeByDepth;
@@ -1160,10 +1395,14 @@ export class GraphRenderer {
       (this.simulation.force("collide") as d3.ForceCollide<GraphNode>).radius(
         (d) => d.displayRadius + this.collisionPadding
       );
+    } else {
+      // Everything reached its target — skip the loop until radii change again.
+      this.sizesSettled = true;
     }
+    return anyChanged;
   }
 
-  /** Animation loop for node colours, link colours, and smooth sizing. */
+  /** One-time perf observer init; the loop itself is driven by ensureAnimating(). */
   private startAnimationLoop(): void {
     // Initialise perf observer once (long-animation-frame / longtask detection)
     if (PERF_ENABLED) {
@@ -1171,61 +1410,99 @@ export class GraphRenderer {
       this.perfLastFpsTime = performance.now();
       this.perfLastSummaryTime = performance.now();
     }
-
-    const animate = (timestamp: DOMHighResTimeStamp) => {
-      // --- FPS counting ---
-      if (PERF_ENABLED) {
-        perfMark("frame-start");
-        this.perfFrameCount++;
-
-        const fpsDelta = timestamp - this.perfLastFpsTime;
-        if (fpsDelta >= 1000) {
-          this.perfFps = Math.round((this.perfFrameCount * 1000) / fpsDelta);
-          this.perfFrameCount = 0;
-          this.perfLastFpsTime = timestamp;
-        }
-      }
-
-      this.updateNodeSizes();
-      this.updateNodeColors();
-      this.updateLinkColors();
-      if (this.labelMode === "activity" && this.showLabels) {
-        this.updateActivityLabelOpacity(timestamp);
-      }
-      // Sync highlight ring radii with lerped displayRadius each frame
-      if (this.highlightedNodes.size > 0) {
-        this.syncHighlightRingPositions();
-      }
-
-      // --- Frame measurement + periodic summary ---
-      if (PERF_ENABLED) {
-        perfMark("frame-end");
-        const frameDur = perfMeasure("frame", "frame-start", "frame-end");
-        this.perfFrameAvg?.push(frameDur);
-
-        // Log summary every 5 seconds
-        const summaryDelta = timestamp - this.perfLastSummaryTime;
-        if (summaryDelta >= 5000) {
-          this.perfLastSummaryTime = timestamp;
-          const nodes = this.simulation.nodes();
-          logPerfSummary({
-            fps: this.perfFps,
-            frameMs: +(this.perfFrameAvg?.avg() ?? 0).toFixed(2),
-            d3TickMs: +(this.perfTickAvg?.avg() ?? 0).toFixed(2),
-            nodeColorMs: +(this.perfNodeColorAvg?.avg() ?? 0).toFixed(2),
-            decayTickMs: +perfStats.lastDecayTickMs.toFixed(2),
-            nodeCount: nodes.length,
-            linkCount: (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>)?.links().length ?? 0,
-            activeNodes: this.activeNodeIds.size,
-            heapMB: getHeapMB(),
-          });
-        }
-      }
-
-      this.animationFrame = requestAnimationFrame(animate);
-    };
-    this.animationFrame = requestAnimationFrame(animate);
+    this.ensureAnimating();
   }
+
+  /**
+   * Start the rAF loop if it isn't already running. Idempotent and O(1), so any
+   * code path that introduces motion can safely call it. The loop self-terminates
+   * (see `animate`) once `needsAnimation` reports nothing left to animate.
+   */
+  private ensureAnimating(): void {
+    if (this.animationRunning) return;
+    this.animationRunning = true;
+    this.animationFrame = requestAnimationFrame(this.animate);
+  }
+
+  /**
+   * True while there is time-based work for the rAF loop: node-size lerping
+   * (`sizesChanged`), colour/link fades, the auto-tour pulse, or a still-moving
+   * force layout. The simulation runs its own tick timer, so layout motion is
+   * covered by its alpha; this only governs the time-based helpers.
+   */
+  private needsAnimation(sizesChanged: boolean): boolean {
+    return (
+      sizesChanged ||
+      this.activeNodeIds.size > 0 ||
+      this.activeLinkKeys.size > 0 ||
+      (this.autoTourMode && this.selectedNodeId !== null) ||
+      this.simulation.alpha() >= this.simulation.alphaMin()
+    );
+  }
+
+  /** Single animation frame. Reschedules itself only while there's work to do. */
+  private animate = (timestamp: DOMHighResTimeStamp): void => {
+    // --- FPS counting ---
+    if (PERF_ENABLED) {
+      perfMark("frame-start");
+      this.perfFrameCount++;
+
+      const fpsDelta = timestamp - this.perfLastFpsTime;
+      if (fpsDelta >= 1000) {
+        this.perfFps = Math.round((this.perfFrameCount * 1000) / fpsDelta);
+        this.perfFrameCount = 0;
+        this.perfLastFpsTime = timestamp;
+      }
+    }
+
+    const sizesChanged = this.updateNodeSizes();
+    this.updateNodeColors();
+    this.updateLinkColors();
+    if (this.labelMode === "activity" && this.showLabels) {
+      this.updateActivityLabelOpacity(timestamp);
+    }
+    // Sync highlight ring radii with lerped displayRadius each frame
+    if (this.highlightedNodes.size > 0) {
+      this.syncHighlightRingPositions();
+    }
+    // Animate the auto-tour pulse ring around the selected node (only while shown).
+    if (this.autoTourMode && this.selectedNodeId !== null) {
+      this.updatePulseRing(timestamp);
+    }
+
+    // --- Frame measurement + periodic summary ---
+    if (PERF_ENABLED) {
+      perfMark("frame-end");
+      const frameDur = perfMeasure("frame", "frame-start", "frame-end");
+      this.perfFrameAvg?.push(frameDur);
+
+      // Log summary every 5 seconds
+      const summaryDelta = timestamp - this.perfLastSummaryTime;
+      if (summaryDelta >= 5000) {
+        this.perfLastSummaryTime = timestamp;
+        const nodes = this.simulation.nodes();
+        logPerfSummary({
+          fps: this.perfFps,
+          frameMs: +(this.perfFrameAvg?.avg() ?? 0).toFixed(2),
+          d3TickMs: +(this.perfTickAvg?.avg() ?? 0).toFixed(2),
+          nodeColorMs: +(this.perfNodeColorAvg?.avg() ?? 0).toFixed(2),
+          decayTickMs: +perfStats.lastDecayTickMs.toFixed(2),
+          nodeCount: nodes.length,
+          linkCount: (this.simulation.force("link") as d3.ForceLink<GraphNode, GraphLink>)?.links().length ?? 0,
+          activeNodes: this.activeNodeIds.size,
+          heapMB: getHeapMB(),
+        });
+      }
+    }
+
+    // Sleep when idle; ensureAnimating() restarts the loop when motion resumes.
+    if (this.needsAnimation(sizesChanged)) {
+      this.animationFrame = requestAnimationFrame(this.animate);
+    } else {
+      this.animationRunning = false;
+      this.animationFrame = null;
+    }
+  };
 
 
   /** Update link colours based on pulse state — fades from white to grey. */
@@ -1284,6 +1561,7 @@ export class GraphRenderer {
       .x(width / 2)
       .y(height / 2);
     this.simulation.alpha(0.1).restart();
+    this.ensureAnimating();
   }
 
   /** Export the full graph as a PNG image and trigger a download. */
@@ -1396,7 +1674,9 @@ export class GraphRenderer {
   destroy(): void {
     if (this.animationFrame !== null) {
       cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
     }
+    this.animationRunning = false;
     if (this.tooltipDelayTimer !== null) {
       clearTimeout(this.tooltipDelayTimer);
     }

@@ -22,6 +22,7 @@ export interface AppConfig {
   labelStrokeWidth?: number;
   scaleTextByDepth?: boolean;
   showTooltips?: boolean;
+  clearOnDisconnect?: boolean;
   nodeScale?: number;
   scaleNodeSizeByDepth?: boolean;
   ancestorPulse?: boolean;
@@ -60,6 +61,25 @@ export interface AppConfig {
   // WebMCP integration
   webmcpEnabled?: boolean;
 
+  // Auto-tour mode
+  /** "autotour" strips all chrome (click still opens a floating detail drawer) and
+   *  runs an auto-tour of active topics. Default "normal". */
+  displayMode?: "normal" | "autotour";
+  /** Auto-tour: ms an entity panel (map/image/device) is shown before flipping to payload. */
+  autoTourEntityDwellMs?: number;
+  /** Auto-tour: ms the payload tab is shown after the entity phase (entity nodes). */
+  autoTourPayloadDwellMs?: number;
+  /** Auto-tour: total ms an entity-less node is shown (payload only, shorter). */
+  autoTourPlainDwellMs?: number;
+  /** Auto-tour: ms gap between picks (graph-only). */
+  autoTourIntervalMs?: number;
+  /** Auto-tour: insert a longer graph-only rest after this many highlights. */
+  autoTourRestEvery?: number;
+  /** Auto-tour: length (ms) of the graph-only rest period. */
+  autoTourRestMs?: number;
+  /** Auto-tour: auto-shake the layout after this many highlights. */
+  autoTourShakeEvery?: number;
+
   // Branding
   /** Panel description shown below the title when expanded.
    *  Empty string "" hides it. Omitted / null uses the default. */
@@ -87,4 +107,29 @@ export async function loadConfig(): Promise<void> {
 /** Get the loaded config (empty object if loadConfig hasn't run or failed). */
 export function getConfig(): AppConfig {
   return config;
+}
+
+/** Resolved auto-tour timings (ms / counts), config values with defaults applied. */
+export interface AutoTourTiming {
+  entityDwellMs: number;
+  payloadDwellMs: number;
+  plainDwellMs: number;
+  intervalMs: number;
+  restEvery: number;
+  restMs: number;
+  shakeEvery: number;
+}
+
+/** Read the auto-tour timings from config, falling back to sensible defaults. */
+export function getAutoTourTiming(): AutoTourTiming {
+  const c = config;
+  return {
+    entityDwellMs: c.autoTourEntityDwellMs ?? 8000,
+    payloadDwellMs: c.autoTourPayloadDwellMs ?? 5000,
+    plainDwellMs: c.autoTourPlainDwellMs ?? 5000,
+    intervalMs: c.autoTourIntervalMs ?? 12000,
+    restEvery: c.autoTourRestEvery ?? 3,
+    restMs: c.autoTourRestMs ?? 36000,
+    shakeEvery: c.autoTourShakeEvery ?? 5,
+  };
 }

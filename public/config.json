@@ -40,5 +40,14 @@
 
   "webmcpEnabled": true,
 
+  "displayMode": "normal",
+  "autoTourEntityDwellMs": 8000,
+  "autoTourPayloadDwellMs": 5000,
+  "autoTourPlainDwellMs": 5000,
+  "autoTourIntervalMs": 12000,
+  "autoTourRestEvery": 3,
+  "autoTourRestMs": 36000,
+  "autoTourShakeEvery": 5,
+
   "description": "Discover, monitor, and understand your MQTT traffic in real time. See which topics are active, how fast they publish, and how your topic tree is structured."
 }
