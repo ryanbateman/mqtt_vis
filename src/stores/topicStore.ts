@@ -451,7 +451,7 @@ const PAYLOAD_LRU_CAP = 200;
 const MAX_HIGHLIGHTED_NODES = 200;
 
 /** Maximum characters stored per payload at ingest. */
-const PAYLOAD_MAX_STORE = 1024;
+export const PAYLOAD_MAX_STORE = 2048;
 
 /**
  * LRU tracker for payload storage. Insertion-ordered Set of node IDs.
