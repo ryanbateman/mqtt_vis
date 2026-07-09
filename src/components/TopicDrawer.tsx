@@ -2,13 +2,26 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useTopicStore } from "../stores/topicStore";
-import { findNode } from "../utils/topicParser";
 import { formatTimestamp } from "../utils/formatters";
-import { getTag, type InsightsTab } from "../utils/tagRegistry";
+import { type InsightsTab } from "../utils/tagRegistry";
+import { getGeoForTopic } from "../utils/geoLookup";
+import {
+  geoMarkerIcon,
+  MAX_TRAIL_POINTS,
+  TRAIL_DOT_RADIUS,
+  TRAIL_DOT_COLOR,
+  TRAIL_DOT_OPACITY,
+  TRAIL_LINE_COLOR,
+  TRAIL_LINE_OPACITY,
+  TRAIL_LINE_WEIGHT,
+  TILE_URL,
+  TILE_ATTRIBUTION,
+  TILE_MAX_ZOOM,
+} from "../utils/mapMarkers";
 import { SparkplugDevicePanel } from "./SparkplugDevicePanel";
 import { TopicPayloadPanel, TopicStatsPanel } from "./TopicPayloadPanel";
 import type { TopicNode, GraphNode } from "../types";
-import type { GeoMetadata, GeoNode, TrailPoint } from "../types/payloadTags";
+import type { GeoMetadata, TrailPoint } from "../types/payloadTags";
 import type { SparkplugMetadata } from "../types/sparkplug";
 
 export type { InsightsTab };
@@ -16,74 +29,12 @@ export type { InsightsTab };
 /** Tabs of the Topic drawer: the always-present payload tab plus detected insight tabs. */
 export type TopicTab = "payload" | InsightsTab;
 
-/** Maximum number of trail points per topic before oldest are discarded. */
-const MAX_TRAIL_POINTS = 50;
-
-/** Style constants for trail rendering. */
-const TRAIL_DOT_RADIUS = 4;
-const TRAIL_DOT_COLOR = "#00ffff";
-const TRAIL_DOT_OPACITY = 0.4;
-const TRAIL_LINE_COLOR = "#ef4444";
-const TRAIL_LINE_OPACITY = 0.7;
-const TRAIL_LINE_WEIGHT = 2;
-
-/** Per-topic trail state used in all-geo mode. */
-interface TopicTrailState {
-  trail: TrailPoint[];
-  dots: L.CircleMarker[];
-  polyline: L.Polyline | null;
-  prevPos: { lat: number; lon: number; timestamp?: number };
-}
-
-/**
- * Custom circle marker icon — avoids the well-known Leaflet/bundler issue
- * where default marker PNGs fail to load.  A cyan circle on dark background
- * matches the app's insight ring colour and dark theme.
- */
-const geoMarkerIcon = L.divIcon({
-  className: "",
-  html: `<div style="
-    width: 16px; height: 16px;
-    background: #00ffff;
-    border: 2px solid #0e7490;
-    border-radius: 50%;
-    box-shadow: 0 0 8px rgba(0,255,255,0.5);
-  "></div>`,
-  iconSize: [16, 16],
-  iconAnchor: [8, 8],
-});
-
-/** Highlighted marker icon for the currently navigated node in all-geo mode. */
-const geoMarkerIconHighlight = L.divIcon({
-  className: "",
-  html: `<div style="
-    width: 22px; height: 22px;
-    background: #fbbf24;
-    border: 2px solid #d97706;
-    border-radius: 50%;
-    box-shadow: 0 0 12px rgba(251,191,36,0.6);
-  "></div>`,
-  iconSize: [22, 22],
-  iconAnchor: [11, 11],
-});
-
-/**
- * Extract the first geo detection result from a topic node looked up by path.
- * Returns null if the node doesn't exist or has no geo tag.
- */
-function getGeoForTopic(topicPath: string): GeoMetadata | null {
-  const root = useTopicStore.getState().root;
-  const segments = topicPath === "" ? [] : topicPath.split("/");
-  const node = findNode(root, segments);
-  return getTag(node?.payloadTags, "geo")?.metadata ?? null;
-}
-
 /**
  * Topic drawer: everything about one selected (or pinned) node behind a
  * unified tab bar — Payload (stats + last payload + user properties) plus
- * Map / Image / Device tabs when that content is detected. Two geo modes:
- * - **single**: One topic's geo coordinates + historical trail.
- * - **all**: All detected geo topics shown as pins on a single map.
+ * Map / Image / Device tabs when that content is detected. The Map tab shows
+ * this one topic's coordinates and its historical trail; the global view of
+ * every geo topic lives in the right rail's Map panel (`GeoMapPanel`).
  *
  * React owns the container elements; Leaflet manages the map inside a ref
  * (same pattern as D3 in GraphRenderer).
@@ -99,11 +50,6 @@ export function TopicDrawer({
   onSetTab,
   isPinned,
   onTogglePin,
-  mode,
-  onSetMode,
-  geoNodes,
-  geoNavIndex,
-  onNavigate,
   onClose,
 }: {
   /** Full topic path of the displayed node. */
@@ -126,43 +72,19 @@ export function TopicDrawer({
   isPinned: boolean;
   /** Toggle the pinned state. */
   onTogglePin: () => void;
-  /** Current display mode: single topic or all geo nodes. */
-  mode: "single" | "all";
-  /** Switch display mode. */
-  onSetMode: (mode: "single" | "all") => void;
-  /** All currently detected geo-tagged topics. */
-  geoNodes: GeoNode[];
-  /** Index of the currently navigated geo node in geoNodes. */
-  geoNavIndex: number;
-  /** Navigate to a different geo node by index. */
-  onNavigate: (index: number) => void;
   /** Called when the drawer is closed. */
   onClose: () => void;
 }) {
   // --- Refs for Leaflet objects (managed outside React's render cycle) ------
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-
-  // Single-mode refs
   const markerRef = useRef<L.Marker | null>(null);
   const polylineRef = useRef<L.Polyline | null>(null);
   const trailMarkersRef = useRef<L.CircleMarker[]>([]);
   const trailRef = useRef<TrailPoint[]>([]);
   const prevGeoRef = useRef<{ lat: number; lon: number; timestamp?: number } | null>(null);
 
-  // All-mode refs
-  const allMarkersRef = useRef<L.Marker[]>([]);
-  /** Markers indexed by topic path for reliable lookup in all-geo mode. */
-  const allMarkersByTopicRef = useRef<Map<string, L.Marker>>(new Map());
-  /** Per-topic trail state for all-geo mode (keyed by topic path). */
-  const allTrailsRef = useRef<Map<string, TopicTrailState>>(new Map());
-
-  // Track current mode in a ref so the store subscription can read it
-  // without being re-created on every mode change.
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-
-  // --- Trail helpers (single-mode only) ------------------------------------
+  // --- Trail helpers --------------------------------------------------------
 
   /** Clear all trail markers, polyline, and reset the trail array. */
   const clearTrail = useCallback(() => {
@@ -238,101 +160,6 @@ export function TopicDrawer({
     }
   }, []);
 
-  // --- All-mode marker helpers ---------------------------------------------
-
-  /** Remove all markers and trails added in all-geo mode. */
-  const clearAllMarkers = useCallback(() => {
-    const map = mapRef.current;
-    if (map) {
-      for (const m of allMarkersRef.current) {
-        map.removeLayer(m);
-      }
-      // Clean up all per-topic trails
-      for (const ts of allTrailsRef.current.values()) {
-        for (const dot of ts.dots) map.removeLayer(dot);
-        if (ts.polyline) map.removeLayer(ts.polyline);
-      }
-    }
-    allMarkersRef.current = [];
-    allMarkersByTopicRef.current.clear();
-    allTrailsRef.current.clear();
-  }, []);
-
-  /** Add markers for all geo nodes, initialise per-topic trail state, and fit bounds.
-   *  Preserves existing trail data for topics that were already being tracked. */
-  const showAllMarkers = useCallback((nodes: GeoNode[], highlightIndex: number) => {
-    const map = mapRef.current;
-    if (!map || nodes.length === 0) return;
-
-    // Save existing trail state before clearing markers
-    const savedTrails = new Map(allTrailsRef.current);
-
-    clearAllMarkers();
-
-    const bounds = L.latLngBounds([]);
-
-    nodes.forEach((node, idx) => {
-      const isHighlighted = idx === highlightIndex;
-      const marker = L.marker([node.geo.lat, node.geo.lon], {
-        icon: isHighlighted ? geoMarkerIconHighlight : geoMarkerIcon,
-        zIndexOffset: isHighlighted ? 1000 : 0,
-      }).addTo(map);
-
-      marker.bindTooltip(node.topicPath, {
-        direction: "top",
-        offset: [0, -10],
-        className: "trail-tooltip",
-      });
-
-      // Click marker → switch to single-topic mode for that topic
-      marker.on("click", () => {
-        onNavigate(idx);
-        onSetMode("single");
-      });
-
-      allMarkersRef.current.push(marker);
-      allMarkersByTopicRef.current.set(node.topicPath, marker);
-      bounds.extend([node.geo.lat, node.geo.lon]);
-
-      // Restore or initialise per-topic trail tracking
-      const existing = savedTrails.get(node.topicPath);
-      if (existing) {
-        // Re-add existing trail dots and polyline to the map
-        for (const dot of existing.dots) dot.addTo(map);
-        if (existing.polyline) existing.polyline.addTo(map);
-        allTrailsRef.current.set(node.topicPath, existing);
-      } else {
-        allTrailsRef.current.set(node.topicPath, {
-          trail: [],
-          dots: [],
-          polyline: null,
-          prevPos: { lat: node.geo.lat, lon: node.geo.lon, timestamp: node.geo.timestamp },
-        });
-      }
-    });
-
-    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
-  }, [clearAllMarkers, onNavigate, onSetMode]);
-
-  /** Update which marker is highlighted in all-geo mode (without rebuilding all). */
-  const updateHighlight = useCallback((nodes: GeoNode[], highlightIndex: number) => {
-    allMarkersRef.current.forEach((marker, idx) => {
-      if (idx >= nodes.length) return;
-      const isHighlighted = idx === highlightIndex;
-      marker.setIcon(isHighlighted ? geoMarkerIconHighlight : geoMarkerIcon);
-      marker.setZIndexOffset(isHighlighted ? 1000 : 0);
-    });
-  }, []);
-
-  // --- Single-mode: remove single marker -----------------------------------
-  const clearSingleMarker = useCallback(() => {
-    const map = mapRef.current;
-    if (map && markerRef.current) {
-      map.removeLayer(markerRef.current);
-      markerRef.current = null;
-    }
-  }, []);
-
   // --- Initialize Leaflet map on mount (only when geo data is available) ----
   useEffect(() => {
     if (!geo) return; // no geo data — skip map init
@@ -346,21 +173,16 @@ export function TopicDrawer({
       attributionControl: true,
     });
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
+    L.tileLayer(TILE_URL, {
+      attribution: TILE_ATTRIBUTION,
+      maxZoom: TILE_MAX_ZOOM,
     }).addTo(map);
 
     mapRef.current = map;
 
-    // Set up initial state based on mode
-    if (mode === "single") {
-      const marker = L.marker([geo.lat, geo.lon], { icon: geoMarkerIcon }).addTo(map);
-      markerRef.current = marker;
-      prevGeoRef.current = { lat: geo.lat, lon: geo.lon, timestamp: geo.timestamp };
-    } else {
-      showAllMarkers(geoNodes, geoNavIndex);
-    }
+    const marker = L.marker([geo.lat, geo.lon], { icon: geoMarkerIcon }).addTo(map);
+    markerRef.current = marker;
+    prevGeoRef.current = { lat: geo.lat, lon: geo.lon, timestamp: geo.timestamp };
 
     // Leaflet needs a resize kick after the container transitions in
     const resizeTimer = setTimeout(() => {
@@ -374,55 +196,8 @@ export function TopicDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo !== null]);
 
-  // --- Handle mode changes -------------------------------------------------
+  // --- Handle topic path changes -------------------------------------------
   useEffect(() => {
-    if (!geo) return; // no geo data — mode changes are irrelevant
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (mode === "all") {
-      // Transition to all-geo mode: transfer single-mode trail, then show all markers
-
-      // Transfer single-mode trail to the all-trails map before clearing
-      if (trailRef.current.length > 0 && topicPath) {
-        const transferredState: TopicTrailState = {
-          trail: [...trailRef.current],
-          dots: [...trailMarkersRef.current],
-          polyline: polylineRef.current,
-          prevPos: prevGeoRef.current
-            ? { ...prevGeoRef.current }
-            : { lat: geo.lat, lon: geo.lon },
-        };
-        allTrailsRef.current.set(topicPath, transferredState);
-        // Null out single-mode refs without removing from map (transferred to all-mode)
-        trailMarkersRef.current = [];
-        polylineRef.current = null;
-        trailRef.current = [];
-      }
-
-      clearSingleMarker();
-      showAllMarkers(geoNodes, geoNavIndex);
-      prevGeoTopicsRef.current = geoNodes.map((n) => n.topicPath).join("\0");
-    } else {
-      // Transition to single-topic mode: clear all markers + trails, add single marker
-      clearAllMarkers();
-      prevGeoRef.current = { lat: geo.lat, lon: geo.lon, timestamp: geo.timestamp };
-      prevGeoTopicsRef.current = "";
-
-      if (!markerRef.current) {
-        const marker = L.marker([geo.lat, geo.lon], { icon: geoMarkerIcon }).addTo(map);
-        markerRef.current = marker;
-      } else {
-        markerRef.current.setLatLng([geo.lat, geo.lon]);
-      }
-      map.setView([geo.lat, geo.lon], 13);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
-
-  // --- Handle topic path changes in single mode ----------------------------
-  useEffect(() => {
-    if (mode !== "single") return;
     if (!geo) return; // no geo data
     const map = mapRef.current;
     if (!map) return;
@@ -440,145 +215,44 @@ export function TopicDrawer({
     const lonEl = document.getElementById("insights-live-lon");
     if (latEl) latEl.textContent = String(geo.lat);
     if (lonEl) lonEl.textContent = String(geo.lon);
-  }, [topicPath, geo?.lat, geo?.lon, clearTrail, mode]);
+  }, [topicPath, geo?.lat, geo?.lon, clearTrail]);
 
-  // --- Handle navigation index changes in all mode -------------------------
-  useEffect(() => {
-    if (mode !== "all") return;
-    const map = mapRef.current;
-    if (!map || geoNodes.length === 0) return;
-
-    updateHighlight(geoNodes, geoNavIndex);
-
-    // Pan to the highlighted marker
-    const target = geoNodes[geoNavIndex];
-    if (target) {
-      map.flyTo([target.geo.lat, target.geo.lon], map.getZoom(), { duration: 0.4 });
-    }
-  }, [geoNavIndex, mode, geoNodes, updateHighlight]);
-
-  // --- Update all-mode markers when the set of geo topics changes ----------
-  const prevGeoTopicsRef = useRef<string>("");
-  useEffect(() => {
-    if (mode !== "all") return;
-
-    // Build a fingerprint of the current geo topic set to avoid
-    // unnecessary full rebuilds (which would wipe trail data).
-    const topicFingerprint = geoNodes.map((n) => n.topicPath).join("\0");
-
-    if (topicFingerprint !== prevGeoTopicsRef.current) {
-      // Topic set changed (added or removed) — full rebuild needed
-      prevGeoTopicsRef.current = topicFingerprint;
-      showAllMarkers(geoNodes, geoNavIndex);
-    }
-    // Position-only changes are handled by the store subscription,
-    // not here — so trails are preserved.
-  }, [geoNodes, mode, geoNavIndex, showAllMarkers]);
-
-  // --- Store subscription for live geo updates (both modes) ----------------
+  // --- Store subscription for live geo updates -----------------------------
   useEffect(() => {
     const unsubscribe = useTopicStore.subscribe(() => {
       const map = mapRef.current;
       if (!map) return;
 
-      if (modeRef.current === "single") {
-        // --- Single-topic mode: track one topic's position -------
-        const liveGeo = getGeoForTopic(topicPath);
-        if (!liveGeo) return;
+      const liveGeo = getGeoForTopic(topicPath);
+      if (!liveGeo) return;
 
-        const prev = prevGeoRef.current;
-        if (prev && prev.lat === liveGeo.lat && prev.lon === liveGeo.lon) return;
+      const prev = prevGeoRef.current;
+      if (prev && prev.lat === liveGeo.lat && prev.lon === liveGeo.lon) return;
 
-        // Position changed — push previous position to trail, stamped with
-        // the reading's own time (OwnTracks tst) when we have it.
-        if (prev) {
-          addTrailPoint({ lat: prev.lat, lon: prev.lon, timestamp: prev.timestamp ?? Date.now() });
-        }
-
-        // Update current marker
-        if (markerRef.current) {
-          markerRef.current.setLatLng([liveGeo.lat, liveGeo.lon]);
-        }
-        updatePolyline();
-
-        // Smoothly pan to new position
-        map.flyTo([liveGeo.lat, liveGeo.lon], map.getZoom(), {
-          duration: 0.5,
-        });
-
-        prevGeoRef.current = { lat: liveGeo.lat, lon: liveGeo.lon, timestamp: liveGeo.timestamp };
-
-        // Update coordinate display
-        const latEl = document.getElementById("insights-live-lat");
-        const lonEl = document.getElementById("insights-live-lon");
-        if (latEl) latEl.textContent = String(liveGeo.lat);
-        if (lonEl) lonEl.textContent = String(liveGeo.lon);
-      } else {
-        // --- All-geo mode: track all topics' positions -----------
-        const allTrails = allTrailsRef.current;
-        const markerMap = allMarkersByTopicRef.current;
-
-        // Iterate all tracked topics and check for position changes
-        for (const [tp, ts] of allTrails) {
-          const liveGeo = getGeoForTopic(tp);
-          if (!liveGeo) continue;
-
-          if (ts.prevPos.lat === liveGeo.lat && ts.prevPos.lon === liveGeo.lon) continue;
-
-          // Position changed — add previous position to trail, stamped with
-          // the reading's own time (OwnTracks tst) when we have it.
-          const stamp = ts.prevPos.timestamp ?? Date.now();
-          const trail = ts.trail;
-
-          // Enforce cap — remove oldest dot if at limit
-          if (trail.length >= MAX_TRAIL_POINTS) {
-            const oldest = ts.dots.shift();
-            if (oldest) map.removeLayer(oldest);
-            trail.shift();
-          }
-
-          trail.push({ lat: ts.prevPos.lat, lon: ts.prevPos.lon, timestamp: stamp });
-
-          // Create trail dot
-          const dot = L.circleMarker([ts.prevPos.lat, ts.prevPos.lon], {
-            radius: TRAIL_DOT_RADIUS,
-            fillColor: TRAIL_DOT_COLOR,
-            fillOpacity: TRAIL_DOT_OPACITY,
-            stroke: false,
-          }).addTo(map);
-
-          dot.bindTooltip(`${tp}\n${formatTimestamp(stamp)}`, {
-            direction: "top",
-            offset: [0, -6],
-            className: "trail-tooltip",
-          });
-
-          ts.dots.push(dot);
-
-          // Update polyline: trail points + current position
-          const linePoints: L.LatLngExpression[] = trail.map((p) => [p.lat, p.lon]);
-          linePoints.push([liveGeo.lat, liveGeo.lon]);
-
-          if (ts.polyline) {
-            ts.polyline.setLatLngs(linePoints);
-          } else if (linePoints.length >= 2) {
-            ts.polyline = L.polyline(linePoints, {
-              color: TRAIL_LINE_COLOR,
-              opacity: TRAIL_LINE_OPACITY,
-              weight: TRAIL_LINE_WEIGHT,
-              smoothFactor: 1,
-            }).addTo(map);
-          }
-
-          // Update marker position
-          const marker = markerMap.get(tp);
-          if (marker) {
-            marker.setLatLng([liveGeo.lat, liveGeo.lon]);
-          }
-
-          ts.prevPos = { lat: liveGeo.lat, lon: liveGeo.lon, timestamp: liveGeo.timestamp };
-        }
+      // Position changed — push previous position to trail, stamped with
+      // the reading's own time (OwnTracks tst) when we have it.
+      if (prev) {
+        addTrailPoint({ lat: prev.lat, lon: prev.lon, timestamp: prev.timestamp ?? Date.now() });
       }
+
+      // Update current marker
+      if (markerRef.current) {
+        markerRef.current.setLatLng([liveGeo.lat, liveGeo.lon]);
+      }
+      updatePolyline();
+
+      // Smoothly pan to new position
+      map.flyTo([liveGeo.lat, liveGeo.lon], map.getZoom(), {
+        duration: 0.5,
+      });
+
+      prevGeoRef.current = { lat: liveGeo.lat, lon: liveGeo.lon, timestamp: liveGeo.timestamp };
+
+      // Update coordinate display
+      const latEl = document.getElementById("insights-live-lat");
+      const lonEl = document.getElementById("insights-live-lon");
+      if (latEl) latEl.textContent = String(liveGeo.lat);
+      if (lonEl) lonEl.textContent = String(liveGeo.lon);
     });
 
     return unsubscribe;
@@ -594,9 +268,6 @@ export function TopicDrawer({
         polylineRef.current = null;
         trailMarkersRef.current = [];
         trailRef.current = [];
-        allMarkersRef.current = [];
-        allMarkersByTopicRef.current.clear();
-        allTrailsRef.current.clear();
       }
     };
   }, []);
@@ -652,9 +323,6 @@ export function TopicDrawer({
   const anyInsightTabs = hasGeo || hasImage || hasSparkplug;
   // The payload tab always exists; show the bar once any insight tab joins it.
   const showTabs = anyInsightTabs;
-  const showNav = geoNodes.length > 1 && activeTab === "map";
-  const canToggleMode = geoNodes.length > 1;
-  const navTopic = geoNodes[geoNavIndex]?.topicPath ?? topicPath;
 
   return (
     <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${
@@ -692,26 +360,8 @@ export function TopicDrawer({
           </button>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
-          {/* Mode toggle — switch between single/all (map tab only) */}
-          {canToggleMode && activeTab === "map" && (
-            <button
-              onClick={() => onSetMode(mode === "single" ? "all" : "single")}
-              title={mode === "single" ? "Show all geo locations" : "Show single topic"}
-              className={`p-0.5 transition-colors ${
-                mode === "all"
-                  ? "text-cyan-400 hover:text-cyan-300"
-                  : "text-gray-500 hover:text-gray-200"
-              }`}
-            >
-              {/* Globe/map icon */}
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <circle cx="12" cy="12" r="10" />
-                <path strokeLinecap="round" d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
-              </svg>
-            </button>
-          )}
-          {/* Pin toggle — only in single mode, map tab */}
-          {mode === "single" && activeTab === "map" && (
+          {/* Pin toggle — map tab only */}
+          {activeTab === "map" && (
             <button
               onClick={onTogglePin}
               title={isPinned ? "Unpin — drawer follows node selection" : "Pin — keep this map open while browsing"}
@@ -822,40 +472,8 @@ export function TopicDrawer({
         </div>
       )}
 
-      {/* Navigation bar — shown when multiple geo topics exist (map tab only) */}
-      {showNav && (
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-700/50 flex-shrink-0">
-          <button
-            onClick={() => onNavigate((geoNavIndex - 1 + geoNodes.length) % geoNodes.length)}
-            className="p-0.5 text-gray-500 hover:text-gray-200 transition-colors"
-            title="Previous geo topic"
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div className="flex-1 min-w-0 text-center">
-            <span className="text-[10px] font-mono text-gray-400 truncate block">
-              {navTopic}
-            </span>
-          </div>
-          <span className="text-[10px] text-gray-500 tabular-nums flex-shrink-0">
-            {geoNavIndex + 1}/{geoNodes.length}
-          </span>
-          <button
-            onClick={() => onNavigate((geoNavIndex + 1) % geoNodes.length)}
-            className="p-0.5 text-gray-500 hover:text-gray-200 transition-colors"
-            title="Next geo topic"
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-      )}
-
-      {/* Coordinates — shown in single mode, map tab only */}
-      {mode === "single" && activeTab === "map" && geo && (
+      {/* Coordinates — map tab only */}
+      {activeTab === "map" && geo && (
         <div className="px-3 py-2 border-b border-gray-700/50 flex-shrink-0">
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
             <span className="text-gray-500">Latitude</span>
