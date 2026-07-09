@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { useTopicStore, TOPIC_NODE_CAP } from "../topicStore";
+import { useTopicStore, TOPIC_NODE_CAP, PAYLOAD_MAX_STORE } from "../topicStore";
 import { MIN_RADIUS } from "../../utils/sizeCalculator";
 import {
   persistSettings,
@@ -545,15 +545,15 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(leaf!.lastPayload).toBeNull();
     });
 
-    it("should truncate payloads longer than 1024 characters at ingest", () => {
+    it("should truncate payloads longer than PAYLOAD_MAX_STORE characters at ingest", () => {
       state().setShowTooltips(true);
-      const longPayload = "x".repeat(2000);
+      const longPayload = "x".repeat(PAYLOAD_MAX_STORE + 976);
       handleMessageAndFlush("a/b/c", longPayload);
 
       const leaf = findTopicNode("a/b/c");
       expect(leaf).toBeDefined();
-      expect(leaf!.lastPayload).toHaveLength(1024);
-      expect(leaf!.lastPayload).toBe("x".repeat(1024));
+      expect(leaf!.lastPayload).toHaveLength(PAYLOAD_MAX_STORE);
+      expect(leaf!.lastPayload).toBe("x".repeat(PAYLOAD_MAX_STORE));
     });
 
     it("should evict the oldest payload when LRU cap (200) is exceeded", () => {
@@ -659,13 +659,13 @@ describe("topicStore — ancestor pulse data flow", () => {
       expect(state().root.children.size).toBe(0);
     });
 
-    it("should store payload exactly at 1024 chars without truncation", () => {
+    it("should store payload exactly at PAYLOAD_MAX_STORE chars without truncation", () => {
       state().setShowTooltips(true);
-      const exactPayload = "y".repeat(1024);
+      const exactPayload = "y".repeat(PAYLOAD_MAX_STORE);
       handleMessageAndFlush("a/b/c", exactPayload);
 
       const leaf = findTopicNode("a/b/c");
-      expect(leaf!.lastPayload).toHaveLength(1024);
+      expect(leaf!.lastPayload).toHaveLength(PAYLOAD_MAX_STORE);
       expect(leaf!.lastPayload).toBe(exactPayload);
     });
 
@@ -1325,12 +1325,12 @@ describe("topicStore — selected node payload protection (Issue #35)", () => {
   // ── Truncation bypass ────────────────────────────────────────────────────
 
   it("truncates payloads for non-selected nodes", () => {
-    const longPayload = "x".repeat(2000);
+    const longPayload = "x".repeat(PAYLOAD_MAX_STORE + 976);
     state().handleMessage("a/b/c", longPayload, 0);
     state().rebuildGraph();
 
     const node = findTopicNode("a/b/c");
-    expect(node!.lastPayload).toHaveLength(1024);
+    expect(node!.lastPayload).toHaveLength(PAYLOAD_MAX_STORE);
   });
 
   it("does NOT truncate payload for the selected node", () => {
@@ -1339,18 +1339,19 @@ describe("topicStore — selected node payload protection (Issue #35)", () => {
     state().handleMessage("a/b/c", "init", 0);
     state().rebuildGraph();
 
-    const longPayload = "x".repeat(2000);
+    const longPayload = "x".repeat(PAYLOAD_MAX_STORE + 976);
     state().handleMessage("a/b/c", longPayload, 0);
     state().rebuildGraph();
 
     const node = findTopicNode("a/b/c");
-    expect(node!.lastPayload).toHaveLength(2000);
+    expect(node!.lastPayload).toHaveLength(longPayload.length);
     expect(node!.lastPayload).toBe(longPayload);
   });
 
   it("selected node bypasses truncation for large JSON (pretty-print fix)", () => {
     // A large JSON object that would be truncated without the bypass
-    const bigJson = JSON.stringify({ data: "y".repeat(1200) }); // >1024 chars
+    const bigJson = JSON.stringify({ data: "y".repeat(PAYLOAD_MAX_STORE + 176) });
+    expect(bigJson.length).toBeGreaterThan(PAYLOAD_MAX_STORE);
     state().setSelectedNodeId("sensor/temp");
     state().handleMessage("sensor/temp", bigJson, 0);
     state().rebuildGraph();
@@ -1358,7 +1359,7 @@ describe("topicStore — selected node payload protection (Issue #35)", () => {
     const node = findTopicNode("sensor/temp");
     // Must be stored in full so JSON.parse succeeds
     expect(() => JSON.parse(node!.lastPayload!)).not.toThrow();
-    expect(node!.lastPayload!.length).toBeGreaterThan(1024);
+    expect(node!.lastPayload!.length).toBeGreaterThan(PAYLOAD_MAX_STORE);
   });
 
   it("resumes normal truncation after the node is deselected", () => {
@@ -1369,12 +1370,12 @@ describe("topicStore — selected node payload protection (Issue #35)", () => {
     // Deselect
     state().setSelectedNodeId(null);
 
-    const longPayload = "z".repeat(2000);
+    const longPayload = "z".repeat(PAYLOAD_MAX_STORE + 976);
     state().handleMessage("a/b/c", longPayload, 0);
     state().rebuildGraph();
 
     const node = findTopicNode("a/b/c");
-    expect(node!.lastPayload).toHaveLength(1024);
+    expect(node!.lastPayload).toHaveLength(PAYLOAD_MAX_STORE);
   });
 
   // ── LRU eviction pinning ─────────────────────────────────────────────────
@@ -1527,16 +1528,17 @@ describe("topicStore — payload size tracking (Issue #35)", () => {
   });
 
   it("size tracking records the original payload length, not the truncated length", () => {
-    // Without selection, payload >1024 chars is truncated in storage
-    const longPayload = "x".repeat(2000);
+    // Without selection, payload >PAYLOAD_MAX_STORE chars is truncated in storage
+    const rawLength = PAYLOAD_MAX_STORE + 976;
+    const longPayload = "x".repeat(rawLength);
     state().handleMessage("a/b", longPayload, 0);
 
     const node = findTopicNode("a/b")!;
-    // lastPayload is truncated to 1024...
-    expect(node.lastPayload!.length).toBe(1024);
+    // lastPayload is truncated to the cap...
+    expect(node.lastPayload!.length).toBe(PAYLOAD_MAX_STORE);
     // ...but sizes reflect the raw payload
-    expect(node.lastPayloadSize).toBe(2000);
-    expect(node.largestPayloadSize).toBe(2000);
+    expect(node.lastPayloadSize).toBe(rawLength);
+    expect(node.largestPayloadSize).toBe(rawLength);
   });
 
   it("sizes are initialised to 0 on a new node", () => {

@@ -139,8 +139,8 @@ export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Payload — full content, scrollable */}
       {topicNode.lastPayload !== null ? (
-        <div className="p-3 overflow-y-auto min-h-0 flex-1">
-          <div className="flex items-center justify-between mb-1">
+        <div className="p-3 min-h-0 flex-1 flex flex-col">
+          <div className="flex items-center justify-between mb-1 flex-shrink-0">
             <span className="text-[10px] text-gray-500">Last Payload</span>
             <div className="flex items-center gap-1">
               <button
@@ -173,7 +173,7 @@ export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
               )}
             </div>
           </div>
-          <pre className="text-[11px] font-mono text-gray-300 whitespace-pre-wrap break-all leading-snug max-h-60 overflow-y-auto">
+          <pre className="text-[11px] font-mono text-gray-300 whitespace-pre-wrap break-all leading-snug flex-1 min-h-0 overflow-y-auto">
             {prettyJson && formattedPayload ? formattedPayload : topicNode.lastPayload}
           </pre>
         </div>
@@ -185,7 +185,7 @@ export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
 
       {/* User Properties — MQTT v5 key-value pairs */}
       {hasUserProperties && (
-        <div className="p-3 overflow-y-auto min-h-0 border-t border-gray-700/50">
+        <div className="p-3 overflow-y-auto flex-shrink-0 max-h-40 border-t border-gray-700/50">
           <div className="mb-1">
             <span className="text-[10px] text-gray-500">User Properties</span>
           </div>
