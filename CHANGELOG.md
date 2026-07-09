@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.0] - 2026-07-09
+
+### Added
+- Global **Map** section in the right rail: every geo-tagged topic as a pin on one full-height map, with a topic count badge
+- Movement trails on the global map, toggleable and persisted across sessions
+- "Fit all" control to frame every marker on demand
+
+### Changed
+- The global map no longer follows or highlights any node — it fits the markers once when opened, then only the user moves it. New geo topics appearing no longer yank the viewport
+- Clicking a marker opens that topic's details in the Topic section
+- Map viewport and trails now survive switching away from the Map tab (the rail unmounts inactive sections, destroying the Leaflet instance)
+
+### Removed
+- The "Show all geo locations" toggle and the prev/next geo navigation bar in the Topic drawer — the Map section replaces them. The drawer keeps its per-topic map and trail following
+
 ## [1.33.1] - 2026-07-09
 
 ### Changed

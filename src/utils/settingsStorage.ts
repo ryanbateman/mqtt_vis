@@ -66,6 +66,8 @@ export interface SavedSettings {
   connectionCollapsed?: boolean;
   /** Resizable rail content width in px (right rail). */
   railWidth?: number;
+  /** Draw movement trails on the global map panel. */
+  geoTrailsEnabled?: boolean;
 }
 
 /** Internal stored shape — includes version sentinel. */

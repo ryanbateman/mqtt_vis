@@ -3,6 +3,7 @@ import { useMqttClient, loadSavedConnection } from "./hooks/useMqttClient";
 import { useTopicStore } from "./stores/topicStore";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { EcosystemsPanel, useDomainEntities } from "./components/EcosystemsPanel";
+import { GeoMapPanel } from "./components/GeoMapPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { SideRail, type RailSection } from "./components/SideRail";
@@ -11,6 +12,7 @@ import { TopicGraph } from "./components/TopicGraph";
 import { StatusBar } from "./components/StatusBar";
 import { AutoTourOverlay } from "./components/AutoTourOverlay";
 import { getConfig } from "./utils/config";
+import { clearGeoMapCache } from "./utils/geoMapCache";
 import { findNode, collectGeoNodes } from "./utils/topicParser";
 import { registerWebMcpTools, unregisterWebMcpTools } from "./services/webMcpService";
 import { getTag, TAG_REGISTRY } from "./utils/tagRegistry";
@@ -32,7 +34,7 @@ interface DrawerState {
 /** Left rail section identifiers. */
 type LeftSection = "connection" | "settings";
 /** Right rail section identifiers. */
-type RightSection = "topic" | "ecosystems" | "stats";
+type RightSection = "topic" | "map" | "ecosystems" | "stats";
 
 /**
  * Pick the drawer tab to show. Sticky while browsing: an already-open drawer
@@ -97,8 +99,6 @@ function App() {
   // Topic drawer state
   const [drawerState, setDrawerState] = useState<DrawerState | null>(null);
   const [isPinned, setIsPinned] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<"single" | "all">("single");
-  const [geoNavIndex, setGeoNavIndex] = useState(0);
 
   // Collect all geo-tagged nodes from the topic tree.
   // Recalculated on every graph rebuild (graphNodes reference changes).
@@ -112,40 +112,11 @@ function App() {
     setSelectedNodeId(null);
     setDrawerState(null);
     setIsPinned(false);
-    setDrawerMode("single");
   }, [setSelectedNodeId]);
 
   const handleTogglePin = useCallback(() => {
     setIsPinned((prev) => !prev);
   }, []);
-
-  const handleSetMode = useCallback((mode: "single" | "all") => {
-    if (mode === "all") {
-      // Switching to all-geo mode — unpin since pinning is single-topic only
-      setIsPinned(false);
-    }
-    setDrawerMode(mode);
-  }, []);
-
-  const handleNavigate = useCallback((index: number) => {
-    if (index < 0 || index >= geoNodes.length) return;
-    setGeoNavIndex(index);
-    const target = geoNodes[index];
-    // In single-topic mode, navigating switches the viewed topic.
-    // Look up full node to get image blob URL too.
-    const root = useTopicStore.getState().root;
-    const segments = target.topicPath === "" ? [] : target.topicPath.split("/");
-    const node = findNode(root, segments);
-    setDrawerState((prev) => ({
-      topicPath: target.topicPath,
-      geo: target.geo,
-      imageBlobUrl: node?.lastImageBlobUrl ?? null,
-      sparkplug: getTag(node?.payloadTags, "sparkplug")?.metadata ?? null,
-      activeTab: prev?.activeTab ?? "map",
-    }));
-    // Navigating while pinned unpins — the user clearly wants a different topic
-    setIsPinned(false);
-  }, [geoNodes]);
 
   /** Switch the active tab in the topic drawer. */
   const handleSetTab = useCallback((tab: TopicTab) => {
@@ -168,35 +139,54 @@ function App() {
     };
   }, []);
 
-  // Sync geoNavIndex when the drawer's topic changes
-  useEffect(() => {
-    if (!drawerState) return;
-    const idx = geoNodes.findIndex((n) => n.topicPath === drawerState.topicPath);
-    if (idx >= 0) setGeoNavIndex(idx);
-  }, [drawerState, geoNodes]);
+  /**
+   * Clicking a marker on the global map opens that topic's details. The drawer
+   * state is set directly rather than left to the selection effect, which
+   * ignores selection changes while pinned and would not re-run when the
+   * clicked topic is already the selected one.
+   */
+  const handleMapSelectTopic = useCallback((topicPath: string) => {
+    const { geo, imageBlobUrl, sparkplug } = resolveNodeContent(topicPath);
+    setIsPinned(false);
+    setDrawerState({
+      topicPath,
+      geo,
+      imageBlobUrl,
+      sparkplug,
+      activeTab: resolveTopicTab("payload", true, {
+        geo: geo !== null,
+        image: imageBlobUrl !== null,
+        sparkplug: sparkplug !== null,
+      }),
+    });
+    setSelectedNodeId(topicPath);
+    setRightActive("topic");
+  }, [resolveNodeContent, setSelectedNodeId]);
 
   // Close the drawer (and unpin) on disconnect — the topic tree is
-  // about to be cleared so the pinned content would be stale.
+  // about to be cleared so the pinned content would be stale. The global
+  // map's cached viewport and trails belong to the old tree, so drop them too.
   useEffect(() => {
-    if (connectionStatus === "disconnected" && drawerState) {
-      setDrawerState(null);
-      setIsPinned(false);
-      setDrawerMode("single");
+    if (connectionStatus === "disconnected") {
+      clearGeoMapCache();
+      if (drawerState) {
+        setDrawerState(null);
+        setIsPinned(false);
+      }
     }
   }, [connectionStatus, drawerState]);
 
   // Selecting a node drives the Topic drawer. Tab choice is sticky while
   // browsing (kept when still valid for the new node); a fresh open prefers
   // the first detected insight tab in registry order (the old drawer
-  // auto-open behaviour), falling back to Payload. When pinned or in all-geo
-  // mode, the drawer content stays as-is regardless of selection.
+  // auto-open behaviour), falling back to Payload. When pinned, the drawer
+  // content stays as-is regardless of selection.
   // Note: the image tab keys off lastImageBlobUrl, not the image tag — a
   // node whose blob was evicted (LRU) won't surface an Image tab until a new
   // image message arrives.
   useEffect(() => {
     if (tourActiveRef.current) return; // auto-tour drives the drawer directly
     if (isPinned) return; // pinned — ignore node selection changes
-    if (drawerMode === "all") return; // all-geo mode — ignore node selection changes
 
     if (!selectedNodeId) {
       setDrawerState(null);
@@ -220,11 +210,10 @@ function App() {
       }),
     }));
     setRightActive("topic");
-  }, [selectedNodeId, isPinned, drawerMode, resolveNodeContent]);
+  }, [selectedNodeId, isPinned, resolveNodeContent]);
 
   // Look up the drawer topic's nodes for the Payload tab. Keyed on the
-  // drawer's topicPath (not selectedNodeId) so the payload follows pinning
-  // and all-geo navigation.
+  // drawer's topicPath (not selectedNodeId) so the payload follows pinning.
   const drawerNodes = useMemo(() => {
     if (!drawerState) return null;
     const root = useTopicStore.getState().root;
@@ -240,10 +229,11 @@ function App() {
   useEffect(() => {
     setRightActive((prev) => {
       if (prev === "topic" && !drawerState) return null;
+      if (prev === "map" && geoNodes.length === 0) return null;
       if (prev === "ecosystems" && entities.length === 0) return null;
       return prev;
     });
-  }, [drawerState, entities.length]);
+  }, [drawerState, entities.length, geoNodes.length]);
 
   // --- Auto-tour wiring ---------------------------------------------------------
 
@@ -369,11 +359,6 @@ function App() {
       onSetTab={handleSetTab}
       isPinned={isPinned}
       onTogglePin={handleTogglePin}
-      mode={drawerMode}
-      onSetMode={handleSetMode}
-      geoNodes={geoNodes}
-      geoNavIndex={geoNavIndex}
-      onNavigate={handleNavigate}
       onClose={handleCloseDrawer}
     />
   ) : null;
@@ -424,6 +409,20 @@ function App() {
         </svg>
       ),
       content: drawerElement,
+    },
+    {
+      id: "map",
+      title: "Map",
+      disabled: geoNodes.length === 0,
+      badge: geoNodes.length,
+      icon: (
+        // Map pin icon
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+        </svg>
+      ),
+      content: <GeoMapPanel geoNodes={geoNodes} onSelectTopic={handleMapSelectTopic} />,
     },
     {
       id: "ecosystems",
