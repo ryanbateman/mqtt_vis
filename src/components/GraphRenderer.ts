@@ -153,16 +153,11 @@ export class GraphRenderer {
   // pan/zoom transition (auto-tour); recomputed once when the transition ends.
   private suppressHitRadius = false;
 
-  // Suppresses expensive O(n) label updates during programmatic transitions.
-  private suppressLabelUpdates = false;
-  // RAF throttle for label updates during user-driven zoom/pan.
+  // RAF throttle for the O(n) label visibility pass during zoom/pan.
   private labelUpdateScheduled = false;
 
   // Per-tick counters/caches to avoid redundant O(n) attribute writes.
   private tickCount = 0;
-  // Last zoom scale that label font-size was computed for; skip the per-tick
-  // font-size pass while the scale is unchanged (it only varies with zoom).
-  private lastLabelFontScale = -1;
 
   // Auto-tour mode: when true, the selected (toured) node gets an animated pulse ring.
   private autoTourMode = false;
@@ -232,11 +227,13 @@ export class GraphRenderer {
         this.container.attr("transform", event.transform);
         this.glowBlur.attr("stdDeviation", String(BASE_GLOW_STD_DEV / this.currentZoomScale));
 
-        // Throttle expensive O(n) label updates during programmatic transitions.
-        // During auto-tour pan/zoom, labels are updated once when transition completes.
-        if (!this.suppressLabelUpdates) {
-          this.scheduleLabelUpdate();
-        }
+        // Counter-scale label text so it holds a constant on-screen size. A single
+        // write to the parent group — the per-label depth factor is in `em`, so it
+        // rides along. Must run on every frame of a programmatic zoom too, or the
+        // text scales with the container (auto-tour renders it tiny/huge).
+        this.applyLabelZoomScale();
+        // Opacity is O(n); RAF-batch it so rapid zoom events collapse to one pass.
+        this.scheduleLabelUpdate();
 
         // Recalculate hit area radii — the floor is zoom-dependent. Skipped during
         // a programmatic auto-tour pan (no pointer interaction); recomputed once
@@ -282,6 +279,9 @@ export class GraphRenderer {
     this.nodeElements = this.nodeGroup.selectAll<SVGCircleElement, GraphNode>("circle");
     this.labelElements = this.labelGroup.selectAll<SVGTextElement, GraphNode>("text");
     this.hitAreaElements = this.hitAreaGroup.selectAll<SVGCircleElement, GraphNode>("circle");
+
+    // Seed the inherited label font-size; labels enter with an `em` factor only.
+    this.applyLabelZoomScale();
   }
 
   private setupSimulation(): void {
@@ -515,7 +515,10 @@ export class GraphRenderer {
       .append("text")
       .attr("text-anchor", "middle")
       .attr("fill", "#e2e8f0")
-      .attr("font-size", `${this.baseFontSize}px`)
+      // Depth factor only — the zoom counter-scale is inherited from labelGroup.
+      // Set on enter: a node's depth never changes. A `font-size` *attribute* here
+      // would shadow the inherited value, so this must stay a style.
+      .style("font-size", (d) => this.labelDepthEm(d))
       .attr("font-family", "monospace")
       .attr("pointer-events", "none")
       .attr("stroke", "#111827")
@@ -530,9 +533,6 @@ export class GraphRenderer {
 
     // Reapply depth-based label visibility for newly entered labels
     this.updateLabelVisibility();
-    // New labels entered with an unscaled font-size — apply the zoom-counter-scaled
-    // size now (font-size is no longer maintained per simulation tick).
-    this.updateLabelFontSizes();
 
     // Repaint node body colour + outline for new/changed nodes' insight tags
     if (this.enabledInsightTags.size > 0) {
@@ -677,8 +677,8 @@ export class GraphRenderer {
     }
 
     // Labels follow their node every tick (positions only). Font-size depends
-    // solely on zoom, so it's maintained in the zoom handler + on structural
-    // update — NOT here — to keep the per-tick cost off the hot path.
+    // solely on zoom, and is inherited from labelGroup — so the zoom handler
+    // maintains it with a single write and it never touches this hot path.
     const labelGap = 14 / this.currentZoomScale;
     this.labelElements
       .attr("x", (d) => d.x ?? 0)
@@ -795,7 +795,7 @@ export class GraphRenderer {
   /** Update the base font size for labels. */
   setLabelFontSize(size: number): void {
     this.baseFontSize = size;
-    this.updateLabelFontSizes();
+    this.applyLabelZoomScale();
   }
 
   /** Update the label text halo stroke width and reapply to all labels. */
@@ -807,7 +807,7 @@ export class GraphRenderer {
   /** Toggle depth-based text scaling. */
   setScaleTextByDepth(enabled: boolean): void {
     this.scaleTextByDepth = enabled;
-    this.updateLabelFontSizes();
+    this.applyLabelDepthScale();
   }
 
   /** Toggle depth-based node size scaling. */
@@ -941,13 +941,9 @@ export class GraphRenderer {
       .translate(this.width / 2 + xBias - node.x * k, this.height / 2 - node.y * k)
       .scale(k);
     this.suppressHitRadius = true;
-    this.suppressLabelUpdates = true;
     this.svg.transition().duration(durationMs)
       .call(this.zoom.transform, transform)
-      .on("end interrupt", () => {
-        this.resumeHitRadius();
-        this.resumeLabelUpdates();
-      });
+      .on("end interrupt", () => this.resumeHitRadius());
   }
 
   /** Re-enable and recompute zoom-dependent hit-area radii after a pan transition. */
@@ -957,9 +953,9 @@ export class GraphRenderer {
   }
 
   /**
-   * Schedule a throttled label update using RAF. Multiple calls within one frame
-   * batch into a single update. This prevents expensive O(n) label operations from
-   * running on every zoom event during rapid pan/zoom.
+   * Schedule a throttled label visibility pass using RAF. Multiple calls within one
+   * frame batch into a single update, so rapid zoom events (wheel, pinch, or a
+   * programmatic transition) cost at most one O(n) opacity pass per frame.
    */
   private scheduleLabelUpdate(): void {
     if (this.labelUpdateScheduled) return;
@@ -967,21 +963,7 @@ export class GraphRenderer {
     requestAnimationFrame(() => {
       this.labelUpdateScheduled = false;
       this.updateLabelVisibility();
-      if (this.currentZoomScale !== this.lastLabelFontScale) {
-        this.updateLabelFontSizes();
-      }
     });
-  }
-
-  /**
-   * Re-enable label updates and apply them immediately after a programmatic transition.
-   */
-  private resumeLabelUpdates(): void {
-    this.suppressLabelUpdates = false;
-    this.updateLabelVisibility();
-    if (this.currentZoomScale !== this.lastLabelFontScale) {
-      this.updateLabelFontSizes();
-    }
   }
 
   /** Fully resync hit-area position + radius — used when leaving the auto-tour,
@@ -1022,13 +1004,9 @@ export class GraphRenderer {
       .translate(this.width / 2 + xBias - cx * scale, this.height / 2 - cy * scale)
       .scale(scale);
     this.suppressHitRadius = true;
-    this.suppressLabelUpdates = true;
     this.svg.transition().duration(durationMs).ease(d3.easeQuadInOut)
       .call(this.zoom.transform, transform)
-      .on("end interrupt", () => {
-        this.resumeHitRadius();
-        this.resumeLabelUpdates();
-      });
+      .on("end interrupt", () => this.resumeHitRadius());
   }
 
   /**
@@ -1054,16 +1032,29 @@ export class GraphRenderer {
     }
   }
 
-  /** Reapply font sizes to all labels immediately (e.g. after settings change). */
-  private updateLabelFontSizes(): void {
-    const baseSize = this.baseFontSize / this.currentZoomScale;
-    const useDepthText = this.scaleTextByDepth;
-    this.labelElements.attr("font-size", (d) => {
-      const size = useDepthText ? depthScale(baseSize, d.depth, 0.25) : baseSize;
-      return `${size}px`;
-    });
-    // Mark the scale this font-size pass covers so tick() can skip redundant ones.
-    this.lastLabelFontScale = this.currentZoomScale;
+  // Label font-size is factored into two independent multipliers, which is exact
+  // because `depthScale(v, depth, f) === v * depthScale(1, depth, f)`:
+  //
+  //   - the zoom counter-scale, inherited from labelGroup (changes every zoom frame)
+  //   - the per-node depth factor, in `em` on each <text>  (immutable per node)
+  //
+  // So a zoom costs one attribute write rather than one per label.
+
+  /** The immutable per-label depth multiplier, as an inheritable `em` length. */
+  private labelDepthEm(d: GraphNode): string {
+    return `${this.scaleTextByDepth ? depthScale(1, d.depth, 0.25) : 1}em`;
+  }
+
+  /** O(1): counter-scale all labels against the current zoom so they hold a
+   *  constant on-screen size. Called on every zoom frame. */
+  private applyLabelZoomScale(): void {
+    this.labelGroup.attr("font-size", `${this.baseFontSize / this.currentZoomScale}px`);
+  }
+
+  /** O(n): reapply the per-label depth factor. Only needed when the depth-scaling
+   *  setting is toggled — never on zoom. */
+  private applyLabelDepthScale(): void {
+    this.labelElements.style("font-size", (d) => this.labelDepthEm(d));
   }
 
   /** Update the repulsion strength between all nodes. */

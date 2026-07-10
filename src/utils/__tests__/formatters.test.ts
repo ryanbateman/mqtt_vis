@@ -161,6 +161,17 @@ describe("depthScale", () => {
     }
   });
 
+  // GraphRenderer relies on this: it splits label font-size into a zoom
+  // counter-scale inherited from the parent <g> and a per-node depth factor
+  // expressed in `em`. That only reconstructs the right size if the value
+  // argument factors out of depthScale.
+  it("should be multiplicative in its value argument", () => {
+    for (let depth = 0; depth <= 8; depth++) {
+      expect(depthScale(14, depth, 0.25)).toBeCloseTo(14 * depthScale(1, depth, 0.25), 10);
+      expect(depthScale(37.5, depth)).toBeCloseTo(37.5 * depthScale(1, depth), 10);
+    }
+  });
+
   it("should be monotonically decreasing with depth", () => {
     const base = 14;
     for (let depth = 1; depth <= 10; depth++) {
