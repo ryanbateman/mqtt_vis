@@ -6,7 +6,7 @@ import type {
   GraphLink,
   LabelMode,
   DisplayMode,
-  MqttUserProperties,
+  MqttV5Properties,
 } from "../types";
 import type { DetectorResult, EntityTagMetadata } from "../types/payloadTags";
 import type { SparkplugDeviceState, SparkplugMetadata, SparkplugTopicInfo } from "../types/sparkplug";
@@ -253,7 +253,7 @@ interface TopicStoreState {
   setTopicFilter: (filter: string) => void;
 
   /** Process an incoming MQTT message. retain defaults to false for backward compatibility. */
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, userProperties?: MqttUserProperties, imageBlobUrl?: string, rawPayload?: ArrayBuffer) => void;
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain?: boolean, properties?: MqttV5Properties, imageBlobUrl?: string, rawPayload?: ArrayBuffer) => void;
   /**
    * True when a retained message arriving NOW would be dropped by the burst
    * window. Lets the MQTT message handler skip per-message work (blob
@@ -788,7 +788,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   burstWindowActive: false,
   burstSettingsLocked: false,
 
-  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false, userProperties?: MqttUserProperties, imageBlobUrl?: string, rawPayload?: ArrayBuffer) => {
+  handleMessage: (topic: string, payload: string, qos: 0 | 1 | 2, retain = false, properties?: MqttV5Properties, imageBlobUrl?: string, rawPayload?: ArrayBuffer) => {
     perfMark("handle-msg-start");
     const state = get();
 
@@ -827,7 +827,6 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
     node.messageCount += 1;
     node.lastTimestamp = Date.now();
     node.lastQoS = qos;
-    node.lastUserProperties = userProperties ?? null;
 
     // Track payload sizes unconditionally — independent of tooltip/LRU settings
     // so size history is always available for debugging and WebMCP queries.
@@ -857,6 +856,18 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
         ? payload.slice(0, PAYLOAD_MAX_STORE)
         : payload;
 
+      // Metadata rides the payload's lifecycle: stored here, nulled together on
+      // eviction below, so payload + metadata stay one coherent snapshot.
+      node.lastMeta = {
+        retained: retain,
+        userProperties: properties?.userProperties ?? null,
+        contentType: properties?.contentType,
+        payloadFormatIndicator: properties?.payloadFormatIndicator,
+        messageExpiryInterval: properties?.messageExpiryInterval,
+        responseTopic: properties?.responseTopic,
+        correlationData: properties?.correlationData,
+      };
+
       // Move this node to the most-recent position in the LRU set
       _payloadLru.delete(node.id);
       _payloadLru.add(node.id);
@@ -872,6 +883,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           const evicted = findNode(root, segments);
           if (evicted) {
             evicted.lastPayload = null;
+            evicted.lastMeta = null;
             // Revoke blob URL on eviction to free memory
             if (evicted.lastImageBlobUrl) {
               URL.revokeObjectURL(evicted.lastImageBlobUrl);

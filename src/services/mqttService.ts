@@ -1,9 +1,9 @@
-import mqtt, { type MqttClient, type IClientOptions } from "mqtt";
-import type { ConnectionParams } from "../types";
+import mqtt, { type MqttClient, type IClientOptions, type IPublishPacket } from "mqtt";
+import type { ConnectionParams, MqttV5Properties } from "../types";
 
 export type MessageHandler = (
   topic: string, payload: Buffer, qos: 0 | 1 | 2, retain: boolean,
-  userProperties?: Record<string, string | string[]>,
+  properties?: MqttV5Properties,
 ) => void;
 
 /** Error info passed to the status handler — richer than a bare string. */
@@ -17,6 +17,31 @@ export type StatusHandler = (
   status: "connecting" | "connected" | "disconnected" | "error",
   error?: MqttStatusError,
 ) => void;
+
+/**
+ * Distill the useful MQTT v5 PUBLISH properties from an mqtt.js packet into a
+ * plain, string-only object for the store. Returns undefined when the packet
+ * carries no properties (v3.1.1 connections, or a v5 message with none), so the
+ * store can treat "no metadata" uniformly. Binary correlation data is hex-encoded
+ * here at the boundary.
+ */
+function distillV5Properties(
+  properties: IPublishPacket["properties"],
+): MqttV5Properties | undefined {
+  if (!properties) return undefined;
+  const cd = properties.correlationData;
+  return {
+    userProperties: properties.userProperties ?? null,
+    contentType: properties.contentType,
+    payloadFormatIndicator:
+      properties.payloadFormatIndicator === undefined
+        ? undefined
+        : (properties.payloadFormatIndicator ? 1 : 0),
+    messageExpiryInterval: properties.messageExpiryInterval,
+    responseTopic: properties.responseTopic,
+    correlationData: Buffer.isBuffer(cd) ? cd.toString("hex") : undefined,
+  };
+}
 
 /** A single entry in the connection event log. */
 export interface ConnectionLogEntry {
@@ -177,7 +202,7 @@ export class MqttService {
     this.client.on("message", (topic, payload, packet) => {
       this.onMessage?.(
         topic, payload, packet.qos as 0 | 1 | 2, !!packet.retain,
-        packet.properties?.userProperties,
+        distillV5Properties(packet.properties),
       );
     });
 

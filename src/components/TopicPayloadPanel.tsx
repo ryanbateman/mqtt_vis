@@ -96,9 +96,11 @@ export function TopicStatsPanel({
 }
 
 /**
- * Payload tab of the Topic drawer: last payload (with copy and JSON
- * pretty-print toggle) and MQTT v5 user properties. Stats live in
- * TopicStatsPanel above the tab bar.
+ * Message tab of the Topic drawer: the latest message as payload (with copy and
+ * JSON pretty-print toggle), an MQTT metadata subsection (retained flag, QoS, and
+ * any MQTT v5 properties), and a user-properties subsection. Metadata is retained
+ * under the same strategy as the payload, so it appears only when payload storage
+ * is enabled. Stats live in TopicStatsPanel above the tab bar.
  */
 export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
   const [copiedPayload, setCopiedPayload] = useState(false);
@@ -131,9 +133,16 @@ export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
     }
   };
 
+  const meta = topicNode.lastMeta;
+  const userProps = meta?.userProperties ?? null;
   const hasUserProperties =
-    topicNode.lastUserProperties !== null &&
-    Object.keys(topicNode.lastUserProperties).length > 0;
+    userProps !== null && Object.keys(userProps).length > 0;
+
+  // 1 = UTF-8 text, 0 = unspecified bytes; absent when the broker didn't set it.
+  const payloadFormatLabel =
+    meta?.payloadFormatIndicator === undefined
+      ? null
+      : meta.payloadFormatIndicator === 1 ? "UTF-8" : "Bytes";
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -141,7 +150,7 @@ export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
       {topicNode.lastPayload !== null ? (
         <div className="p-3 min-h-0 flex-1 flex flex-col">
           <div className="flex items-center justify-between mb-1 flex-shrink-0">
-            <span className="text-[10px] text-gray-500">Last Payload</span>
+            <span className="text-[10px] text-gray-500">Payload</span>
             <div className="flex items-center gap-1">
               <button
                 onClick={handleCopyPayload}
@@ -183,6 +192,54 @@ export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
         </div>
       )}
 
+      {/* Metadata — retained flag, QoS, and MQTT v5 properties.
+          Present only when the message snapshot is stored (payload storage on). */}
+      {meta && (
+        <div className="p-3 flex-shrink-0 border-t border-gray-700/50">
+          <div className="mb-1">
+            <span className="text-[10px] text-gray-500">Metadata</span>
+          </div>
+          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+            <span className="text-gray-500">Retained</span>
+            <span className="text-gray-300 font-mono">{meta.retained ? "yes" : "no"}</span>
+
+            <span className="text-gray-500">QoS</span>
+            <span className="text-gray-300 font-mono">{topicNode.lastQoS}</span>
+
+            {meta.contentType && (
+              <>
+                <span className="text-gray-500">Content-Type</span>
+                <span className="text-gray-300 font-mono break-all">{meta.contentType}</span>
+              </>
+            )}
+            {payloadFormatLabel && (
+              <>
+                <span className="text-gray-500">Format</span>
+                <span className="text-gray-300 font-mono">{payloadFormatLabel}</span>
+              </>
+            )}
+            {meta.messageExpiryInterval !== undefined && (
+              <>
+                <span className="text-gray-500">Expiry</span>
+                <span className="text-gray-300 font-mono">{meta.messageExpiryInterval}s</span>
+              </>
+            )}
+            {meta.responseTopic && (
+              <>
+                <span className="text-gray-500">Response topic</span>
+                <span className="text-gray-300 font-mono break-all">{meta.responseTopic}</span>
+              </>
+            )}
+            {meta.correlationData && (
+              <>
+                <span className="text-gray-500">Correlation</span>
+                <span className="text-gray-300 font-mono break-all">{meta.correlationData}</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* User Properties — MQTT v5 key-value pairs */}
       {hasUserProperties && (
         <div className="p-3 overflow-y-auto flex-shrink-0 max-h-40 border-t border-gray-700/50">
@@ -190,7 +247,7 @@ export function TopicPayloadPanel({ topicNode }: { topicNode: TopicNode }) {
             <span className="text-[10px] text-gray-500">User Properties</span>
           </div>
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
-            {Object.entries(topicNode.lastUserProperties!).map(([key, value]) => (
+            {Object.entries(userProps!).map(([key, value]) => (
               <Fragment key={key}>
                 <span className="text-gray-500 font-mono">{key}</span>
                 <span className="text-gray-300 font-mono break-all">

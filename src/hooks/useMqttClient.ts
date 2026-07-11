@@ -19,7 +19,7 @@ export function useMqttClient() {
 
   // Set up message and status handlers
   useEffect(() => {
-    mqttService.setMessageHandler((topic, payload, qos, retain, userProperties) => {
+    mqttService.setMessageHandler((topic, payload, qos, retain, properties) => {
       // Messages the store will immediately discard (retained burst drop)
       // skip ALL per-message work: blob creation, sparkplug byte copies,
       // and the UTF-8 decode. The store keeps its own drop branch too.
@@ -60,7 +60,7 @@ export function useMqttClient() {
       }
 
       const payloadStr = payload.toString();
-      handleMessage(topic, payloadStr, qos, retain, userProperties, imageBlobUrl, rawPayload);
+      handleMessage(topic, payloadStr, qos, retain, properties, imageBlobUrl, rawPayload);
     });
 
     mqttService.setStatusHandler((status, error) => {
