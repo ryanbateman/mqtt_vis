@@ -29,7 +29,8 @@ export type IndicatorSettingsKey =
   | "showChirpstackIndicators"
   | "showHomieIndicators"
   | "showOpenDtuIndicators"
-  | "showTasmotaIndicators";
+  | "showTasmotaIndicators"
+  | "showWledIndicators";
 
 /** Static definition of one payload tag type. */
 export interface TagDefinition {
@@ -193,6 +194,19 @@ export const TAG_REGISTRY: readonly TagDefinition[] = [
     settingsLabel: "Tasmota Indicators",
     settingsTooltip:
       "Show a coloured ring around topics belonging to Tasmota devices (tele/stat/cmnd)",
+    defaultEnabled: true,
+    drawerTab: null,
+  },
+  {
+    id: "wled",
+    label: "WLED",
+    // Fuchsia — outside the node heat palette (slate/sky/orange/amber/yellow)
+    // and sits between image purple and chirpstack pink with room to spare.
+    ringColor: "#d946ef",
+    settingsKey: "showWledIndicators",
+    settingsLabel: "WLED Indicators",
+    settingsTooltip:
+      "Show a coloured ring around topics belonging to WLED light controllers",
     defaultEnabled: true,
     drawerTab: null,
   },

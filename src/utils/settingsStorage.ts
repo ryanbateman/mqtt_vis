@@ -59,6 +59,7 @@ export interface SavedSettings {
   showHomieIndicators?: boolean;
   showOpenDtuIndicators?: boolean;
   showTasmotaIndicators?: boolean;
+  showWledIndicators?: boolean;
   fadeIndicatorRings?: boolean;
   followEcosystemTopics?: boolean;
   // Panel UI state (ephemeral per-component, but nice to restore)
@@ -135,6 +136,7 @@ function validate(raw: StoredSettings): SavedSettings {
     showHomieIndicators: validBoolean(raw.showHomieIndicators),
     showOpenDtuIndicators: validBoolean(raw.showOpenDtuIndicators),
     showTasmotaIndicators: validBoolean(raw.showTasmotaIndicators),
+    showWledIndicators: validBoolean(raw.showWledIndicators),
     fadeIndicatorRings: validBoolean(raw.fadeIndicatorRings),
     followEcosystemTopics: validBoolean(raw.followEcosystemTopics),
     settingsCollapsed:  validBoolean(raw.settingsCollapsed),

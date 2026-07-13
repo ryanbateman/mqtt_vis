@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { TAG_REGISTRY, getTagDefinition, getTag } from "../tagRegistry";
 import type { DetectorResult, PayloadTagType } from "../../types/payloadTags";
 
-const ALL_TAG_TYPES: PayloadTagType[] = ["geo", "image", "sparkplug", "homeassistant", "frigate", "shelly", "owntracks", "ttn", "chirpstack", "homie", "opendtu", "tasmota"];
+const ALL_TAG_TYPES: PayloadTagType[] = ["geo", "image", "sparkplug", "homeassistant", "frigate", "shelly", "owntracks", "ttn", "chirpstack", "homie", "opendtu", "tasmota", "wled"];
 
 describe("TAG_REGISTRY", () => {
   it("has exactly one entry per PayloadTagType", () => {
