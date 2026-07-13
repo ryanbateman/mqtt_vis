@@ -78,16 +78,22 @@ function parseTtn(segments: string[], payload: string): LorawanIdentity | null {
   };
 }
 
-/** ChirpStack: `application/<id>/device/...`; identity lives in the payload. */
+/** ChirpStack: `application/<id>/device/...`; identity lives in the payload.
+ *  ChirpStack's MQTT topic prefix is configurable, so `application` may sit
+ *  behind a prefix (e.g. `lorawan/application/<id>/device/<eui>/event/up`) —
+ *  anchor on the `application` segment wherever it appears rather than requiring
+ *  it at index 0. */
 function parseChirpstack(segments: string[], payload: string): LorawanIdentity | null {
-  if (segments[0] !== "application" || !segments.includes("device")) return null;
+  const appIdx = segments.indexOf("application");
+  const devIdx = segments.indexOf("device");
+  if (appIdx === -1 || devIdx <= appIdx) return null;
 
   const msg = parseObject(payload);
   if (!msg) return null;
   const info = (msg.deviceInfo ?? null) as Record<string, unknown> | null;
 
   // v3 carries identity at the root; v4 nests it under deviceInfo.
-  const appId = asString(msg.applicationID) ?? asString(info?.applicationId) ?? segments[1] ?? null;
+  const appId = asString(msg.applicationID) ?? asString(info?.applicationId) ?? segments[appIdx + 1] ?? null;
   const devEui = asString(msg.devEUI) ?? asString(msg.devEui) ?? asString(info?.devEui);
   const devName = asString(msg.deviceName) ?? asString(info?.deviceName);
   // A real ChirpStack message identifies itself; bail otherwise so we don't

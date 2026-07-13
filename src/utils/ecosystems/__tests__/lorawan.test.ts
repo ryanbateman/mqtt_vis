@@ -104,9 +104,36 @@ describe("recordLorawanMessage", () => {
     expect(hit.entity.online).toBe(true);
   });
 
+  it("builds a ChirpStack v4 tree under a configurable topic prefix", () => {
+    // ChirpStack's topic prefix is configurable, e.g. `lorawan/` prepended to
+    // application/<id>/device/<devEui>/event/up.
+    const topic = "lorawan/application/app-01/device/aabbccddeeff0011/event/up";
+    const payload = JSON.stringify({
+      deviceInfo: {
+        applicationId: "app-01",
+        applicationName: "Prefixed App",
+        deviceName: "sensor-1",
+        devEui: "aabbccddeeff0011",
+      },
+      devAddr: "00112233",
+      fCnt: 5,
+      fPort: 2,
+      object: { longitude: 0.1, latitude: 51.0 },
+    });
+    const hit = recordLorawanMessage(registry, topic, topic, payload)!;
+    expect(hit.entity.key).toBe("chirpstack:dev:app-01/aabbccddeeff0011");
+    expect(hit.entity.ecosystem).toBe("chirpstack");
+    expect(hit.entity.label).toBe("sensor-1");
+    expect(hit.entity.parentKey).toBe("chirpstack:app:app-01");
+    expect(registry.entities.get("chirpstack:app:app-01")!.label).toBe("Prefixed App");
+    expect(hit.entity.online).toBe(true); // "up" event = heard
+  });
+
   it("does not claim a generic application/ topic without a ChirpStack payload", () => {
     expect(recordLorawanMessage(registry, "application/foo/device/bar", "n", "{}")).toBeNull();
     expect(recordLorawanMessage(registry, "application/x/device/y", "n", "not-json")).toBeNull();
+    // Prefixed but idless/non-ChirpStack payload is still rejected by the payload guard.
+    expect(recordLorawanMessage(registry, "lorawan/application/x/device/y", "n", "{}")).toBeNull();
     expect(registry.entities.size).toBe(0);
   });
 
