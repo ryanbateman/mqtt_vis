@@ -95,7 +95,11 @@ export function ConnectionPanel({
   const saved = loadSavedConnection();
   const urlParams = useMemo(() => getUrlParams(), []);
 
-  const brokers = cfg.brokers ?? [];
+  const brokers = useMemo(() => cfg.brokers ?? [], [cfg]);
+  const brokersByUrl = useMemo(
+    () => new Map(brokers.map((b) => [b.url, b])),
+    [brokers]
+  );
 
   // Derive initial state once
   const initialBrokerUrl = useMemo(
@@ -134,8 +138,28 @@ export function ConnectionPanel({
   );
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
+  const [keepalive, setKeepalive] = useState<number>(
+    saved.keepalive ?? cfg.keepalive ?? 30
+  );
+  const [qos, setQos] = useState<0 | 1 | 2>(
+    ((saved.qos ?? cfg.qos ?? 1) as 0 | 1 | 2)
+  );
+  // Protocol-version precedence: a broker arriving via the ?broker= share link
+  // adopts that broker's configured version (so a shared EMF link lands on 3.1.1),
+  // then the user's saved choice, then the saved broker's default, then global/5.
+  const [protocolVersion, setProtocolVersion] = useState<4 | 5>(() => {
+    const linkBroker = urlParams.broker ? brokersByUrl.get(urlParams.broker) : undefined;
+    return (
+      linkBroker?.protocolVersion
+      ?? saved.protocolVersion
+      ?? brokersByUrl.get(initialBrokerUrl)?.protocolVersion
+      ?? cfg.protocolVersion
+      ?? 5
+    ) as 4 | 5;
+  });
   const [showAuth, setShowAuth] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // Clear-graph-on-disconnect now lives in the settings store (Settings → Visual).
   const clearOnDisconnect = useTopicStore((s) => s.clearOnDisconnect);
   const [autoconnect, setAutoconnect] = useState(saved.autoconnect ?? cfg.autoconnect ?? false);
@@ -160,6 +184,15 @@ export function ConnectionPanel({
   const cancelReconnect = useCallback(() => {
     if (isConnecting) onDisconnect();
   }, [isConnecting, onDisconnect]);
+
+  /** Selecting a broker adopts its configured protocol version (if any), so
+   *  picking EMF from the dropdown flips the MQTT version to 3.1.1. A broker
+   *  without an override leaves the current selection untouched. */
+  const handleBrokerChange = useCallback((url: string) => {
+    setBrokerUrl(url);
+    const v = brokersByUrl.get(url)?.protocolVersion;
+    if (v) setProtocolVersion(v);
+  }, [brokersByUrl]);
 
   const knownBrokerUrls = useMemo(() => new Set(brokers.map((b) => b.url)), [brokers]);
 
@@ -202,10 +235,13 @@ export function ConnectionPanel({
           clientId,
           username: username || undefined,
           password: password || undefined,
+          keepalive,
+          qos,
+          protocolVersion,
         });
       }
     },
-    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
+    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, keepalive, qos, protocolVersion, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
   );
 
   const statusColor =
@@ -334,7 +370,7 @@ export function ConnectionPanel({
                 <SelectOrCustom
                   options={brokers.map((b) => ({ value: b.url, label: b.name }))}
                   value={brokerUrl}
-                  onChange={setBrokerUrl}
+                  onChange={handleBrokerChange}
                   customLabel="Custom Broker…"
                   placeholder="wss://broker.example.com:8884/mqtt"
                   disabled={isConnected}
@@ -383,6 +419,15 @@ export function ConnectionPanel({
               >
                 {buttonLabel}
               </button>
+
+              {/* Reconnect-gap warning — each reconnect implies a window of QoS-0
+                  messages that were missed while offline. Read live from the service. */}
+              {mqttService.reconnectGaps > 0 && (
+                <p className="text-[10px] text-amber-400 leading-snug">
+                  ⚠ Reconnected {mqttService.reconnectGaps}× — messages published during
+                  offline gaps were missed.
+                </p>
+              )}
 
               {/* Auto-tour — enter auto-tour mode: hide all chrome and cycle active topics.
                   Only available once connected (the tour needs live topics). */}
@@ -537,6 +582,85 @@ export function ConnectionPanel({
                   />
                 </div>
               </Disclosure>
+
+              {/* Advanced — connection-level MQTT tuning (keep-alive, QoS, protocol version) */}
+              <Disclosure label="Advanced" open={showAdvanced} onToggle={() => setShowAdvanced((v) => !v)}>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Keep-alive (s)
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={300}
+                    value={keepalive}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      setKeepalive(Number.isFinite(n) ? n : 30);
+                    }}
+                    onFocus={cancelReconnect}
+                    disabled={isConnected}
+                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
+                  />
+                  <p className="mt-1 text-[10px] text-gray-500 leading-snug">
+                    Lower detects dropped connections faster; helps when a proxy idles
+                    out the WebSocket. Default 30.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Subscribe QoS
+                  </label>
+                  <div className="flex gap-1">
+                    {([0, 1, 2] as const).map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => { cancelReconnect(); setQos(level); }}
+                        disabled={isConnected}
+                        className={`flex-1 py-1.5 rounded text-xs font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          qos === level
+                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/60"
+                            : "bg-gray-800 text-gray-400 border border-gray-600 hover:text-gray-200"
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[10px] text-gray-500 leading-snug">
+                    1 = at-least-once (broker redelivers lost messages). 2 falls back to
+                    the broker's max.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    MQTT version
+                  </label>
+                  <div className="flex gap-1">
+                    {([5, 4] as const).map((version) => (
+                      <button
+                        key={version}
+                        type="button"
+                        onClick={() => { cancelReconnect(); setProtocolVersion(version); }}
+                        disabled={isConnected}
+                        className={`flex-1 py-1.5 rounded text-xs font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          protocolVersion === version
+                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/60"
+                            : "bg-gray-800 text-gray-400 border border-gray-600 hover:text-gray-200"
+                        }`}
+                      >
+                        {version === 4 ? "3.1.1" : "5"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[10px] text-gray-500 leading-snug">
+                    3.1.1 matches most bridges/tools; 5 adds richer message metadata.
+                  </p>
+                </div>
+              </Disclosure>
             </form>
           )}
 
@@ -600,7 +724,7 @@ export function ConnectionPanel({
                   {mqttService.connectionLog.map((entry, i) => (
                     <div key={i} className="flex gap-2 text-[10px] font-mono leading-snug">
                       <span className="text-gray-500 flex-shrink-0">{formatLogTimestamp(entry.timestamp)}</span>
-                      <span className="text-gray-300">{entry.message}</span>
+                      <span className={entry.level === "warn" ? "text-amber-400" : "text-gray-300"}>{entry.message}</span>
                     </div>
                   ))}
                 </div>

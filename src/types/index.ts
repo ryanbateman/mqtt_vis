@@ -134,6 +134,12 @@ export interface ConnectionParams {
   clientId?: string;
   username?: string;
   password?: string;
+  /** MQTT keep-alive interval in seconds. Omitted → service default. */
+  keepalive?: number;
+  /** Subscribe QoS. Omitted → service default. Broker may downgrade to its max. */
+  qos?: 0 | 1 | 2;
+  /** MQTT protocol version: 5 or 4 (3.1.1). Omitted → service default. */
+  protocolVersion?: 4 | 5;
 }
 
 /** A broker entry for the quick-connect dropdown. */
@@ -142,6 +148,9 @@ export interface Broker {
   name: string;
   /** WebSocket URL for the broker (e.g. "wss://broker.hivemq.com:8884/mqtt"). */
   url: string;
+  /** Optional per-broker default MQTT protocol version (5, or 4 = 3.1.1). Adopted
+   *  when this broker is selected or arrives via the ?broker= share link. */
+  protocolVersion?: 4 | 5;
 }
 
 /** @deprecated Use Broker instead. */

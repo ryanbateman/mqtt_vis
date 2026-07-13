@@ -8,6 +8,7 @@
   "autoconnect": false,
 
   "brokers": [
+    { "name": "EMF Camp", "url": "wss://mqtt.emf.camp:15676/ws", "protocolVersion": 4 },
     { "name": "Mosquitto Test Server", "url": "wss://test.mosquitto.org:8081" },
     { "name": "HiveMQ Public Broker", "url": "wss://broker.hivemq.com:8884/mqtt" },
     { "name": "Coreflux Public Broker", "url": "wss://iot.coreflux.cloud:443/mqtt" },
