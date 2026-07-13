@@ -9,8 +9,10 @@ let fakeClient: FakeClient | null = null;
 
 class FakeClient extends EventEmitter {
   connected = false;
-  subscribe = vi.fn((_topic: string, _opts: unknown, cb?: (e: Error | null, g?: unknown) => void) => {
-    cb?.(null, [{ topic: _topic, qos: 0 }]);
+  // Echo the requested QoS back as "granted" (a real broker may downgrade, but
+  // for these tests honoring the request is the useful behaviour to assert on).
+  subscribe = vi.fn((topic: string, opts?: { qos?: 0 | 1 | 2 }, cb?: (e: Error | null, g?: unknown) => void) => {
+    cb?.(null, [{ topic, qos: opts?.qos ?? 0 }]);
   });
   end = vi.fn((_force?: boolean | (() => void), cb?: () => void) => {
     if (typeof _force === "function") _force();
@@ -103,5 +105,34 @@ describe("mqttService — reconnect visibility", () => {
     mqttService.connect({ ...CONNECT });
     expect(mqttService.reconnectGaps).toBe(0);
     expect(mqttService.lastGapSeconds).toBe(0);
+  });
+});
+
+describe("mqttService — subscribe QoS", () => {
+  beforeEach(() => {
+    fakeClient = null;
+    mqttService.disconnect();
+  });
+
+  it("defaults the subscribe to QoS 1 (at-least-once)", () => {
+    mqttService.connect({ ...CONNECT });
+    fakeClient!.emit("connect", undefined);
+    expect(fakeClient!.subscribe).toHaveBeenCalledWith(
+      "#", { qos: 1 }, expect.any(Function),
+    );
+  });
+
+  it("passes an explicit subscribe QoS through", () => {
+    mqttService.connect({ ...CONNECT, qos: 0 });
+    fakeClient!.emit("connect", undefined);
+    expect(fakeClient!.subscribe).toHaveBeenCalledWith(
+      "#", { qos: 0 }, expect.any(Function),
+    );
+  });
+
+  it("logs the QoS the broker granted", () => {
+    mqttService.connect({ ...CONNECT, qos: 1 });
+    fakeClient!.emit("connect", undefined);
+    expect(mqttService.connectionLog.some((e) => /at QoS 1/.test(e.message))).toBe(true);
   });
 });

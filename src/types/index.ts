@@ -136,6 +136,8 @@ export interface ConnectionParams {
   password?: string;
   /** MQTT keep-alive interval in seconds. Omitted → service default. */
   keepalive?: number;
+  /** Subscribe QoS. Omitted → service default. Broker may downgrade to its max. */
+  qos?: 0 | 1 | 2;
 }
 
 /** A broker entry for the quick-connect dropdown. */

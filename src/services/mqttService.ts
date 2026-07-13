@@ -68,6 +68,11 @@ const DEFAULT_KEEPALIVE_SECONDS = 30;
  *  pings entirely in mqtt.js). */
 const MIN_KEEPALIVE_SECONDS = 5;
 
+/** Default subscribe QoS. 1 = at-least-once, so the broker redelivers un-acked
+ *  messages on the live session (helps under load), unlike QoS 0's fire-and-forget.
+ *  The broker may downgrade to its advertised maximum. */
+const DEFAULT_SUBSCRIBE_QOS = 1;
+
 /**
  * Maximum follow-on subscriptions (ecosystem-declared state/availability
  * topics) per connection. Matches the entity-cap order of magnitude while
@@ -180,6 +185,8 @@ export class MqttService {
 
     for (const topic of fresh) this._followed.add(topic);
     for (let i = 0; i < fresh.length; i += FOLLOW_BATCH_SIZE) {
+      // Follow-on ecosystem topics stay at QoS 0 regardless of the user's chosen
+      // subscribe QoS — best-effort, mostly-retained state/availability topics.
       this.client.subscribe(fresh.slice(i, i + FOLLOW_BATCH_SIZE), { qos: 0 });
     }
     this.log(`Following ${fresh.length} ecosystem topic${fresh.length === 1 ? "" : "s"} (total ${this._followed.size})`);
@@ -218,6 +225,10 @@ export class MqttService {
     if (params.username) options.username = params.username;
     if (params.password) options.password = params.password;
 
+    // Resolved once and captured by the "connect" handler below, so every
+    // resubscribe on reconnect uses the same QoS.
+    const subscribeQos = (params.qos ?? DEFAULT_SUBSCRIBE_QOS) as 0 | 1 | 2;
+
     this.client = mqtt.connect(params.brokerUrl, options);
 
     this.client.on("connect", () => {
@@ -235,11 +246,15 @@ export class MqttService {
       this._reconnectAttempts = 0;
       this.log(`Connected — subscribing to "${params.topicFilter}"`);
       this.onStatus?.("connected");
-      this.client?.subscribe(params.topicFilter, { qos: 0 }, (err) => {
+      this.client?.subscribe(params.topicFilter, { qos: subscribeQos }, (err, granted) => {
         if (err) {
           console.error("MQTT subscribe error:", err);
           this.log(`Subscribe error: ${err.message}`);
           this.onStatus?.("error", { message: err.message });
+        } else {
+          // Report the QoS the broker actually granted — it may downgrade to its max.
+          const grantedQos = granted?.[0]?.qos ?? subscribeQos;
+          this.log(`Subscribed to "${params.topicFilter}" at QoS ${grantedQos}`);
         }
       });
     });

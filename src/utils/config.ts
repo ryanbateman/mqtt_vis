@@ -9,6 +9,8 @@ export interface AppConfig {
   password?: string;
   /** MQTT keep-alive interval in seconds. Deployment default for the connection form. */
   keepalive?: number;
+  /** Subscribe QoS (0 | 1 | 2). Deployment default for the connection form. */
+  qos?: number;
   autoconnect?: boolean;
 
   // Brokers for the quick-connect dropdown.

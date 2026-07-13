@@ -98,6 +98,7 @@ export function useMqttClient() {
             clientId: params.clientId,
             username: params.username,
             keepalive: params.keepalive,
+            qos: params.qos,
           })
         );
       } catch {

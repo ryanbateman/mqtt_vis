@@ -137,6 +137,9 @@ export function ConnectionPanel({
   const [keepalive, setKeepalive] = useState<number>(
     saved.keepalive ?? cfg.keepalive ?? 30
   );
+  const [qos, setQos] = useState<0 | 1 | 2>(
+    ((saved.qos ?? cfg.qos ?? 1) as 0 | 1 | 2)
+  );
   const [showAuth, setShowAuth] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   // Clear-graph-on-disconnect now lives in the settings store (Settings → Visual).
@@ -206,10 +209,11 @@ export function ConnectionPanel({
           username: username || undefined,
           password: password || undefined,
           keepalive,
+          qos,
         });
       }
     },
-    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, keepalive, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
+    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, keepalive, qos, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
   );
 
   const statusColor =
@@ -503,6 +507,33 @@ export function ConnectionPanel({
                   <p className="mt-1 text-[10px] text-gray-500 leading-snug">
                     Lower detects dropped connections faster; helps when a proxy idles
                     out the WebSocket. Default 30.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Subscribe QoS
+                  </label>
+                  <div className="flex gap-1">
+                    {([0, 1, 2] as const).map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => { cancelReconnect(); setQos(level); }}
+                        disabled={isConnected}
+                        className={`flex-1 py-1.5 rounded text-xs font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          qos === level
+                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/60"
+                            : "bg-gray-800 text-gray-400 border border-gray-600 hover:text-gray-200"
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[10px] text-gray-500 leading-snug">
+                    1 = at-least-once (broker redelivers lost messages). 2 falls back to
+                    the broker's max.
                   </p>
                 </div>
               </Disclosure>
