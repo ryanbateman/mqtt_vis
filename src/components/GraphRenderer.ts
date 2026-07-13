@@ -39,6 +39,9 @@ const BASE_GLOW_STD_DEV = 4;
  * a constant screen-space size.
  */
 const MIN_HIT_RADIUS_PX = 12;
+/** Max screen-space pointer travel (px) for a node gesture to count as a click
+ *  rather than a drag. Absorbs sub-pixel jitter of a real click. */
+const CLICK_MOVE_THRESHOLD_PX = 4;
 /** During the auto-tour, sync invisible hit-area positions only every Nth tick
  *  (no pointer interaction, so bounded staleness is fine; resynced fully on exit). */
 const HITAREA_TOUR_STRIDE = 6;
@@ -1362,11 +1365,18 @@ export class GraphRenderer {
 
   /** Create a drag behaviour for nodes. */
   private setupDrag(): d3.DragBehavior<SVGCircleElement, GraphNode, GraphNode | d3.SubjectPosition> {
+    // Gesture start position (graph coords), used to distinguish a click from a
+    // drag by total pointer travel. Single-pointer interaction, so a closure var
+    // is sufficient.
+    let startX = 0;
+    let startY = 0;
     return d3
       .drag<SVGCircleElement, GraphNode>()
       .on("start", (event, d) => {
         if (!event.active) this.simulation.alphaTarget(0.3).restart();
         this.ensureAnimating();
+        startX = event.x;
+        startY = event.y;
         d.fx = d.x;
         d.fy = d.y;
       })
@@ -1379,8 +1389,11 @@ export class GraphRenderer {
         d.fx = null;
         d.fy = null;
 
-        // Detect click: drag ended at exactly the starting position
-        if (event.dx === 0 && event.dy === 0) {
+        // Detect click: treat as a click only if total pointer travel over the
+        // whole gesture stayed within the threshold. event.x/y are post-zoom
+        // graph coords, so scale the screen-space threshold by the zoom level.
+        const movedPx = Math.hypot(event.x - startX, event.y - startY) * this.currentZoomScale;
+        if (movedPx <= CLICK_MOVE_THRESHOLD_PX) {
           this.onNodeClick?.(d.id);
         }
       });
