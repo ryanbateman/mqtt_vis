@@ -134,6 +134,8 @@ export interface ConnectionParams {
   clientId?: string;
   username?: string;
   password?: string;
+  /** MQTT keep-alive interval in seconds. Omitted → service default. */
+  keepalive?: number;
 }
 
 /** A broker entry for the quick-connect dropdown. */

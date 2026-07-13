@@ -134,6 +134,9 @@ export function ConnectionPanel({
   );
   const [username, setUsername] = useState(saved.username ?? cfg.username ?? "");
   const [password, setPassword] = useState(cfg.password ?? "");
+  const [keepalive, setKeepalive] = useState<number>(
+    saved.keepalive ?? cfg.keepalive ?? 30
+  );
   const [showAuth, setShowAuth] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   // Clear-graph-on-disconnect now lives in the settings store (Settings → Visual).
@@ -202,10 +205,11 @@ export function ConnectionPanel({
           clientId,
           username: username || undefined,
           password: password || undefined,
+          keepalive,
         });
       }
     },
-    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
+    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, keepalive, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
   );
 
   const statusColor =
@@ -384,6 +388,15 @@ export function ConnectionPanel({
                 {buttonLabel}
               </button>
 
+              {/* Reconnect-gap warning — each reconnect implies a window of QoS-0
+                  messages that were missed while offline. Read live from the service. */}
+              {mqttService.reconnectGaps > 0 && (
+                <p className="text-[10px] text-amber-400 leading-snug">
+                  ⚠ Reconnected {mqttService.reconnectGaps}× — messages published during
+                  offline gaps were missed.
+                </p>
+              )}
+
               {/* Auto-tour — enter auto-tour mode: hide all chrome and cycle active topics.
                   Only available once connected (the tour needs live topics). */}
               <div className="border-t border-gray-700/60 pt-3">
@@ -468,6 +481,29 @@ export function ConnectionPanel({
                     placeholder="mqtt_visualiser_..."
                     className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Keep-alive (s)
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={300}
+                    value={keepalive}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      setKeepalive(Number.isFinite(n) ? n : 30);
+                    }}
+                    onFocus={cancelReconnect}
+                    disabled={isConnected}
+                    className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
+                  />
+                  <p className="mt-1 text-[10px] text-gray-500 leading-snug">
+                    Lower detects dropped connections faster; helps when a proxy idles
+                    out the WebSocket. Default 30.
+                  </p>
                 </div>
               </Disclosure>
 
@@ -600,7 +636,7 @@ export function ConnectionPanel({
                   {mqttService.connectionLog.map((entry, i) => (
                     <div key={i} className="flex gap-2 text-[10px] font-mono leading-snug">
                       <span className="text-gray-500 flex-shrink-0">{formatLogTimestamp(entry.timestamp)}</span>
-                      <span className="text-gray-300">{entry.message}</span>
+                      <span className={entry.level === "warn" ? "text-amber-400" : "text-gray-300"}>{entry.message}</span>
                     </div>
                   ))}
                 </div>

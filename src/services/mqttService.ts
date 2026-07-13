@@ -49,6 +49,8 @@ export interface ConnectionLogEntry {
   timestamp: number;
   /** Short event label shown in the log. */
   message: string;
+  /** Severity — "warn" highlights events like reconnect gaps. Defaults to "info". */
+  level?: "info" | "warn";
 }
 
 /** Maximum entries kept in the connection log ring buffer. */
@@ -56,6 +58,15 @@ const MAX_LOG_ENTRIES = 20;
 
 /** Maximum automatic reconnect attempts before giving up. */
 const MAX_RECONNECT_ATTEMPTS = 3;
+
+/** Default MQTT keep-alive (seconds) when the caller doesn't specify one.
+ *  Lower than mqtt.js's 60s default: halves dead-link detection (~45s worst
+ *  case) and stays under typical ~60s WS proxy idle timeouts. */
+const DEFAULT_KEEPALIVE_SECONDS = 30;
+
+/** Floor for the keep-alive interval; guards against a stray 0 (which disables
+ *  pings entirely in mqtt.js). */
+const MIN_KEEPALIVE_SECONDS = 5;
 
 /**
  * Maximum follow-on subscriptions (ecosystem-declared state/availability
@@ -79,6 +90,12 @@ export class MqttService {
   private _log: ConnectionLogEntry[] = [];
   private _reconnectAttempts = 0;
   private _lastBrokerUrl = "";
+  /** Timestamp (ms) the socket last went offline; null while connected/idle. */
+  private _offlineSince: number | null = null;
+  /** Count of completed reconnects this session (each implies a missed-message gap). */
+  private _reconnectGaps = 0;
+  /** Duration (s) of the most recent offline gap. */
+  private _lastGapSeconds = 0;
   /** Follow-on subscriptions made this connection (dedupe + cap). */
   private _followed = new Set<string>();
   private _followCapWarned = false;
@@ -98,6 +115,16 @@ export class MqttService {
     return this._reconnectAttempts;
   }
 
+  /** Completed reconnects this session — each implies a window of missed messages. */
+  get reconnectGaps(): number {
+    return this._reconnectGaps;
+  }
+
+  /** Duration (s) of the most recent offline gap. */
+  get lastGapSeconds(): number {
+    return this._lastGapSeconds;
+  }
+
   /** Register a callback for incoming messages. */
   setMessageHandler(handler: MessageHandler): void {
     this.onMessage = handler;
@@ -109,11 +136,11 @@ export class MqttService {
   }
 
   /** Append an entry to the ring-buffer log (drops oldest when full). */
-  private log(message: string): void {
+  private log(message: string, level: "info" | "warn" = "info"): void {
     if (this._log.length >= MAX_LOG_ENTRIES) {
       this._log.shift();
     }
-    this._log.push({ timestamp: Date.now(), message });
+    this._log.push({ timestamp: Date.now(), message, level });
   }
 
   /**
@@ -166,6 +193,9 @@ export class MqttService {
     this._followed.clear();
     this._followCapWarned = false;
     this._reconnectAttempts = 0;
+    this._offlineSince = null;
+    this._reconnectGaps = 0;
+    this._lastGapSeconds = 0;
     // Preserve the log across reconnects within the same session;
     // clear it only on a fresh user-initiated connect.
     this._log = [];
@@ -178,6 +208,10 @@ export class MqttService {
       clean: true,
       connectTimeout: 10_000,
       reconnectPeriod: 5_000,
+      keepalive: Math.max(
+        MIN_KEEPALIVE_SECONDS,
+        params.keepalive ?? DEFAULT_KEEPALIVE_SECONDS,
+      ),
     };
 
     if (params.clientId) options.clientId = params.clientId;
@@ -187,6 +221,17 @@ export class MqttService {
     this.client = mqtt.connect(params.brokerUrl, options);
 
     this.client.on("connect", () => {
+      // A reconnect (rather than the first connect) means the socket was offline
+      // for a window during which QoS-0 messages were lost — surface that gap.
+      if (this._reconnectAttempts > 0 && this._offlineSince !== null) {
+        this._lastGapSeconds = Math.round((Date.now() - this._offlineSince) / 1000);
+        this._reconnectGaps += 1;
+        this.log(
+          `Reconnected after ${this._lastGapSeconds}s offline — messages published during the gap were missed`,
+          "warn",
+        );
+      }
+      this._offlineSince = null;
       this._reconnectAttempts = 0;
       this.log(`Connected — subscribing to "${params.topicFilter}"`);
       this.onStatus?.("connected");
@@ -216,6 +261,8 @@ export class MqttService {
     this.client.on("close", () => {
       // Only log the close if we're not about to reconnect (handled in "reconnect" event).
       // If reconnectAttempts >= MAX, we've already stopped the client — this fires as cleanup.
+      // Mark when we went offline so a following reconnect can report the gap.
+      if (this._offlineSince === null) this._offlineSince = Date.now();
       this.log("Connection closed");
       this.onStatus?.("disconnected");
     });
@@ -241,6 +288,7 @@ export class MqttService {
     });
 
     this.client.on("offline", () => {
+      if (this._offlineSince === null) this._offlineSince = Date.now();
       this.log("Client went offline");
     });
   }
@@ -252,6 +300,9 @@ export class MqttService {
       this.client = null;
     }
     this._reconnectAttempts = 0;
+    this._offlineSince = null;
+    this._reconnectGaps = 0;
+    this._lastGapSeconds = 0;
   }
 
   /** Whether the client is currently connected. */

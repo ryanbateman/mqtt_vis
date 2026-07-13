@@ -7,6 +7,8 @@ export interface AppConfig {
   clientId?: string | null;
   username?: string;
   password?: string;
+  /** MQTT keep-alive interval in seconds. Deployment default for the connection form. */
+  keepalive?: number;
   autoconnect?: boolean;
 
   // Brokers for the quick-connect dropdown.

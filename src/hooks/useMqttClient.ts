@@ -97,6 +97,7 @@ export function useMqttClient() {
             topicFilter: params.topicFilter,
             clientId: params.clientId,
             username: params.username,
+            keepalive: params.keepalive,
           })
         );
       } catch {
