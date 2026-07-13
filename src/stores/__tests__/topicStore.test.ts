@@ -1938,56 +1938,114 @@ describe("topicStore — burst window UI state", () => {
   });
 });
 
-describe("topicStore — MQTT v5 user properties", () => {
+describe("topicStore — MQTT message metadata", () => {
   beforeEach(() => {
     state().reset();
     state().setShowRootPath(true);
     state().setTopicFilter("#");
+    // Metadata follows the payload retention strategy — stored only when payload
+    // storage (tooltips) is on. Enable it for the metadata-content assertions.
+    state().setShowTooltips(true);
   });
 
   it("stores user properties on a topic node", () => {
-    const props = { source: "sensor-1", region: "eu-west" };
-    state().handleMessage("a/b", "payload", 0, false, props);
+    const userProperties = { source: "sensor-1", region: "eu-west" };
+    state().handleMessage("a/b", "payload", 0, false, { userProperties });
     state().rebuildGraph();
 
     const node = findTopicNode("a/b");
     expect(node).toBeDefined();
-    expect(node!.lastUserProperties).toEqual(props);
+    expect(node!.lastMeta?.userProperties).toEqual(userProperties);
   });
 
-  it("stores null when no user properties are provided", () => {
+  it("stores null user properties when none are provided", () => {
     state().handleMessage("a/b", "payload", 0, false);
     state().rebuildGraph();
 
     const node = findTopicNode("a/b");
-    expect(node!.lastUserProperties).toBeNull();
+    expect(node!.lastMeta?.userProperties).toBeNull();
   });
 
   it("overwrites user properties with the latest message", () => {
-    state().handleMessage("a/b", "msg1", 0, false, { key: "old" });
-    state().handleMessage("a/b", "msg2", 0, false, { key: "new" });
+    state().handleMessage("a/b", "msg1", 0, false, { userProperties: { key: "old" } });
+    state().handleMessage("a/b", "msg2", 0, false, { userProperties: { key: "new" } });
     state().rebuildGraph();
 
     const node = findTopicNode("a/b");
-    expect(node!.lastUserProperties).toEqual({ key: "new" });
+    expect(node!.lastMeta?.userProperties).toEqual({ key: "new" });
   });
 
   it("clears user properties when a message arrives without them", () => {
-    state().handleMessage("a/b", "msg1", 0, false, { key: "value" });
+    state().handleMessage("a/b", "msg1", 0, false, { userProperties: { key: "value" } });
     state().handleMessage("a/b", "msg2", 0, false);
     state().rebuildGraph();
 
     const node = findTopicNode("a/b");
-    expect(node!.lastUserProperties).toBeNull();
+    expect(node!.lastMeta?.userProperties).toBeNull();
   });
 
   it("handles array values in user properties", () => {
-    const props = { tags: ["urgent", "alarm"] };
-    state().handleMessage("a/b", "payload", 0, false, props);
+    const userProperties = { tags: ["urgent", "alarm"] };
+    state().handleMessage("a/b", "payload", 0, false, { userProperties });
     state().rebuildGraph();
 
     const node = findTopicNode("a/b");
-    expect(node!.lastUserProperties).toEqual({ tags: ["urgent", "alarm"] });
+    expect(node!.lastMeta?.userProperties).toEqual({ tags: ["urgent", "alarm"] });
+  });
+
+  it("records the retained flag from the message", () => {
+    state().handleMessage("a/b", "payload", 0, true, { userProperties: null });
+    state().handleMessage("c/d", "payload", 0, false, { userProperties: null });
+    state().rebuildGraph();
+
+    expect(findTopicNode("a/b")!.lastMeta?.retained).toBe(true);
+    expect(findTopicNode("c/d")!.lastMeta?.retained).toBe(false);
+  });
+
+  it("captures MQTT v5 properties (content-type, expiry, etc.)", () => {
+    state().handleMessage("a/b", "payload", 0, false, {
+      userProperties: null,
+      contentType: "application/json",
+      payloadFormatIndicator: 1,
+      messageExpiryInterval: 60,
+      responseTopic: "a/b/resp",
+      correlationData: "deadbeef",
+    });
+    state().rebuildGraph();
+
+    const meta = findTopicNode("a/b")!.lastMeta;
+    expect(meta).toMatchObject({
+      contentType: "application/json",
+      payloadFormatIndicator: 1,
+      messageExpiryInterval: 60,
+      responseTopic: "a/b/resp",
+      correlationData: "deadbeef",
+    });
+  });
+
+  it("does not store metadata when payload storage is disabled", () => {
+    state().setShowTooltips(false);
+    state().handleMessage("a/b", "payload", 0, true, { userProperties: { key: "v" } });
+    state().rebuildGraph();
+
+    expect(findTopicNode("a/b")!.lastMeta).toBeNull();
+  });
+
+  it("clears metadata alongside the payload on LRU eviction", () => {
+    // 201 unique topics exceeds PAYLOAD_LRU_CAP (200); the oldest is evicted.
+    for (let i = 0; i < 201; i++) {
+      state().handleMessage(`topic${i}`, `payload${i}`, 0, true, {
+        userProperties: { i: String(i) },
+      });
+    }
+    state().rebuildGraph();
+
+    const evicted = findTopicNode("topic0");
+    expect(evicted!.lastPayload).toBeNull();
+    expect(evicted!.lastMeta).toBeNull();
+
+    const recent = findTopicNode("topic200");
+    expect(recent!.lastMeta?.retained).toBe(true);
   });
 });
 

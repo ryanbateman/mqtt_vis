@@ -54,6 +54,7 @@ describe("createTopicNode", () => {
     expect(node.lastPayload).toBeNull();
     expect(node.lastTimestamp).toBe(0);
     expect(node.lastQoS).toBe(0);
+    expect(node.lastMeta).toBeNull();
     expect(node.pulseRate).toBe(0);
   });
 

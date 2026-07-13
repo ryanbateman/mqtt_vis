@@ -3,6 +3,39 @@ import type { DetectorResult } from "./payloadTags";
 /** MQTT v5 user properties — key-value pairs where values may repeat. */
 export type MqttUserProperties = Record<string, string | string[]>;
 
+/**
+ * MQTT v5 PUBLISH properties distilled from the packet, forwarded from the
+ * message handler to the store. Binary correlation data is hex-encoded at the
+ * mqtt.js boundary so the rest of the app stays string-only, matching how
+ * payloads are decoded there.
+ */
+export interface MqttV5Properties {
+  /** MQTT v5 user properties (null if none). */
+  userProperties: MqttUserProperties | null;
+  /** Declared MIME type of the payload, e.g. "application/json". */
+  contentType?: string;
+  /** 0 = unspecified bytes, 1 = UTF-8 text. */
+  payloadFormatIndicator?: 0 | 1;
+  /** Message expiry in seconds. */
+  messageExpiryInterval?: number;
+  /** Response topic for the request/response pattern. */
+  responseTopic?: string;
+  /** Correlation data, hex-encoded. */
+  correlationData?: string;
+}
+
+/**
+ * Snapshot of the last message's MQTT metadata, retained on the node under the
+ * same strategy as `lastPayload` (stored only when payload storage is enabled,
+ * cleared together on LRU eviction) so payload and metadata stay one coherent
+ * snapshot. QoS is deliberately NOT here — it is tracked unconditionally on the
+ * node because always-on views (stats panel, tooltip, WebMCP) depend on it.
+ */
+export interface MqttMessageMeta extends MqttV5Properties {
+  /** Whether the broker delivered this as a retained message. */
+  retained: boolean;
+}
+
 /** A node in the MQTT topic tree. */
 export interface TopicNode {
   /** Full topic path, e.g. "home/kitchen/temp". Root node uses "". */
@@ -29,8 +62,9 @@ export interface TopicNode {
   lastPayloadSize: number;
   /** High-water mark: largest payload character length ever seen on this topic. */
   largestPayloadSize: number;
-  /** MQTT v5 user properties from the last message (null if none or v4 connection). */
-  lastUserProperties: MqttUserProperties | null;
+  /** MQTT metadata of the last message (retained flag, user properties, v5 properties).
+   *  Retained under the same strategy as lastPayload; null when not stored. */
+  lastMeta: MqttMessageMeta | null;
   /** Payload analysis tags detected by the Web Worker (null if not yet analyzed). */
   payloadTags: DetectorResult[] | null;
   /** Blob URL for the most recent image payload (JPEG/PNG). Null if not an image topic.

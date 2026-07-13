@@ -155,6 +155,7 @@ async function executeGetTopicDetails(
     largestPayloadSize: node.largestPayloadSize,
     lastTimestamp: node.lastTimestamp,
     qos: node.lastQoS,
+    retained: node.lastMeta?.retained ?? null,
     depth: graphNode?.depth ?? 0,
     childCount: node.children.size,
   };
