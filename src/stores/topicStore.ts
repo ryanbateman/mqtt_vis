@@ -32,6 +32,7 @@ import { recordLorawanMessage } from "../utils/ecosystems/lorawan";
 import { recordHomieMessage, createHomieState, isHomieAttributeTopic } from "../utils/ecosystems/homie";
 import { recordOpenDtuMessage } from "../utils/ecosystems/opendtu";
 import { recordTasmotaMessage } from "../utils/ecosystems/tasmota";
+import { recordWledMessage } from "../utils/ecosystems/wled";
 import {
   isSparkplugTopic,
   parseSparkplugTopic,
@@ -175,6 +176,8 @@ interface TopicStoreState {
   showOpenDtuIndicators: boolean;
   /** Whether to show Tasmota device indicator rings in the graph. */
   showTasmotaIndicators: boolean;
+  /** Whether to show WLED light-controller indicator rings in the graph. */
+  showWledIndicators: boolean;
   /** Whether insight/ecosystem rings fade with node activity, like the bodies. */
   fadeIndicatorRings: boolean;
   /**
@@ -764,6 +767,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
   showHomieIndicators: saved.showHomieIndicators ?? cfg.showHomieIndicators ?? true,
   showOpenDtuIndicators: saved.showOpenDtuIndicators ?? cfg.showOpenDtuIndicators ?? true,
   showTasmotaIndicators: saved.showTasmotaIndicators ?? cfg.showTasmotaIndicators ?? true,
+  showWledIndicators: saved.showWledIndicators ?? cfg.showWledIndicators ?? true,
   fadeIndicatorRings: saved.fadeIndicatorRings ?? cfg.fadeIndicatorRings ?? true,
   followEcosystemTopics: saved.followEcosystemTopics ?? cfg.followEcosystemTopics ?? true,
   ancestorPulse:        saved.ancestorPulse       ?? cfg.ancestorPulse       ?? true,
@@ -942,7 +946,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       recordOwnTracksMessage(_entityRegistry, topic, node.id, payload) ??
       recordLorawanMessage(_entityRegistry, topic, node.id, payload) ??
       recordOpenDtuMessage(_entityRegistry, topic, node.id, payload) ??
-      recordTasmotaMessage(_entityRegistry, topic, node.id, payload);
+      recordTasmotaMessage(_entityRegistry, topic, node.id, payload) ??
+      recordWledMessage(_entityRegistry, topic, node.id, payload);
     if (structuralHit) {
       mergeNodeTag(node, {
         tag: structuralHit.entity.ecosystem as
@@ -952,7 +957,8 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
           | "ttn"
           | "chirpstack"
           | "opendtu"
-          | "tasmota",
+          | "tasmota"
+          | "wled",
         confidence: 1,
         fieldPath: "",
         metadata: {
@@ -1455,6 +1461,7 @@ export const useTopicStore = create<TopicStoreState>((set, get) => {
       showHomieIndicators: cfg.showHomieIndicators ?? true,
       showOpenDtuIndicators: cfg.showOpenDtuIndicators ?? true,
       showTasmotaIndicators: cfg.showTasmotaIndicators ?? true,
+      showWledIndicators: cfg.showWledIndicators ?? true,
       fadeIndicatorRings: cfg.fadeIndicatorRings ?? true,
       followEcosystemTopics: cfg.followEcosystemTopics ?? true,
       ancestorPulse: cfg.ancestorPulse ?? true,

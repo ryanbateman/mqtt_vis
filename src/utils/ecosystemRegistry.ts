@@ -100,6 +100,16 @@ export const ECOSYSTEM_REGISTRY: readonly EcosystemDefinition[] = [
     // Telemetry namespace (LWT/STATE/SENSOR/INFO); detection spans tele/stat/cmnd.
     topicFilter: "tele/#",
   },
+  {
+    id: "wled",
+    label: "WLED",
+    // Matches the wled indicator-ring fuchsia (tagRegistry.ts).
+    color: "#d946ef",
+    // The common default prefix; detection accepts a `wled` segment anywhere in
+    // the device path, and is fully prefix-agnostic via the /v XML signature,
+    // so custom-topic devices need a broader filter.
+    topicFilter: "wled/#",
+  },
 ];
 
 /** Look up an ecosystem definition by id. Throws on unknown id (programming error). */

@@ -47,6 +47,7 @@ export interface AppConfig {
   showHomieIndicators?: boolean;
   showOpenDtuIndicators?: boolean;
   showTasmotaIndicators?: boolean;
+  showWledIndicators?: boolean;
   fadeIndicatorRings?: boolean;
   followEcosystemTopics?: boolean;
 

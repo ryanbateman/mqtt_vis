@@ -349,7 +349,7 @@ export function EcosystemsPanel({ entities }: { entities: DomainEntity[] }) {
 
   const sparkplug = entities.filter((e) => e.ecosystem === "sparkplug");
   // Registry-backed ecosystems share the generic parent/child tree.
-  const treeEcosystems: EcosystemId[] = ["homeassistant", "frigate", "shelly", "owntracks", "ttn", "chirpstack", "homie", "opendtu", "tasmota"];
+  const treeEcosystems: EcosystemId[] = ["homeassistant", "frigate", "shelly", "owntracks", "ttn", "chirpstack", "homie", "opendtu", "tasmota", "wled"];
 
   return (
     <div className="p-2 space-y-2">
