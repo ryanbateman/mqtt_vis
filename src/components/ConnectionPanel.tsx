@@ -95,7 +95,11 @@ export function ConnectionPanel({
   const saved = loadSavedConnection();
   const urlParams = useMemo(() => getUrlParams(), []);
 
-  const brokers = cfg.brokers ?? [];
+  const brokers = useMemo(() => cfg.brokers ?? [], [cfg]);
+  const brokersByUrl = useMemo(
+    () => new Map(brokers.map((b) => [b.url, b])),
+    [brokers]
+  );
 
   // Derive initial state once
   const initialBrokerUrl = useMemo(
@@ -140,11 +144,22 @@ export function ConnectionPanel({
   const [qos, setQos] = useState<0 | 1 | 2>(
     ((saved.qos ?? cfg.qos ?? 1) as 0 | 1 | 2)
   );
-  const [protocolVersion, setProtocolVersion] = useState<4 | 5>(
-    ((saved.protocolVersion ?? cfg.protocolVersion ?? 5) as 4 | 5)
-  );
+  // Protocol-version precedence: a broker arriving via the ?broker= share link
+  // adopts that broker's configured version (so a shared EMF link lands on 3.1.1),
+  // then the user's saved choice, then the saved broker's default, then global/5.
+  const [protocolVersion, setProtocolVersion] = useState<4 | 5>(() => {
+    const linkBroker = urlParams.broker ? brokersByUrl.get(urlParams.broker) : undefined;
+    return (
+      linkBroker?.protocolVersion
+      ?? saved.protocolVersion
+      ?? brokersByUrl.get(initialBrokerUrl)?.protocolVersion
+      ?? cfg.protocolVersion
+      ?? 5
+    ) as 4 | 5;
+  });
   const [showAuth, setShowAuth] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // Clear-graph-on-disconnect now lives in the settings store (Settings → Visual).
   const clearOnDisconnect = useTopicStore((s) => s.clearOnDisconnect);
   const [autoconnect, setAutoconnect] = useState(saved.autoconnect ?? cfg.autoconnect ?? false);
@@ -169,6 +184,15 @@ export function ConnectionPanel({
   const cancelReconnect = useCallback(() => {
     if (isConnecting) onDisconnect();
   }, [isConnecting, onDisconnect]);
+
+  /** Selecting a broker adopts its configured protocol version (if any), so
+   *  picking EMF from the dropdown flips the MQTT version to 3.1.1. A broker
+   *  without an override leaves the current selection untouched. */
+  const handleBrokerChange = useCallback((url: string) => {
+    setBrokerUrl(url);
+    const v = brokersByUrl.get(url)?.protocolVersion;
+    if (v) setProtocolVersion(v);
+  }, [brokersByUrl]);
 
   const knownBrokerUrls = useMemo(() => new Set(brokers.map((b) => b.url)), [brokers]);
 
@@ -346,7 +370,7 @@ export function ConnectionPanel({
                 <SelectOrCustom
                   options={brokers.map((b) => ({ value: b.url, label: b.name }))}
                   value={brokerUrl}
-                  onChange={setBrokerUrl}
+                  onChange={handleBrokerChange}
                   customLabel="Custom Broker…"
                   placeholder="wss://broker.example.com:8884/mqtt"
                   disabled={isConnected}
@@ -490,7 +514,77 @@ export function ConnectionPanel({
                     className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 font-mono text-xs"
                   />
                 </div>
+              </Disclosure>
 
+              {/* Filter — disconnect behaviour and subscription / pruning filters */}
+              <Disclosure label="Filter" open={showFilters} onToggle={() => setShowFilters((v) => !v)}>
+                {/* Retained data — drop-on-connect burst handling and ecosystem follow */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className={`flex items-center gap-1.5 ${burstSettingsLocked ? "opacity-50" : ""}`}>
+                      <label className="text-xs font-medium text-gray-400">
+                        Drop Retained Messages
+                      </label>
+                      <InfoTooltip text="Completely ignore retained messages during the burst window after connecting. No nodes are created, no counters incremented. Prevents the graph from exploding with stale retained data on subscribe." />
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={dropRetainedBurst}
+                      onChange={(e) => setDropRetainedBurst(e.target.checked)}
+                      disabled={burstSettingsLocked}
+                      className={`h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 ${burstSettingsLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                    />
+                  </div>
+                  {dropRetainedBurst && (
+                    <SliderRow
+                      label="Burst Window"
+                      tooltip="How long after connecting to drop retained messages. Longer windows catch slower brokers with large retained sets."
+                      value={burstWindowDuration / 1000}
+                      displayValue={`${burstWindowDuration / 1000}s`}
+                      min={5}
+                      max={30}
+                      step={1}
+                      minLabel="5s"
+                      maxLabel="30s"
+                      onChange={(v) => setBurstWindowDuration(v * 1000)}
+                      disabled={burstSettingsLocked}
+                    />
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-gray-400">
+                        Follow Ecosystem Topics
+                      </label>
+                      <InfoTooltip text="Auto-subscribe to state and availability topics declared by ecosystem documents (e.g. Home Assistant discovery configs pointing at zigbee2mqtt/...) so entities show live data even when those topics fall outside the topic filter. Capped at 2000 extra topics." />
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={followEcosystemTopics}
+                      onChange={(e) => setFollowEcosystemTopics(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Pruning — drop idle nodes over time */}
+                <div className="border-t border-gray-700/60 pt-3">
+                  <SliderRow
+                    label="Prune Idle Nodes"
+                    tooltip="Remove nodes that stop receiving messages after this time. Helps clear retained message clutter after initial connect."
+                    value={pruneTimeout === 0 ? 6 : pruneTimeout / 60_000}
+                    displayValue={pruneTimeout === 0 ? "Never" : `${pruneTimeout / 60_000} min`}
+                    min={1}
+                    max={6}
+                    step={1}
+                    minLabel="1 min"
+                    maxLabel="Never"
+                    onChange={(v) => setPruneTimeout(v >= 6 ? 0 : v * 60_000)}
+                  />
+                </div>
+              </Disclosure>
+
+              {/* Advanced — connection-level MQTT tuning (keep-alive, QoS, protocol version) */}
+              <Disclosure label="Advanced" open={showAdvanced} onToggle={() => setShowAdvanced((v) => !v)}>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1">
                     Keep-alive (s)
@@ -565,73 +659,6 @@ export function ConnectionPanel({
                   <p className="mt-1 text-[10px] text-gray-500 leading-snug">
                     3.1.1 matches most bridges/tools; 5 adds richer message metadata.
                   </p>
-                </div>
-              </Disclosure>
-
-              {/* Filter — disconnect behaviour and subscription / pruning filters */}
-              <Disclosure label="Filter" open={showFilters} onToggle={() => setShowFilters((v) => !v)}>
-                {/* Retained data — drop-on-connect burst handling and ecosystem follow */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className={`flex items-center gap-1.5 ${burstSettingsLocked ? "opacity-50" : ""}`}>
-                      <label className="text-xs font-medium text-gray-400">
-                        Drop Retained Messages
-                      </label>
-                      <InfoTooltip text="Completely ignore retained messages during the burst window after connecting. No nodes are created, no counters incremented. Prevents the graph from exploding with stale retained data on subscribe." />
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={dropRetainedBurst}
-                      onChange={(e) => setDropRetainedBurst(e.target.checked)}
-                      disabled={burstSettingsLocked}
-                      className={`h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 ${burstSettingsLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                    />
-                  </div>
-                  {dropRetainedBurst && (
-                    <SliderRow
-                      label="Burst Window"
-                      tooltip="How long after connecting to drop retained messages. Longer windows catch slower brokers with large retained sets."
-                      value={burstWindowDuration / 1000}
-                      displayValue={`${burstWindowDuration / 1000}s`}
-                      min={5}
-                      max={30}
-                      step={1}
-                      minLabel="5s"
-                      maxLabel="30s"
-                      onChange={(v) => setBurstWindowDuration(v * 1000)}
-                      disabled={burstSettingsLocked}
-                    />
-                  )}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-xs font-medium text-gray-400">
-                        Follow Ecosystem Topics
-                      </label>
-                      <InfoTooltip text="Auto-subscribe to state and availability topics declared by ecosystem documents (e.g. Home Assistant discovery configs pointing at zigbee2mqtt/...) so entities show live data even when those topics fall outside the topic filter. Capped at 2000 extra topics." />
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={followEcosystemTopics}
-                      onChange={(e) => setFollowEcosystemTopics(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 accent-blue-500 cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                {/* Pruning — drop idle nodes over time */}
-                <div className="border-t border-gray-700/60 pt-3">
-                  <SliderRow
-                    label="Prune Idle Nodes"
-                    tooltip="Remove nodes that stop receiving messages after this time. Helps clear retained message clutter after initial connect."
-                    value={pruneTimeout === 0 ? 6 : pruneTimeout / 60_000}
-                    displayValue={pruneTimeout === 0 ? "Never" : `${pruneTimeout / 60_000} min`}
-                    min={1}
-                    max={6}
-                    step={1}
-                    minLabel="1 min"
-                    maxLabel="Never"
-                    onChange={(v) => setPruneTimeout(v >= 6 ? 0 : v * 60_000)}
-                  />
                 </div>
               </Disclosure>
             </form>

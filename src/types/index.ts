@@ -148,6 +148,9 @@ export interface Broker {
   name: string;
   /** WebSocket URL for the broker (e.g. "wss://broker.hivemq.com:8884/mqtt"). */
   url: string;
+  /** Optional per-broker default MQTT protocol version (5, or 4 = 3.1.1). Adopted
+   *  when this broker is selected or arrives via the ?broker= share link. */
+  protocolVersion?: 4 | 5;
 }
 
 /** @deprecated Use Broker instead. */
