@@ -11,6 +11,8 @@ export interface AppConfig {
   keepalive?: number;
   /** Subscribe QoS (0 | 1 | 2). Deployment default for the connection form. */
   qos?: number;
+  /** MQTT protocol version: 5 or 4 (3.1.1). Deployment default for the connection form. */
+  protocolVersion?: number;
   autoconnect?: boolean;
 
   // Brokers for the quick-connect dropdown.

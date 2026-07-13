@@ -73,6 +73,15 @@ const MIN_KEEPALIVE_SECONDS = 5;
  *  The broker may downgrade to its advertised maximum. */
 const DEFAULT_SUBSCRIBE_QOS = 1;
 
+/** Default MQTT protocol version. 5 enables richer message metadata; 4 (3.1.1)
+ *  is the broadest-compatibility fallback and what most bridges/tools speak. */
+const DEFAULT_PROTOCOL_VERSION = 5;
+
+/** Human label for a protocol version number. */
+function protocolLabel(version: number): string {
+  return version === 4 ? "3.1.1" : version === 3 ? "3.1" : String(version);
+}
+
 /**
  * Maximum follow-on subscriptions (ecosystem-declared state/availability
  * topics) per connection. Matches the entity-cap order of magnitude while
@@ -207,11 +216,13 @@ export class MqttService {
     // clear it only on a fresh user-initiated connect.
     this._log = [];
 
-    this.log(`Connecting to ${params.brokerUrl}…`);
+    const protocolVersion = (params.protocolVersion ?? DEFAULT_PROTOCOL_VERSION) as 4 | 5;
+
+    this.log(`Connecting to ${params.brokerUrl} as MQTT ${protocolLabel(protocolVersion)}…`);
     this.onStatus?.("connecting");
 
     const options: IClientOptions = {
-      protocolVersion: 5,
+      protocolVersion,
       clean: true,
       connectTimeout: 10_000,
       reconnectPeriod: 5_000,

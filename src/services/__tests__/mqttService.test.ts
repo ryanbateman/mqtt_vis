@@ -136,3 +136,22 @@ describe("mqttService — subscribe QoS", () => {
     expect(mqttService.connectionLog.some((e) => /at QoS 1/.test(e.message))).toBe(true);
   });
 });
+
+describe("mqttService — protocol version", () => {
+  beforeEach(() => {
+    lastOptions = null;
+    fakeClient = null;
+    mqttService.disconnect();
+  });
+
+  it("defaults to MQTT v5", () => {
+    mqttService.connect({ ...CONNECT });
+    expect(lastOptions?.protocolVersion).toBe(5);
+  });
+
+  it("passes MQTT 3.1.1 (v4) through when requested", () => {
+    mqttService.connect({ ...CONNECT, protocolVersion: 4 });
+    expect(lastOptions?.protocolVersion).toBe(4);
+    expect(mqttService.connectionLog.some((e) => /as MQTT 3\.1\.1/.test(e.message))).toBe(true);
+  });
+});

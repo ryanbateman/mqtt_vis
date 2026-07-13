@@ -138,6 +138,8 @@ export interface ConnectionParams {
   keepalive?: number;
   /** Subscribe QoS. Omitted → service default. Broker may downgrade to its max. */
   qos?: 0 | 1 | 2;
+  /** MQTT protocol version: 5 or 4 (3.1.1). Omitted → service default. */
+  protocolVersion?: 4 | 5;
 }
 
 /** A broker entry for the quick-connect dropdown. */

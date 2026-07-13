@@ -99,6 +99,7 @@ export function useMqttClient() {
             username: params.username,
             keepalive: params.keepalive,
             qos: params.qos,
+            protocolVersion: params.protocolVersion,
           })
         );
       } catch {

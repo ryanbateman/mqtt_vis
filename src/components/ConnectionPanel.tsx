@@ -140,6 +140,9 @@ export function ConnectionPanel({
   const [qos, setQos] = useState<0 | 1 | 2>(
     ((saved.qos ?? cfg.qos ?? 1) as 0 | 1 | 2)
   );
+  const [protocolVersion, setProtocolVersion] = useState<4 | 5>(
+    ((saved.protocolVersion ?? cfg.protocolVersion ?? 5) as 4 | 5)
+  );
   const [showAuth, setShowAuth] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   // Clear-graph-on-disconnect now lives in the settings store (Settings → Visual).
@@ -210,10 +213,11 @@ export function ConnectionPanel({
           password: password || undefined,
           keepalive,
           qos,
+          protocolVersion,
         });
       }
     },
-    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, keepalive, qos, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
+    [brokerUrl, topicFilter, topicPlaceholder, clientId, username, password, keepalive, qos, protocolVersion, isConnected, isConnecting, onConnect, onDisconnect, clearOnDisconnect]
   );
 
   const statusColor =
@@ -534,6 +538,32 @@ export function ConnectionPanel({
                   <p className="mt-1 text-[10px] text-gray-500 leading-snug">
                     1 = at-least-once (broker redelivers lost messages). 2 falls back to
                     the broker's max.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    MQTT version
+                  </label>
+                  <div className="flex gap-1">
+                    {([5, 4] as const).map((version) => (
+                      <button
+                        key={version}
+                        type="button"
+                        onClick={() => { cancelReconnect(); setProtocolVersion(version); }}
+                        disabled={isConnected}
+                        className={`flex-1 py-1.5 rounded text-xs font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          protocolVersion === version
+                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/60"
+                            : "bg-gray-800 text-gray-400 border border-gray-600 hover:text-gray-200"
+                        }`}
+                      >
+                        {version === 4 ? "3.1.1" : "5"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[10px] text-gray-500 leading-snug">
+                    3.1.1 matches most bridges/tools; 5 adds richer message metadata.
                   </p>
                 </div>
               </Disclosure>
